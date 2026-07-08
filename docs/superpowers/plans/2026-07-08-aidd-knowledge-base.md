@@ -37,7 +37,7 @@
   "name": "aidd",
   "version": "0.1.0",
   "description": "Personal AI-driven development knowledge base: task commands, agent recipes, templates, and tips",
-  "author": { "name": "Kohki Nakamura" }
+  "author": { "name": "chun-mura" }
 }
 ```
 
@@ -46,7 +46,7 @@
 ```json
 {
   "name": "aidd-local",
-  "owner": { "name": "Kohki Nakamura" },
+  "owner": { "name": "chun-mura" },
   "plugins": [
     {
       "name": "aidd",

@@ -45,7 +45,7 @@ superpowers が既にカバーする領域 (本リポジトリでは作らない
 ## ディレクトリ構成
 
 ```
-prototype_aidd/
+aidd/
 ├── .claude-plugin/
 │   ├── plugin.json          # プラグイン manifest (name: aidd)
 │   └── marketplace.json     # ローカル marketplace 定義
