@@ -15,7 +15,7 @@
 
 | ファイル | 説明 |
 |---------|------|
-| `design-review.md` | 設計や実装方針を3グループの reviewer agent に並列 dispatch して多観点レビュー |
+| `design-review.md` | 設計や実装方針を多観点レビュー。3× reviewer (sonnet) 並列 → design-arbiter (opus) が裁定 |
 | `test-perspectives.md` | 実装対象・変更差分からテスト観点 (正常系・異常系・エッジケース) を洗い出す |
 
 ### Agents (サブエージェント定義)
