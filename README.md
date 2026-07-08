@@ -40,6 +40,7 @@
 | スクリプト | 動作 |
 |---------|------|
 | `session-start.sh` | SessionStart で aidd 資産の使いどころを1行注入 |
+| `clarify-nudge.sh` | UserPromptSubmit 毎に「実装を左右する不明点は AskUserQuestion で確認」を注入 |
 | `commit-reminder.sh` | `git commit` 前に test-perspectives 未実施の注意を注入 (非ブロック) |
 
 ### Templates (設定雛形)

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.0 (2026-07-08)
+
+- Add UserPromptSubmit hook (clarify-nudge): standing "ask via AskUserQuestion instead of guessing" instruction, replacing the manually typed one
+- design-doc / adr: confirm design-affecting ambiguities via AskUserQuestion before writing
+
 ## 0.4.0 (2026-07-08)
 
 - Add `commands/design-doc.md`: generate design docs into docs/design/, sections aligned 1:1 with design-review perspectives, volume auto-scaled to change size
