@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.0 (2026-07-08)
+
+- session-start hook: warn (non-blocking) when superpowers plugin is not detected in installed_plugins.json
+- README: document superpowers as a required companion plugin, add install step
+
 ## 0.6.0 (2026-07-08)
 
 - Add `commands/retro.md`: periodic stocktake for promotion candidates, hook/skill friction, and staleness

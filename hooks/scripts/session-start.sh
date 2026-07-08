@@ -5,6 +5,15 @@ cat <<'EOF'
 aidd plugin: run /aidd:design-review before presenting a design or implementation approach; run /aidd:test-perspectives before committing. Agents: aidd:scout (haiku, parallel fact-finding), aidd:reviewer (sonnet, deliverable acceptance check).
 EOF
 
+# aidd assumes superpowers for the implementation phase (brainstorming/TDD/debugging/plans);
+# it only covers design and review. Warn, don't block — detection is best-effort.
+INSTALLED_PLUGINS="$HOME/.claude/plugins/installed_plugins.json"
+if [ -f "$INSTALLED_PLUGINS" ]; then
+  if ! grep -q '"superpowers@' "$INSTALLED_PLUGINS" 2>/dev/null; then
+    echo "aidd: superpowers plugin not detected. aidd covers design/review only and assumes superpowers for the implementation phase (brainstorming, TDD, debugging, plans). Install: /plugin marketplace add obra/superpowers && /plugin install superpowers@..."
+  fi
+fi
+
 # Retro nudge: every 20th session, suggest an asset stocktake.
 # State lives outside the plugin cache so it survives `/plugin update`.
 STATE_DIR="$HOME/.claude/aidd"

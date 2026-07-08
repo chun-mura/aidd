@@ -2,11 +2,17 @@
 
 個人用。AI駆使のための実行可能資産 + 知見。Claude Code プラグインとして導入可能な、タスク特化コマンド・エージェント・スキル・テンプレート・方法論の集約。
 
+**superpowers プラグイン必須**: aidd は設計・レビュー・運用強制のみを担当し、実装フェーズ (brainstorming・TDD・デバッグ・計画立案) は superpowers に委ねる設計 ([棲み分け原則](docs/tips/superpowers-usage.md))。superpowers 未導入だと `/aidd:design-doc` 等で作った設計を実装に繋ぐプロセスが空白になる。session-start hook が未導入を検知して警告するが、ブロックはしない (検知はベストエフォート)。
+
 ## 導入 (他プロジェクトから使う)
 
 ```bash
 /plugin marketplace add chun-mura/aidd
 /plugin install aidd@aidd-local
+
+# 必須: 実装フェーズを担う superpowers も導入
+/plugin marketplace add obra/superpowers
+/plugin install superpowers@superpowers-marketplace
 ```
 
 ## インデックス
@@ -40,7 +46,7 @@
 
 | スクリプト | 動作 |
 |---------|------|
-| `session-start.sh` | SessionStart で aidd 資産の使いどころを1行注入。20セッションごとに `/aidd:retro` を提案 (状態は `~/.claude/aidd/state.json`) |
+| `session-start.sh` | SessionStart で aidd 資産の使いどころを1行注入。superpowers 未導入を検知して警告。20セッションごとに `/aidd:retro` を提案 (状態は `~/.claude/aidd/state.json`) |
 | `clarify-nudge.sh` | UserPromptSubmit 毎に「実装を左右する不明点は AskUserQuestion で確認」を注入 |
 | `commit-reminder.sh` | `git commit` 前に test-perspectives 未実施の注意を注入 (非ブロック) |
 
