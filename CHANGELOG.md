@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.0 (2026-07-08)
+
+- Add `commands/retro.md`: periodic stocktake for promotion candidates, hook/skill friction, and staleness
+- session-start hook: track session count in `~/.claude/aidd/state.json`, nudge toward `/aidd:retro` every 20th session
+
 ## 0.5.0 (2026-07-08)
 
 - Add UserPromptSubmit hook (clarify-nudge): standing "ask via AskUserQuestion instead of guessing" instruction, replacing the manually typed one

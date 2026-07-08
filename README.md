@@ -15,6 +15,7 @@
 
 | ファイル | 説明 |
 |---------|------|
+| `retro.md` | aidd 資産の棚卸し。昇格候補・hooks/skills の摩擦・陳腐化を洗い出す (20セッションごとに hook が想起) |
 | `design-doc.md` | 要件から設計書を生成し docs/design/ に保存。構成は design-review の6観点と1対1対応 |
 | `adr.md` | アーキテクチャ決定記録を docs/adr/NNNN-<slug>.md に作成。1 ADR = 1 決定 |
 | `design-review.md` | 設計や実装方針を多観点レビュー。3× reviewer (sonnet) 並列 → design-arbiter (opus) が裁定 |
@@ -39,7 +40,7 @@
 
 | スクリプト | 動作 |
 |---------|------|
-| `session-start.sh` | SessionStart で aidd 資産の使いどころを1行注入 |
+| `session-start.sh` | SessionStart で aidd 資産の使いどころを1行注入。20セッションごとに `/aidd:retro` を提案 (状態は `~/.claude/aidd/state.json`) |
 | `clarify-nudge.sh` | UserPromptSubmit 毎に「実装を左右する不明点は AskUserQuestion で確認」を注入 |
 | `commit-reminder.sh` | `git commit` 前に test-perspectives 未実施の注意を注入 (非ブロック) |
 
