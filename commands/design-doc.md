@@ -26,3 +26,13 @@ argument-hint: [要件の要約 or 要件ファイルのパス]
 判断に使った規模認識を冒頭に1行書く (例: 「規模: 単一モジュール変更のため要約形式」)。
 
 **保存後**: パスを報告し、`/aidd:design-review <パス>` の実行を提案する。
+
+**frontmatter**: 保存する設計書ファイルの先頭に以下を付与する:
+
+```yaml
+---
+status: draft
+---
+```
+
+`status` は `draft` (未実装) / `implemented` (実装済み) / `superseded` (後継設計に置き換え) のいずれか。新規作成時は常に `draft`。既存設計書を更新する場合は既存の `status` 値を保持する (design-sync が更新対象)。
