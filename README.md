@@ -25,7 +25,9 @@
 | `design-doc.md` | 要件から設計書を生成し docs/design/ に保存。構成は design-review の6観点と1対1対応 |
 | `adr.md` | アーキテクチャ決定記録を docs/adr/NNNN-<slug>.md に作成。1 ADR = 1 決定 |
 | `design-review.md` | 設計や実装方針を多観点レビュー。3× reviewer (sonnet) 並列 → design-arbiter (opus) が裁定 |
+| `design-sync.md` | 設計書と実装の乖離を検知し、status を最新化する |
 | `test-perspectives.md` | 実装対象・変更差分からテスト観点 (正常系・異常系・エッジケース) を洗い出す |
+| `doctor.md` | aidd/superpowers の導入状態・バージョン整合・hooks 実行可否を診断する |
 
 ### Agents (サブエージェント定義)
 
@@ -34,13 +36,6 @@
 | `design-arbiter.md` | design-review の統合裁定エージェント (opus)。メインのモデルに依らず重い判断を opus に固定 |
 | `reviewer.md` | 成果物の検収用エージェント (sonnet)。PR全体のレビューは pr-review-toolkit の担当 |
 | `scout.md` | 軽量読み取り調査エージェント (haiku)、ファイル検索・コードベース偵察用 |
-
-### Skills (自動トリガする知見)
-
-| ファイル | 発火条件 |
-|---------|------|
-| `model-selection/` | サブエージェント起動時・model 指定に迷ったとき |
-| `parallel-investigation/` | 未知コードベースの調査・独立した複数の問いがあるとき |
 
 ### Hooks (強制力のある運用)
 
