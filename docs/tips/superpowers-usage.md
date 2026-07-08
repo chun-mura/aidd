@@ -38,6 +38,25 @@
 - コード品質ガイドライン (CLAUDE.md で十分)
 - テスト駆動開発の進め方
 
+## 形態の選び方 (aidd に置くと決めた後)
+
+README 運用ルール5「受動ドキュメント禁止」に従い、セッション中に効かせたい知見を docs に置かない。
+
+| 性質 | 形態 |
+|------|------|
+| 判断時に自動で参照させたい知識 | `skills/` (description で自動トリガ) |
+| 忘れても強制したい運用 | `hooks/` (ハーネスが実行、モデル非依存) |
+| ユーザーが明示的に起動するタスク | `commands/` |
+| リポジトリ自体のメタ情報 (本ファイルなど) | `docs/` |
+
+## superpowers と隣接する場合の判断
+
+「重複禁止」の基準は**被りの有無**であり、汎用性そのものではない。
+
+- 完全に被る → 作らない。ポインタのみ
+- superpowers に存在しない知見 → 汎用寄りでも aidd に置いてよい (実例: `skills/model-selection/` — process 寄りだが superpowers に該当スキルなし)
+- superpowers の一般則を aidd の agents/運用に特化した具体化 → 作ってよい。ただし superpowers 側へのポインタを必ず入れる (実例: `skills/parallel-investigation/` — `superpowers:dispatching-parallel-agents` の scout 特化形で、関連節から参照)
+
 ## 判断に迷ったら
 
 「このスキルなしでもプロジェクトは動くが、あると便利か」→ aidd。
