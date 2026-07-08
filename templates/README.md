@@ -10,3 +10,5 @@ Claude Code を新しいリポジトリで使い始めるとき。
 - `settings.json.template` — `.claude/settings.json` の出発点。read-only git 操作を許可し、機密ファイルを deny する最小構成
 
 使い方: `cp templates/CLAUDE.md.template <project>/CLAUDE.md` して編集。
+
+permission の allow リストは、しばらく運用してから `/fewer-permission-prompts` で実際の利用実績に基づき拡張するのが確実。
