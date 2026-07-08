@@ -15,6 +15,8 @@
 
 | ファイル | 説明 |
 |---------|------|
+| `design-doc.md` | 要件から設計書を生成し docs/design/ に保存。構成は design-review の6観点と1対1対応 |
+| `adr.md` | アーキテクチャ決定記録を docs/adr/NNNN-<slug>.md に作成。1 ADR = 1 決定 |
 | `design-review.md` | 設計や実装方針を多観点レビュー。3× reviewer (sonnet) 並列 → design-arbiter (opus) が裁定 |
 | `test-perspectives.md` | 実装対象・変更差分からテスト観点 (正常系・異常系・エッジケース) を洗い出す |
 

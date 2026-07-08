@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0 (2026-07-08)
+
+- Add `commands/design-doc.md`: generate design docs into docs/design/, sections aligned 1:1 with design-review perspectives, volume auto-scaled to change size
+- Add `commands/adr.md`: architecture decision records into docs/adr/, one decision per ADR
+- superpowers-usage.md: add asset-form guide (skills/hooks/commands/docs) and adjacency rules for superpowers overlap
+
 ## 0.3.0 (2026-07-08)
 
 - Add `agents/design-arbiter.md` (opus): design-review integration/arbitration now always runs on opus, independent of the main-loop model (fixes shallow arbitration when running sonnet as the main model)
