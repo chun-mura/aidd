@@ -1,5 +1,6 @@
 {
   "name": "aidd-local",
+  "description": "Local marketplace for the aidd personal AI-driven development knowledge base",
   "owner": { "name": "Kohki Nakamura" },
   "plugins": [
     {
