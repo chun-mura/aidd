@@ -466,7 +466,7 @@ git commit -m "docs: add parallel investigation pattern"
 個人用。AI駆使のための実行可能資産 + 知見。
 
 ## 導入 (他プロジェクトから使う)
-/plugin marketplace add /Users/nakamurakohki/workspace/private_dev/prototype_aidd
+/plugin marketplace add chun-mura/aidd
 /plugin install aidd@aidd-local
 
 ## インデックス

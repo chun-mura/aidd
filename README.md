@@ -5,7 +5,7 @@
 ## 導入 (他プロジェクトから使う)
 
 ```bash
-/plugin marketplace add /Users/nakamurakohki/workspace/private_dev/prototype_aidd
+/plugin marketplace add chun-mura/aidd
 /plugin install aidd@aidd-local
 ```
 
