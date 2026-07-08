@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0 (2026-07-08)
+
+- Add `agents/design-arbiter.md` (opus): design-review integration/arbitration now always runs on opus, independent of the main-loop model (fixes shallow arbitration when running sonnet as the main model)
+
 ## 0.2.0 (2026-07-08)
 
 - Convert passive docs into auto-triggering skills: `skills/model-selection/`, `skills/parallel-investigation/` (former `docs/tips/model-selection.md`, `docs/patterns/parallel-investigation.md`)
