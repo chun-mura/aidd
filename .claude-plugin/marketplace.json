@@ -1,0 +1,11 @@
+{
+  "name": "aidd-local",
+  "owner": { "name": "Kohki Nakamura" },
+  "plugins": [
+    {
+      "name": "aidd",
+      "source": ".",
+      "description": "Personal AI-driven development knowledge base"
+    }
+  ]
+}
