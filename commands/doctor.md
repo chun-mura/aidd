@@ -17,8 +17,8 @@ aidd プラグインの動作環境を診断してください。各チェック
 ```bash
 grep -q '"superpowers@' ~/.claude/plugins/installed_plugins.json 2>/dev/null && echo "superpowers: OK" || echo "superpowers: WARN not detected"
 python3 -c "import json; d=json.load(open('$HOME/.claude/plugins/installed_plugins.json')); print([v.get('version') for k,v in d.items() if k.startswith('aidd@')])" 2>/dev/null
-cat .claude-plugin/plugin.json | python3 -c "import json,sys; print(json.load(sys.stdin)['version'])"
-ls -l hooks/scripts/*.sh
+cat .claude-plugin/plugin.json | python3 -c "import json,sys; print(json.load(sys.stdin)['version'])" 2>/dev/null
+for f in hooks/scripts/*.sh; do [ -x "$f" ] && echo "$f: OK" || echo "$f: WARN not executable"; done
 which python3 && echo "python3: OK" || echo "python3: WARN not found"
 python3 -m json.tool ~/.claude/aidd/state.json > /dev/null 2>&1 && echo "state.json: OK" || echo "state.json: missing or invalid"
 python3 -m json.tool ~/.claude/aidd/usage.json > /dev/null 2>&1 && echo "usage.json: OK" || echo "usage.json: missing or invalid"
