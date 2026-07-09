@@ -4,6 +4,8 @@
 
 **superpowers プラグイン必須**: aidd は設計・レビュー・運用強制のみを担当し、実装フェーズ (brainstorming・TDD・デバッグ・計画立案) は superpowers に委ねる設計 ([棲み分け原則](docs/tips/superpowers-usage.md))。superpowers 未導入だと `/aidd:design-doc` 等で作った設計を実装に繋ぐプロセスが空白になる。session-start hook が未導入を検知して警告するが、ブロックはしない (検知はベストエフォート)。
 
+**pr-review-toolkit プラグイン推奨**: aidd:reviewer は成果物単体の検収用で、PR全体のレビュー (スタイル・テストカバレッジ・サイレント障害・型設計など多観点) は pr-review-toolkit の担当。導入しなくても aidd の各機能は動くが、PRレビューの網羅性が下がる。
+
 ## 導入 (他プロジェクトから使う)
 
 ```bash
@@ -13,6 +15,10 @@
 # 必須: 実装フェーズを担う superpowers も導入
 /plugin marketplace add obra/superpowers
 /plugin install superpowers@superpowers-marketplace
+
+# 推奨: PR全体レビューを担う pr-review-toolkit も導入
+/plugin marketplace add anthropics/claude-plugins-official
+/plugin install pr-review-toolkit@claude-plugins-official
 ```
 
 ## インデックス
