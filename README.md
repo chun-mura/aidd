@@ -55,6 +55,7 @@
 | `usage-log.sh` | UserPromptSubmit 毎に aidd コマンド使用数・プロンプト履歴を `~/.claude/aidd/usage.json` に記録 (`/aidd:retro` が読む) |
 | `commit-reminder.sh` | `git commit` 前に、`docs/test-perspectives/` に6時間以内の更新がなければ注意を注入 (非ブロック) |
 | `gh-language-reminder.sh` | `gh pr/issue create・edit` 前に「タイトル・本文は日本語で」を注入 (非ブロック) |
+| `pr-sync-reminder.sh` | `git push` 後に「open PR があればタイトル・概要を最新化」を注入 (非ブロック) |
 
 ### Templates (設定雛形)
 

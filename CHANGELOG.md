@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.0 (2026-07-09)
+
+- Add `hooks/scripts/pr-sync-reminder.sh` (PostToolUse): after `git push`, remind to refresh the open PR's title/body via `gh pr edit` when the pushed commits changed its scope
+
 ## 0.10.0 (2026-07-09)
 
 - Add `hooks/scripts/gh-language-reminder.sh` (PreToolUse): inject "write GitHub issue/PR titles and bodies in Japanese" before `gh pr/issue create|edit` runs
