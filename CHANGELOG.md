@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.0 (2026-07-09)
+
+- Add `hooks/scripts/gh-language-reminder.sh` (PreToolUse): inject "write GitHub issue/PR titles and bodies in Japanese" before `gh pr/issue create|edit` runs
+
 ## 0.9.0 (2026-07-09)
 
 - Add `agents/source-verifier.md` (sonnet, WebSearch/WebFetch/Read): verify externally checkable claims in design docs (technology-choice rationale, API/spec assertions, version compatibility, security recommendations) against trusted sources
