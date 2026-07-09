@@ -25,7 +25,9 @@
 | `design-doc.md` | 要件から設計書を生成し docs/design/ に保存。構成は design-review の6観点と1対1対応 |
 | `adr.md` | アーキテクチャ決定記録を docs/adr/NNNN-<slug>.md に作成。1 ADR = 1 決定 |
 | `design-review.md` | 設計や実装方針を多観点レビュー。3× reviewer (sonnet) 並列 → design-arbiter (opus) が裁定 |
+| `design-sync.md` | 設計書と実装の乖離を検知し、status を最新化する |
 | `test-perspectives.md` | 実装対象・変更差分からテスト観点 (正常系・異常系・エッジケース) を洗い出す |
+| `doctor.md` | aidd/superpowers の導入状態・バージョン整合・hooks 実行可否を診断する |
 
 ### Agents (サブエージェント定義)
 
@@ -39,6 +41,7 @@
 
 | ファイル | 発火条件 |
 |---------|------|
+| `adr-recall/` | アーキ変更・既存構造変更・設計判断の前 |
 | `model-selection/` | サブエージェント起動時・model 指定に迷ったとき |
 | `parallel-investigation/` | 未知コードベースの調査・独立した複数の問いがあるとき |
 
@@ -48,7 +51,8 @@
 |---------|------|
 | `session-start.sh` | SessionStart で aidd 資産の使いどころを1行注入。superpowers 未導入を検知して警告。20セッションごとに `/aidd:retro` を提案 (状態は `~/.claude/aidd/state.json`) |
 | `clarify-nudge.sh` | UserPromptSubmit 毎に「実装を左右する不明点は AskUserQuestion で確認」を注入 |
-| `commit-reminder.sh` | `git commit` 前に test-perspectives 未実施の注意を注入 (非ブロック) |
+| `usage-log.sh` | UserPromptSubmit 毎に aidd コマンド使用数・プロンプト履歴を `~/.claude/aidd/usage.json` に記録 (`/aidd:retro` が読む) |
+| `commit-reminder.sh` | `git commit` 前に、`docs/test-perspectives/` に6時間以内の更新がなければ注意を注入 (非ブロック) |
 
 ### Templates (設定雛形)
 
