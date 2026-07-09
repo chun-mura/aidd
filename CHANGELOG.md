@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.0 (2026-07-09)
+
+- Add `agents/source-verifier.md` (sonnet, WebSearch/WebFetch/Read): verify externally checkable claims in design docs (technology-choice rationale, API/spec assertions, version compatibility, security recommendations) against trusted sources
+- `design-review.md`: opt-in `--verify-sources` flag dispatches source-verifier as Agent 5; arbiter treats only 反証あり as ranked findings, 未確認 as informational
+
 ## 0.8.0 (2026-07-09)
 
 - Add `skills/adr-recall/`: surface conflicting ADRs before architectural changes
