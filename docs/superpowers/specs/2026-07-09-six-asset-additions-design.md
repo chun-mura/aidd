@@ -47,7 +47,7 @@ aidd の既存資産 (ADR, retro, design-doc, test-perspectives, design-review) 
 
 ## データフロー
 
-- `usage.json` (`~/.claude/aidd/usage.json`, プラグイン外) が唯一の実績データストア。書き込み元は `usage-log.sh` のみ。読み取りは `/aidd:retro` のみ。既存 `state.json` (session_count) とはファイルを分けて責務を分離 — 一方の破損が他方に伝播しない
+- `usage.json` (`~/.claude/aidd/usage.json`, プラグイン外) が唯一の実績データストア。書き込み元は `usage-log.sh` のみ。読み取りは `/aidd:retro` (実績分析) と `doctor` (JSON 妥当性チェックのみ) の2箇所。既存 `state.json` (session_count) とはファイルを分けて責務を分離 — 一方の破損が他方に伝播しない
 - `docs/design/*.md` の `status` frontmatter が設計書のライフサイクル状態の唯一の持ち主。design-sync はここを読んで判定し、更新も同フィールドのみに書き込む (本文は書き換えない)
 - `docs/test-perspectives/*.md` が唯一の永続先。commit-reminder はここのファイルの mtime のみを見る (二重管理なし)
 
