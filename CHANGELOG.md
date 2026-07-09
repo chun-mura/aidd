@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.0 (2026-07-09)
+
+- Add `skills/adr-recall/`: surface conflicting ADRs before architectural changes
+- Add `hooks/scripts/usage-log.sh`: log aidd command usage and prompt history to `~/.claude/aidd/usage.json` for data-driven `/aidd:retro`
+- Add `commands/design-sync.md`: detect drift between `docs/design/` and implementation; `design-doc.md` now writes a `status` frontmatter field
+- `test-perspectives.md` now persists output to `docs/test-perspectives/`; `commit-reminder.sh` skips the reminder when a fresh file exists
+- `design-review.md` supports project-specific perspectives via `.aidd/design-perspectives.md` (Agent 4, additive only)
+- Add `commands/doctor.md`: diagnose aidd/superpowers install state, version drift, and hook prerequisites
+
 ## 0.7.0 (2026-07-08)
 
 - session-start hook: warn (non-blocking) when superpowers plugin is not detected in installed_plugins.json
