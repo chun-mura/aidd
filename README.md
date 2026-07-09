@@ -24,7 +24,7 @@
 | `retro.md` | aidd 資産の棚卸し。昇格候補・hooks/skills の摩擦・陳腐化を洗い出す (20セッションごとに hook が想起) |
 | `design-doc.md` | 要件から設計書を生成し docs/design/ に保存。構成は design-review の6観点と1対1対応 |
 | `adr.md` | アーキテクチャ決定記録を docs/adr/NNNN-<slug>.md に作成。1 ADR = 1 決定 |
-| `design-review.md` | 設計や実装方針を多観点レビュー。3× reviewer (sonnet) 並列 → design-arbiter (opus) が裁定 |
+| `design-review.md` | 設計や実装方針を多観点レビュー。3× reviewer (sonnet) 並列 → design-arbiter (opus) が裁定。`--verify-sources` で外部情報源検証を追加 |
 | `design-sync.md` | 設計書と実装の乖離を検知し、status を最新化する |
 | `test-perspectives.md` | 実装対象・変更差分からテスト観点 (正常系・異常系・エッジケース) を洗い出す |
 | `doctor.md` | aidd/superpowers の導入状態・バージョン整合・hooks 実行可否を診断する |
@@ -36,6 +36,7 @@
 | `design-arbiter.md` | design-review の統合裁定エージェント (opus)。メインのモデルに依らず重い判断を opus に固定 |
 | `reviewer.md` | 成果物の検収用エージェント (sonnet)。PR全体のレビューは pr-review-toolkit の担当 |
 | `scout.md` | 軽量読み取り調査エージェント (haiku)、ファイル検索・コードベース偵察用 |
+| `source-verifier.md` | 設計書の外部検証可能な主張を信頼できる情報源と突き合わせる (sonnet, WebSearch/WebFetch)。design-review の `--verify-sources` 専用 |
 
 ### Skills (自動トリガする知見)
 
@@ -53,6 +54,8 @@
 | `clarify-nudge.sh` | UserPromptSubmit 毎に「実装を左右する不明点は AskUserQuestion で確認」を注入 |
 | `usage-log.sh` | UserPromptSubmit 毎に aidd コマンド使用数・プロンプト履歴を `~/.claude/aidd/usage.json` に記録 (`/aidd:retro` が読む) |
 | `commit-reminder.sh` | `git commit` 前に、`docs/test-perspectives/` に6時間以内の更新がなければ注意を注入 (非ブロック) |
+| `gh-language-reminder.sh` | `gh pr/issue create・edit` 前に「タイトル・本文は日本語で」を注入 (非ブロック) |
+| `pr-sync-reminder.sh` | `git push` 後に「open PR があればタイトル・概要を最新化」を注入 (非ブロック) |
 
 ### Templates (設定雛形)
 
