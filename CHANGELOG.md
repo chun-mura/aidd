@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.0 (2026-07-10)
+
+- `design-review.md`: prevent partial-read false findings on large doc sets
+  - Reviewer agents must read assigned files in full, check later sections (decision log / revision history) before reporting "unresolved" issues, and report read-completion status
+  - Split dispatch across multiple agents per perspective when the target exceeds ~5 files or ~3000 lines total; cross-file consistency perspectives still see the full file list
+  - Arbiter discards findings tied to files an agent could not fully read, and quarantines "unresolved"-type findings lacking evidence of decision-log verification
+
 ## 0.11.0 (2026-07-09)
 
 - Add `hooks/scripts/pr-sync-reminder.sh` (PostToolUse): after `git push`, remind to refresh the open PR's title/body via `gh pr edit` when the pushed commits changed its scope
