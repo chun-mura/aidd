@@ -13,7 +13,7 @@
 /plugin install aidd@aidd-local
 
 # 必須: 実装フェーズを担う superpowers も導入
-/plugin marketplace add obra/superpowers
+/plugin marketplace add obra/superpowers-marketplace
 /plugin install superpowers@superpowers-marketplace
 
 # 推奨: PR全体レビューを担う pr-review-toolkit も導入
