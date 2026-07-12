@@ -8,6 +8,7 @@ Claude Code を新しいリポジトリで使い始めるとき。
 
 - `CLAUDE.md.template` — プロジェクトの CLAUDE.md の出発点。コメントを埋めて `.template` を外す。「コードから読み取れないことだけ書く」が原則
 - `settings.json.template` — `.claude/settings.json` の出発点。read-only git 操作を許可し、機密ファイルを deny する最小構成
+- `team-settings.json.template` — チームで aidd を使うとき、利用プロジェクトの `.claude/settings.json` にマージしてコミットする。フォルダを trust したメンバーに aidd のインストールが自動提案される (`extraKnownMarketplaces` + `enabledPlugins`)
 
 使い方: `cp templates/CLAUDE.md.template <project>/CLAUDE.md` して編集。
 

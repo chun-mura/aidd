@@ -1,6 +1,9 @@
 #!/bin/bash
 # UserPromptSubmit hook: log aidd command usage and prompt history for /aidd:retro.
 # Non-blocking: always exit 0, never fail the prompt submission.
+# Records the first 120 chars of every prompt to ~/.claude/aidd/usage.json (local only).
+# Opt-out: set AIDD_DISABLE_USAGE_LOG=1 (shell env or settings.json "env").
+[ "$AIDD_DISABLE_USAGE_LOG" = "1" ] && exit 0
 input=$(cat)
 
 STATE_DIR="$HOME/.claude/aidd"

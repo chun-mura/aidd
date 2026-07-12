@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.13.0 (2026-07-12)
+
+Team-readiness release: no functional changes to commands/agents/skills.
+
+- **Breaking**: rename marketplace `aidd-local` → `aidd`. Existing installs must re-add: `/plugin marketplace add chun-mura/aidd` then `/plugin install aidd@aidd`
+- Add MIT `LICENSE`; `plugin.json` gains `homepage`/`repository`/`license`/`keywords`; marketplace entry gains `category`/`tags`
+- Hooks opt-outs: `AIDD_DISABLE_USAGE_LOG=1` disables prompt logging (`usage-log.sh`), `AIDD_DISABLE_CLARIFY_NUDGE=1` disables the per-prompt nudge (`clarify-nudge.sh`)
+- Add `templates/team-settings.json.template`: project-scoped auto-install via `extraKnownMarketplaces` + `enabledPlugins`
+- Add CI (`.github/workflows/validate.yml`): shellcheck on hook scripts + `claude plugin validate --strict`
+- README: document runtime prerequisites (macOS/Linux, bash/python3/gh), consuming-project directory conventions, hook write targets and opt-outs, and the dependency compatibility policy for superpowers / pr-review-toolkit
+
 ## 0.12.0 (2026-07-10)
 
 - `design-review.md`: prevent partial-read false findings on large doc sets

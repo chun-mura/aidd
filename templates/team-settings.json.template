@@ -1,0 +1,13 @@
+{
+  "extraKnownMarketplaces": {
+    "aidd": {
+      "source": {
+        "source": "github",
+        "repo": "chun-mura/aidd"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "aidd@aidd": true
+  }
+}

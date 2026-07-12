@@ -1,12 +1,14 @@
 {
-  "name": "aidd-local",
-  "description": "Local marketplace for the aidd personal AI-driven development knowledge base",
+  "name": "aidd",
+  "description": "Marketplace for the aidd AI-driven development knowledge base",
   "owner": { "name": "chun-mura" },
   "plugins": [
     {
       "name": "aidd",
       "source": ".",
-      "description": "Personal AI-driven development knowledge base"
+      "description": "AI-driven development knowledge base: task commands, agent recipes, templates, and tips",
+      "category": "workflow",
+      "tags": ["design-review", "adr", "test-perspectives", "knowledge-base"]
     }
   ]
 }

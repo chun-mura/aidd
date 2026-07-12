@@ -1,0 +1,21 @@
+name: validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shellcheck hook scripts
+        run: shellcheck hooks/scripts/*.sh
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Validate plugin and marketplace manifests
+        run: claude plugin validate . --strict
