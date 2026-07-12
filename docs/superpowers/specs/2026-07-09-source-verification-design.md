@@ -1,3 +1,7 @@
+---
+status: implemented
+---
+
 # design-review 外部情報源検証 設計
 
 規模: agent 1追加 + command 1改修。小規模のため要点のみ。

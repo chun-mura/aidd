@@ -1,3 +1,7 @@
+---
+status: implemented
+---
+
 # aidd 6機能追加 設計
 
 規模: 複数コンポーネント (skill/command/hook 各種) の追加のため、フル記述。
