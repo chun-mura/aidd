@@ -6,5 +6,8 @@
   "homepage": "https://github.com/chun-mura/aidd",
   "repository": "https://github.com/chun-mura/aidd",
   "license": "MIT",
-  "keywords": ["design-review", "adr", "test-perspectives", "knowledge-base", "workflow"]
+  "keywords": ["design-review", "adr", "test-perspectives", "knowledge-base", "workflow"],
+  "dependencies": [
+    { "name": "superpowers", "marketplace": "superpowers-marketplace" }
+  ]
 }

@@ -6,7 +6,7 @@ aidd プラグインの動作環境を診断してください。各チェック
 
 **チェック項目**:
 
-1. **superpowers 導入**: `~/.claude/plugins/installed_plugins.json` に `superpowers@` を含むエントリがあるか
+1. **superpowers 導入**: `claude plugin list --json` に `superpowers@` で始まり `enabled: true` のエントリがあるか (plugin.json の dependencies 宣言により通常は自動導入されるはずだが、古い Claude Code や依存解決エラーを検知する)
 2. **バージョン整合**: `.claude-plugin/plugin.json` の `version` と、`~/.claude/plugins/installed_plugins.json` に記録された aidd のインストール済みバージョンを比較する。ズレていれば `push + /plugin update aidd` 忘れの可能性を指摘する
 3. **hooks 実行権限**: `hooks/scripts/*.sh` それぞれに実行ビット (`x`) が付いているか (`ls -l` で確認)
 4. **python3 存在**: `which python3` — hooks が python3 に依存しているため必須
@@ -15,7 +15,12 @@ aidd プラグインの動作環境を診断してください。各チェック
 各項目を実行するには Bash tool で以下相当のコマンドを使う:
 
 ```bash
-grep -q '"superpowers@' ~/.claude/plugins/installed_plugins.json 2>/dev/null && echo "superpowers: OK" || echo "superpowers: WARN not detected"
+claude plugin list --json 2>/dev/null | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+sp = next((p for p in data if p['id'].startswith('superpowers@') and p.get('enabled')), None)
+print('superpowers: OK (%s)' % sp['id'] if sp else 'superpowers: WARN not detected or disabled')
+"
 python3 -c "import json; d=json.load(open('$HOME/.claude/plugins/installed_plugins.json')); print([v.get('version') for k,v in d.items() if k.startswith('aidd@')])" 2>/dev/null
 cat .claude-plugin/plugin.json | python3 -c "import json,sys; print(json.load(sys.stdin)['version'])" 2>/dev/null
 for f in hooks/scripts/*.sh; do [ -x "$f" ] && echo "$f: OK" || echo "$f: WARN not executable"; done

@@ -2,6 +2,7 @@
   "name": "aidd",
   "description": "Marketplace for the aidd AI-driven development knowledge base",
   "owner": { "name": "chun-mura" },
+  "allowCrossMarketplaceDependenciesOn": ["superpowers-marketplace"],
   "plugins": [
     {
       "name": "aidd",
