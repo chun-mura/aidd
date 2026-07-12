@@ -6,6 +6,8 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 
 **pr-review-toolkit プラグイン推奨**: aidd:reviewer は成果物単体の検収用で、PR全体のレビュー (スタイル・テストカバレッジ・サイレント障害・型設計など多観点) は pr-review-toolkit の担当。導入しなくても aidd の各機能は動くが、PRレビューの網羅性が下がる。
 
+**UI・デザイン特化の資産は [uidd](https://github.com/chun-mura/uidd)**: Storybook 中心の UI 提案・デザインシステム構築ワークフローは uidd が担当する (aidd は汎用タスクのみ。重複資産は作らない)。
+
 ## 導入 (他プロジェクトから使う)
 
 ### 個人で使う
