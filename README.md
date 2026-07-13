@@ -74,6 +74,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 | `adr-recall/` | アーキ変更・既存構造変更・設計判断の前 |
 | `model-selection/` | サブエージェント起動時・model 指定に迷ったとき |
 | `parallel-investigation/` | 未知コードベースの調査・独立した複数の問いがあるとき |
+| `review-loop/` | レビュー→修正のラウンドを反復するとき・指摘が尽きないとき・重要度語彙が混在したとき (終了条件と severity 正典 high/mid/low を規定) |
 
 ### Hooks (強制力のある運用)
 

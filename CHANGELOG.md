@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.14.0 (2026-07-13)
+
+Lessons from a review-fix loop session in a consuming project (review findings applied blindly broke a framework's internal load path; mock-heavy tests missed it; review rounds had no stop condition).
+
+- Add `skills/review-loop/`: decide the termination criterion before starting review-fix rounds (default: zero high/mid findings for 2 consecutive rounds); treat reviews as sampling that never converges to zero findings; read the framework implementation before applying suggestions that touch framework base classes; delegates per-finding handling to `superpowers:receiving-code-review`
+  - Canonical severity vocabulary: high/mid/low (same scale as design-review/design-arbiter), with a translation table for external vocabularies (Critical/Important/Suggestion/Nit, Google's blocking/`Nit:`); sorting and termination judgment always use the canonical terms
+  - Read-completion protocol for code-diff rounds run outside design-review: dispatched review agents must read all diff hunks plus surrounding context, attach file:line to findings, and report read-completion status; high/mid findings must be verified against the actual file with Read before applying (agent line numbers/function names can hallucinate)
+- `test-perspectives.md`: add 6th category **フレームワーク結合** — framework/ORM base-class overrides and implicitly-invoked paths require at least one mock-less real-path test as must
+
 ## 0.13.0 (2026-07-12)
 
 Team-readiness release: no functional changes to commands/agents/skills.
