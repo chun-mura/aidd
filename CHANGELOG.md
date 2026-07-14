@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.16.0 (2026-07-14)
+
+Move review-unit splitting upstream: 0.15.0 added a reactive "consider splitting" note to review-loop; this release makes the split decision at design completion, before any PR exists.
+
+- Add `commands/issue-split.md`: split a design into independently mergeable PR-sized units (vertical slices only, ~5 changed files each, boundaries taken from the design's component/responsibility section), present the plan, and create GitHub issues via `gh` only after AskUserQuestion approval (Japanese title/body with design-doc path, scope, done criteria, and dependencies); falls back to plan-only when `gh`/GitHub is unavailable; session-level task breakdown stays with superpowers:writing-plans
+- `design-doc.md`: after saving, estimate implementation size from the design (heuristic: >5 changed files or 2+ independently mergeable units) and suggest `/aidd:issue-split` when over the threshold
+
 ## 0.15.0 (2026-07-14)
 
 Review-accuracy improvements for review-loop / design-review, backed by external evidence (Anthropic Code Review's verify stage, adversarial refutation research, an industrial false-positive study, LLM-as-a-judge bias research, Google's Small CLs guide).
