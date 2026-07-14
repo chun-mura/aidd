@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.15.0 (2026-07-14)
+
+Review-accuracy improvements for review-loop / design-review, backed by external evidence (Anthropic Code Review's verify stage, adversarial refutation research, an industrial false-positive study, LLM-as-a-judge bias research, Google's Small CLs guide).
+
+- Add `agents/refuter.md` (sonnet): adversarial verifier whose job is to disprove high/mid findings against the actual target, not confirm them; refutation requires evidence from the target ("unlikely" does not count), and only findings that survive are promoted
+- `design-review.md`: insert a refutation stage between reviewers and arbiter — high/mid findings pass through aidd:refuter, refuted ones are discarded and reported separately with reasons (low findings and source-verified Agent 5 results skip the stage); accept a rejected-findings list in `$ARGUMENTS` and instruct reviewers not to re-report identical findings
+- `skills/review-loop/`: carry rejected findings (refuted or mismatching the actual file, with reasons) across rounds as a "do not re-report" list included in each dispatch; re-reported rejected findings do not count toward the termination criterion; verified high/mid findings get a refutation attempt (via aidd:refuter or manually) before being fixed
+- `skills/review-loop/`: add a concrete severity rubric for the canonical high/mid/low vocabulary (high = ships real damage: data loss/corruption, security, production outage; mid = correctness/maintainability impact with a workaround or limited blast radius; low = style/preference/improvement ideas) — severity variance directly destabilized the termination criterion, which counts high/mid findings
+- `skills/review-loop/`: run the project's static checks (lint/typecheck/tests, whichever exist) before each round's dispatch and include the results; machine-detectable issues are delegated to static checks, not reported as review findings
+- `skills/review-loop/`: when high/mid findings keep piling up every round, consider splitting the review unit before running more rounds (per Google's Small CLs guidance)
+- `design-review.md`: embed the same severity rubric in the reviewer dispatch instructions (canonical copy lives in review-loop; keep in sync); instruct the arbiter to re-rank each finding against the rubric independently, not by description length or presentation order
+
 ## 0.14.0 (2026-07-13)
 
 Lessons from a review-fix loop session in a consuming project (review findings applied blindly broke a framework's internal load path; mock-heavy tests missed it; review rounds had no stop condition).

@@ -53,7 +53,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 | `retro.md` | aidd 資産の棚卸し。昇格候補・hooks/skills の摩擦・陳腐化を洗い出す (20セッションごとに hook が想起) |
 | `design-doc.md` | 要件から設計書を生成し docs/design/ に保存。構成は design-review の6観点と1対1対応 |
 | `adr.md` | アーキテクチャ決定記録を docs/adr/NNNN-<slug>.md に作成。1 ADR = 1 決定 |
-| `design-review.md` | 設計や実装方針を多観点レビュー。3× reviewer (sonnet) 並列 → design-arbiter (opus) が裁定。`--verify-sources` で外部情報源検証を追加 |
+| `design-review.md` | 設計や実装方針を多観点レビュー。3× reviewer (sonnet) 並列 → refuter (sonnet) が high/mid を反証 → design-arbiter (opus) が裁定。`--verify-sources` で外部情報源検証を追加 |
 | `design-sync.md` | 設計書と実装の乖離を検知し、status を最新化する |
 | `test-perspectives.md` | 実装対象・変更差分からテスト観点 (正常系・異常系・エッジケース) を洗い出す |
 | `doctor.md` | aidd/superpowers の導入状態・バージョン整合・hooks 実行可否を診断する |
@@ -63,6 +63,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 | ファイル | 説明 |
 |---------|------|
 | `design-arbiter.md` | design-review の統合裁定エージェント (opus)。メインのモデルに依らず重い判断を opus に固定 |
+| `refuter.md` | レビュー指摘の反証専任エージェント (sonnet)。high/mid 指摘を現物に照らして積極的に反証し、耐えた指摘だけを昇格させる。design-review・review-loop から起動 |
 | `reviewer.md` | 成果物の検収用エージェント (sonnet)。PR全体のレビューは pr-review-toolkit の担当 |
 | `scout.md` | 軽量読み取り調査エージェント (haiku)、ファイル検索・コードベース偵察用 |
 | `source-verifier.md` | 設計書の外部検証可能な主張を信頼できる情報源と突き合わせる (sonnet, WebSearch/WebFetch)。design-review の `--verify-sources` 専用 |
@@ -74,7 +75,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 | `adr-recall/` | アーキ変更・既存構造変更・設計判断の前 |
 | `model-selection/` | サブエージェント起動時・model 指定に迷ったとき |
 | `parallel-investigation/` | 未知コードベースの調査・独立した複数の問いがあるとき |
-| `review-loop/` | レビュー→修正のラウンドを反復するとき・指摘が尽きないとき・重要度語彙が混在したとき (終了条件と severity 正典 high/mid/low を規定) |
+| `review-loop/` | レビュー→修正のラウンドを反復するとき・指摘が尽きないとき・重要度語彙が混在したとき (終了条件・severity 正典 high/mid/low とルーブリック・dispatch 前の静的検査・適用前の反証・棄却指摘の持ち越しを規定) |
 
 ### Hooks (強制力のある運用)
 
