@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.17.0 (2026-07-17)
+
+Integrate with the new stdd plugin (scientific test-design method catalog, split out of the aidd domain the same way uidd was): aidd keeps perspective listing and method-applicability flags; derivation procedures and citations live in stdd.
+
+- `test-perspectives.md`: the 境界値 category now flags perspectives with "BVA適用" (ordered values: numeric ranges, lengths, dates) or "ECP適用" (inputs partitionable into valid/invalid classes) — flag judgment only, derivation steps and sources stay in stdd
+- `test-perspectives.md`: point case derivation to stdd's `/stdd:test-design`, which takes the saved perspectives file as input (only when stdd is installed)
+- README: add a uidd-style one-line pointer to stdd (no duplicated assets; aidd owns perspectives + flags only)
+
 ## 0.16.0 (2026-07-14)
 
 Move review-unit splitting upstream: 0.15.0 added a reactive "consider splitting" note to review-loop; this release makes the split decision at design completion, before any PR exists.

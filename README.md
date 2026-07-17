@@ -8,6 +8,8 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 
 **UI・デザイン特化の資産は [uidd](https://github.com/chun-mura/uidd)**: Storybook 中心の UI 提案・デザインシステム構築ワークフローは uidd が担当する (aidd は汎用タスクのみ。重複資産は作らない)。
 
+**テスト設計手法特化の資産は [stdd](https://github.com/chun-mura/stdd)**: BVA/ECP/デシジョンテーブル/PBT/mutation 等の手法カタログ・選択ガイド・ケース導出は stdd が担当する (aidd は観点洗い出しと手法適用フラグのみ。重複資産は作らない)。
+
 ## 導入 (他プロジェクトから使う)
 
 ### 個人で使う
@@ -56,7 +58,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 | `design-review.md` | 設計や実装方針を多観点レビュー。3× reviewer (sonnet) 並列 → refuter (sonnet) が high/mid を反証 → design-arbiter (opus) が裁定。`--verify-sources` で外部情報源検証を追加 |
 | `issue-split.md` | 設計を独立マージ可能なPR単位 (縦切り・5ファイル以内目安) に分割し、承認後に GitHub issue 化。design-doc が規模超過を検知すると提案 |
 | `design-sync.md` | 設計書と実装の乖離を検知し、status を最新化する |
-| `test-perspectives.md` | 実装対象・変更差分からテスト観点 (正常系・異常系・エッジケース) を洗い出す |
+| `test-perspectives.md` | 実装対象・変更差分からテスト観点 (6分類) を洗い出し、BVA/ECP 適用フラグを付ける (手法の導出は stdd の担当) |
 | `doctor.md` | aidd/superpowers の導入状態・バージョン整合・hooks 実行可否を診断する |
 
 ### Agents (サブエージェント定義)
