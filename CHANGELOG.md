@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.19.0 (2026-07-17)
+
+- `session-start.sh`: 20セッションごとの retro nudge に、`usage.json` から集計した aidd コマンド使用回数上位5件と繰り返しプロンプト最大2件を10行以内で注入。`jq` 不在・集計失敗時は従来の提案文へフォールバック
+- `docs/adr/0001-retro-nudge-summary-injection.md`: 自動レポート化 scope 外決定を nudge 時の縮小サマリに限って変更し、cron・ダッシュボードによるフル自動化は引き続き採らない理由を記録
+
 ## 0.18.0 (2026-07-17)
 
 - `review-loop/SKILL.md`: ユーザー承認で棄却した指摘を `.aidd/review-dismissed.md` に対象ドキュメント・要約・理由・日付付きで追記保存し、次セッションの初回 dispatch から再報告禁止として渡す手順を追加

@@ -1,6 +1,6 @@
 {
   "name": "aidd",
-  "version": "0.18.0",
+  "version": "0.19.0",
   "description": "AI-driven development knowledge base: task commands, agent recipes, templates, and tips",
   "author": { "name": "chun-mura" },
   "homepage": "https://github.com/chun-mura/aidd",
