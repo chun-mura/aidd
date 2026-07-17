@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.18.0 (2026-07-17)
+
+- `review-loop/SKILL.md`: ユーザー承認で棄却した指摘を `.aidd/review-dismissed.md` に対象ドキュメント・要約・理由・日付付きで追記保存し、次セッションの初回 dispatch から再報告禁止として渡す手順を追加
+- `design-review.md`: `.aidd/review-dismissed.md` を開始時に読み込み、削除済み・大幅改訂済みの対象のエントリを除外できるようにした
+
+## 0.17.1 (2026-07-17)
+
+- `design-review.md`: 外部入力・認証認可・秘密情報・外部公開エンドポイントを扱う設計では、レビュー結果末尾で `/security-review` の実行を推奨する委譲ポインタを追加（標準6観点・agent 分担は不変）
+- `design-review.md`: 運用観点に、障害調査・性能分析を成立させるログ設計・メトリクス設計を明記
+- `design-review.md`: セキュリティ観点を常設したいプロジェクト向けに `.aidd/design-perspectives.md` への追加を案内
+
 ## 0.17.0 (2026-07-17)
 
 Integrate with the new stdd plugin (scientific test-design method catalog, split out of the aidd domain the same way uidd was): aidd keeps perspective listing and method-applicability flags; derivation procedures and citations live in stdd.
