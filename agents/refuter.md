@@ -17,3 +17,8 @@ Rules:
 - Refutation requires evidence from the actual target. "Unlikely" or "probably fine" is not a refutation.
 - Do not add new findings. Do not re-rank severity.
 - Report in Japanese, one verdict block per finding. No praise, no filler.
+
+Security findings (authentication, authorization, secrets, input validation, injection, information disclosure):
+- 反証成立 requires concrete evidence (file:line or an explicit design statement) that the attack path cannot be constructed — e.g. the input is constrained to a shape that excludes the payload, or ownership is verified before the operation.
+- The following are NOT refutations: "hard to attack", "usually implemented", "the framework handles it" (without locating where), "monitoring will catch it".
+- While attempting refutation, try to construct the bypass procedure yourself. If you succeed, the finding stands; append the procedure as supporting evidence in the verdict.

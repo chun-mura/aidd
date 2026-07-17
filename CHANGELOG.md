@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.20.0 (2026-07-17)
+
+セキュリティ・可観測性レビューの体系化 (Perspective-Based Reading / チェックリスト読解の実証知見に基づく「具体的観点の付与」)。0.17.1 の委譲ポインタ (忘れ防止) を、再現可能なレビュー手段に引き上げる。
+
+- `templates/design-perspectives.md.template` を追加: OWASP ASVS 5.0 の設計段階に関わる章 (V1/V2/V6/V7/V8/V12/V13/V14/V16) から抜粋したセキュリティ観点 + 可観測性観点 (SLI 定義・Golden Signals・trace ID・障害シナリオのログ追跡可能性)。`.aidd/design-perspectives.md` にコピーして Agent 4 の観点として使う
+- `agents/security-reviewer.md` を追加 (sonnet): 信頼境界を跨ぐデータフローに STRIDE 6カテゴリを機械的に適用する脅威レビュー agent。攻撃経路を具体的に構成できる懸念のみ high/mid で報告し、信頼境界のない設計は「該当なし」で終了
+- `design-review.md`: 信頼境界を跨ぐ設計で security-reviewer を **Agent 6** として条件起動 (判定はメインループの意味判断、`--security` で強制・`--no-security` で抑止)。指摘は既存の refuter → arbiter パイプに合流。セキュリティ委譲節を役割分担 (Agent 6 = 設計の STRIDE、`/security-review` = 実装後のコード監査) に書き換え
+- `agents/refuter.md`: セキュリティ指摘の反証規則を追加 — 攻撃経路が構成不能である現物証拠のみ反証成立。「攻撃されにくい」「フレームワークが守る (現物未確認)」は反証と認めず、反証の過程で回避手順を構成できた指摘は手順付きで存続
+- 既知事項: `.aidd/design-perspectives.md` (Agent 4) と Agent 6 の指摘が重複しうるが、dedup は arbiter の既存責務で吸収する
+
 ## 0.19.0 (2026-07-17)
 
 - `session-start.sh`: 20セッションごとの retro nudge に、`usage.json` から集計した aidd コマンド使用回数上位5件と繰り返しプロンプト最大2件を10行以内で注入。`jq` 不在・集計失敗時は従来の提案文へフォールバック
