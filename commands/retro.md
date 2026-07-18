@@ -1,23 +1,20 @@
 ---
-description: aidd 資産の棚卸し。繰り返しプロンプトの昇格候補と、hooks/skills の摩擦を洗い出す
+description: aidd 資産の棚卸し。利用実績と陳腐化した資産を洗い出す
 ---
 
 aidd プラグインの運用を振り返り、資産の追加・削除・見直しを検討してください。判断は提示のみ。ユーザーの承認なしにファイルを変更しない。
 
-**1. 昇格候補の発見 (README の2回ルール)**
+**1. 利用実績の確認**
 
-`~/.claude/aidd/usage.json` を読み、`prompt_log` が存在する場合だけ類似意図のプロンプトが2回以上手で書かれていないか調べる (コマンド化されていない繰り返し依頼が対象。すでに `/aidd:*` として存在するものは `command_counts` で使用頻度を見るだけでよい)。`prompt_log` がなければ、`AIDD_PROMPT_LOG=1` を設定すると次回以降に昇格候補を分析できると注記し、集計・陳腐化確認は続行する。見つかったら:
-- 内容を要約し、commands / skills のどちらが適切か (`docs/tips/superpowers-usage.md` の「形態の選び方」節を判断基準に使う)
-- 既に superpowers に同等スキルがないか確認 (被りなら見送り)
-
+`~/.claude/aidd/usage.json` の `command_counts` と `last_seen` を読み、コマンドごとの利用回数と最終利用日を一覧にする。
 `last_seen` を確認し、記録がない、または最終使用が90日以上前のコマンドがあれば「見直し候補」または「削除候補」として提示する (使われていない資産の陳腐化検出。`command_counts` 単独では累積回数しか分からず「長期間未使用」は判定できないため `last_seen` を基準にする)。
 
 **2. hooks/skills の摩擦点の確認**
 
 ユーザーに以下を尋ねる:
 - session-start の AskUserQuestion 確認指示が質問過多になっていないか
-- `commit-reminder` (コミット前の test-perspectives 催促) が誤爆・スルーされていないか
-- skills (`model-selection`, `parallel-investigation`) が期待した場面で発火しているか、逆に無関係な場面で出てきていないか
+- `tool-reminder` (コミット前の test-perspectives 催促など) が誤爆・スルーされていないか
+- `model-selection` と `review-loop` が期待した場面で発火しているか、逆に無関係な場面で出てきていないか
 
 摩擦が報告されたら、hook 文言の調整案 or 廃止案を提示する。
 
@@ -28,4 +25,4 @@ aidd プラグインの運用を振り返り、資産の追加・削除・見直
 
 **4. 出力**
 
-「追加候補」「見直し候補」「削除候補」の3リストで提示し、それぞれ実施するかを AskUserQuestion で確認する。承認されたものだけ実装し、README・CHANGELOG・plugin.json のバージョンを更新する。
+「見直し候補」「削除候補」の2リストで提示し、それぞれ実施するかを AskUserQuestion で確認する。承認されたものだけ実装し、README・CHANGELOG・plugin.json のバージョンを更新する。

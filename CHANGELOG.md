@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.25.0 (2026-07-18)
+
+重複した運用機能を整理し、常時コンテキストと不要な reviewer 起動を削減。
+
+- `parallel-investigation` skill を削除し、並列調査は `superpowers:dispatching-parallel-agents` と `scout` agent に一本化
+- `review-loop` を終了条件・severity・棄却済み指摘の持ち越しに縮小。静的検査・反証・修正手順は既存の specialist skills / agents を参照
+- `retro`、`usage-log.sh`、`session-start.sh` から prompt history と20セッション nudge を削除。利用統計と陳腐化確認だけを維持
+- `design-perspectives` から OWASP セキュリティ観点を削除。信頼境界を跨ぐ設計のセキュリティレビューは Agent 6 (STRIDE) に一本化
+
 ## 0.24.0 (2026-07-18)
 
 通常利用時のトークン・hook 実行負荷を削減し、深いレビューが必要な場合の経路を明示化。

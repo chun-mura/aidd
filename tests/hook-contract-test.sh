@@ -35,5 +35,5 @@ python3 - "$tmp_dir/aidd/usage.json" <<'PYEOF'
 import json, sys
 data = json.load(open(sys.argv[1]))
 assert data["command_counts"]["design-review"] == 2
-assert data["prompt_log"][-1]["text"] == "/aidd:design-review sample"
+assert "prompt_log" not in data
 PYEOF

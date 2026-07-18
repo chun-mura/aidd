@@ -55,7 +55,7 @@ README 運用ルール5「受動ドキュメント禁止」に従い、セッシ
 
 - 完全に被る → 作らない。ポインタのみ
 - superpowers に存在しない知見 → 汎用寄りでも aidd に置いてよい (実例: `skills/model-selection/` — process 寄りだが superpowers に該当スキルなし)
-- superpowers の一般則を aidd の agents/運用に特化した具体化 → 作ってよい。ただし superpowers 側へのポインタを必ず入れる (実例: `skills/parallel-investigation/` — `superpowers:dispatching-parallel-agents` の scout 特化形で、関連節から参照)
+- superpowers の一般則と重複する資産は作らない。並列調査は `superpowers:dispatching-parallel-agents` を使い、必要なら `aidd:scout` agent を指定する
 
 ## 判断に迷ったら
 

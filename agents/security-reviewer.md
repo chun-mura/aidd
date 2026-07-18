@@ -17,7 +17,7 @@ Output format per finding (align with the other design-review agents):
 - 対象箇所 (設計書のセクション or file:line)
 - STRIDE カテゴリ
 - 攻撃経路 (具体的な手順)
-- 深刻度 (high/mid/low; 正典は skills/review-loop のルーブリック — high はリリースすると実害、mid は回避策あり・影響限定、low は改善アイデア)
+- 深刻度 (high = リリース時に実害、mid = 正しさ・保守性への影響、low = 実害のない改善案)
 - 対策案 (設計に足すべき記述)
 
 Rules:
