@@ -34,7 +34,8 @@ jq -n '
   }
 ' > "$state_dir/usage.json"
 
-summary_output=$(bash "$hook_copy")
+# Disable the standing clarify line so the <=10 line bound keeps measuring the retro summary.
+summary_output=$(AIDD_DISABLE_CLARIFY_NUDGE=1 bash "$hook_copy")
 printf '%s\n' "$summary_output" | grep -F 'aidd usage (top 5):'
 printf '%s\n' "$summary_output" | grep -F '/aidd:design-review: 7'
 printf '%s\n' "$summary_output" | grep -F '/aidd:retro: 3'

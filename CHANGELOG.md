@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.23.0 (2026-07-18)
+
+トークン効率の改善 (hooks の誤発火・冗長注入の削減と、design-review パイプラインの不要 dispatch の削減)。
+
+- `pr-sync-reminder.sh` / `commit-reminder.sh` / `gh-language-reminder.sh`: stdin 全体ではなく `tool_input.command` のみをマッチ対象に変更。PostToolUse の stdin にはツール出力も含まれるため、"git push" を含む任意の出力 (ファイル閲覧・git log 等) で誤発火していた
+- `clarify-nudge.sh` を廃止し、AskUserQuestion 確認指示を `session-start.sh` のセッション1回注入に統合 (恒常指示の毎プロンプト再注入は約45トークン×全プロンプトの無駄)。opt-out 変数 `AIDD_DISABLE_CLARIFY_NUDGE` は継続
+- `session-start.sh`: 注入メッセージから agent 紹介を削除 (system prompt の agent 一覧と重複)
+- `commit-reminder.sh`: staged 変更が docs/*.md/*.txt のみの場合は注入自体をスキップ (「docs-only なら省略可」の判断をモデル側に委ねない)
+- `design-review.md`: 反証を生き延びた high/mid が0件の場合は arbiter (opus) を起動せず low 一覧を直接報告するショートカットを追加 (Agent 5 起動時・agent 間矛盾時は適用しない)
+- `review-loop/SKILL.md`: 手順2の静的検査結果は要約のみ dispatch に含める (全量ログ渡しを禁止)。description を圧縮
+- `agents/source-verifier.md` / `agents/security-reviewer.md`: description を圧縮 (毎セッション system prompt に常駐するため)。source-verifier のコスト注意書きは本文へ移動
+- 深刻度ルーブリックの二重管理 (review-loop ⇔ design-review) は確認の結果、既に正典参照+最小埋め込みの形のため変更なし
+
 ## 0.22.0 (2026-07-18)
 
 design-review パイプラインの精度を測定する評価ハーネスを追加 (これまで refuter・opus arbiter 等の各段の寄与が未検証だったギャップへの対応)。

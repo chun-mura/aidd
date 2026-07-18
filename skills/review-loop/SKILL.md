@@ -1,6 +1,6 @@
 ---
 name: review-loop
-description: Use when running repeated review-fix rounds (design review, PR review, or subagent review findings), when findings keep appearing round after round and it is unclear when to stop, or when review findings arrive in mixed severity vocabularies.
+description: Use when running repeated review-fix rounds (design review, PR review, or subagent findings) and deciding when to stop, or when findings arrive in mixed severity vocabularies.
 ---
 
 # レビュー反復の運用
@@ -34,7 +34,7 @@ high/mid = 修正するまでラウンドを終了しない指摘、low = 終了
 ## 手順
 
 1. **開始前に終了条件を決めて宣言する**。推奨デフォルト: 「high/mid の指摘 0件が2ラウンド連続」。low はゼロにならない前提で重要度で切る。プロジェクトの `.aidd/review-dismissed.md` が存在する場合は読み込み、対象ドキュメントが削除済み・大幅改訂済みのエントリは棄却一覧から除外してよい。残ったエントリは初回 dispatch から「棄却済み・再報告禁止」として対象と併せて渡す
-2. ラウンドごとに、dispatch 前にプロジェクトの静的検査 (lint・typecheck・テスト。存在するもののみ) を実行し、結果を dispatch に含める。機械が検出できる問題は静的検査に任せ、レビュー指摘としては扱わない
+2. ラウンドごとに、dispatch 前にプロジェクトの静的検査 (lint・typecheck・テスト。存在するもののみ) を実行し、**要約のみ** (実行コマンド・成否・失敗件数と失敗名) を dispatch に含める。全量ログは渡さない (テスト出力は数千行になりトークンを浪費する)。機械が検出できる問題は静的検査に任せ、レビュー指摘としては扱わない
 3. ラウンドごとに指摘を正典語彙で仕分けし、終了条件の判定結果を明示する
 4. ユーザー承認により棄却した指摘 (反証成立・現物不一致) は理由付きで一覧に保持し、次ラウンドの dispatch に「棄却済み・再報告禁止」として対象と併せて渡す (design-review を再実行する場合も一覧を渡す)。棄却済みと同一内容の指摘が再報告されても終了判定にカウントしない
 5. 終了条件に達したら止める。残った low 指摘は対応せず一覧として報告し、対応要否はユーザーに委ねる

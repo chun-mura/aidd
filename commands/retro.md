@@ -15,7 +15,7 @@ aidd プラグインの運用を振り返り、資産の追加・削除・見直
 **2. hooks/skills の摩擦点の確認**
 
 ユーザーに以下を尋ねる:
-- `clarify-nudge` (毎プロンプトの確認催促) が質問過多になっていないか
+- session-start の AskUserQuestion 確認指示が質問過多になっていないか
 - `commit-reminder` (コミット前の test-perspectives 催促) が誤爆・スルーされていないか
 - skills (`model-selection`, `parallel-investigation`) が期待した場面で発火しているか、逆に無関係な場面で出てきていないか
 

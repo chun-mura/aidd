@@ -1,6 +1,6 @@
 ---
 name: security-reviewer
-description: STRIDE-based threat reviewer for designs that cross trust boundaries. Launched conditionally by the design-review command when the design handles external input, authentication/authorization, secrets, or publicly exposed endpoints; can also be used standalone for a threat-surface check of a design document.
+description: STRIDE-based threat reviewer for designs that cross trust boundaries (external input, authn/authz, secrets, public endpoints). Launched conditionally by design-review; also usable standalone on a design document.
 model: sonnet
 tools: Read, Glob, Grep, Bash
 ---
