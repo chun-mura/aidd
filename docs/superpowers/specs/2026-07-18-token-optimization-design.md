@@ -18,7 +18,7 @@
 
 `--depth=standard` を既定、`--depth=deep` を明示的な完全経路とする。従来の `--verify-sources`、`--security`、`--no-security` と併用できる。
 
-standard では reviewer 群を並列実行する。high/mid がなければ low をそのまま報告する。high/mid がある場合だけ refuter を起動する。refuter 後に生存する high/mid、reviewer 間の矛盾、または `--verify-sources` がある場合だけ arbiter を起動する。deep は従来どおり、high/mid があれば refuter、裁定対象があれば arbiter を起動する。
+standard では reviewer 群を並列実行する。high/mid がなければ low をそのまま報告する。high/mid がある場合だけ refuter を起動し、生存した指摘は直接報告する。reviewer 間の矛盾または `--verify-sources` がある場合だけ arbiter を起動する。deep は従来どおり、high/mid があれば refuter、裁定対象があれば arbiter を起動する。
 
 ## hook と利用ログ
 

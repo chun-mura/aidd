@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.24.0 (2026-07-18)
+
+通常利用時のトークン・hook 実行負荷を削減し、深いレビューが必要な場合の経路を明示化。
+
+- `design-review.md`: `--depth=standard|deep` を追加。standard を既定とし、high/mid がない場合の refuter、裁定対象がない場合の arbiter を起動しない。詳細な severity・読了規約は agent 定義へ集約
+- `agents/reviewer.md`: 指摘なしの出力を読了状況を含む1行に固定
+- `agents/refuter.md`: 指摘、引用箇所、必要最小限の関連パスだけを入力とする契約を追加
+- `tool-reminder.sh`: 3本の Bash hook を event-aware dispatcher へ統合。対象外コマンドは出力なしで終了
+- `usage-log.sh`: `/aidd:*` の利用統計は維持し、全プロンプト履歴の保存を `AIDD_PROMPT_LOG=1` の opt-in に変更
+- `session-start.sh`: 常時注入を短文化。`retro` は prompt history がない場合も集計・陳腐化確認を継続
+
 ## 0.23.0 (2026-07-18)
 
 トークン効率の改善 (hooks の誤発火・冗長注入の削減と、design-review パイプラインの不要 dispatch の削減)。

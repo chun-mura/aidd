@@ -14,7 +14,7 @@ design-review パイプラインの精度を、欠陥を意図的に埋め込ん
 
 ## 手順
 
-**1. レビュー実行** — ケースごとに逐次、`commands/design-review.md` の手順をそのまま適用する (並列 dispatch → refuter → arbiter。フラグなし = security-reviewer は条件起動判定に委ねる。これはパイプラインを普段どおりの挙動で測るためで、`--security` を付けてはならない)。ケースは1ファイル・100行未満だが、design-review の「小さい対象はメインで直接レビュー」ショートカットは**適用禁止** (測定対象はパイプライン全体のため、必ず並列 dispatch 経路に乗せる)。
+**1. レビュー実行** — ケースごとに逐次、`commands/design-review.md` を `--depth=deep` で適用する (並列 dispatch → refuter → arbiter。security-reviewer は条件起動判定に委ねるため `--security` を付けてはならない)。評価は最も厳密な経路を固定して測り、通常の `standard` 最適化による skip と混同しない。ケースは1ファイル・100行未満だが、design-review の小規模対象ショートカットは**適用禁止**。
 
 ケースごとに以下の中間データを記録しておく:
 

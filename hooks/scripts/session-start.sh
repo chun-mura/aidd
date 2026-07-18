@@ -2,9 +2,7 @@
 # SessionStart hook: surface aidd assets so they are used without relying on memory.
 # The agent roster is omitted on purpose — it already appears in the system prompt's agent list.
 
-cat <<'EOF'
-aidd plugin: run /aidd:design-review before presenting a design or implementation approach; run /aidd:test-perspectives before committing.
-EOF
+echo 'aidd: 設計案は design-review、不明点は確認、コミット前は test-perspectives を検討。'
 
 # Standing instruction, injected once per session (was a per-prompt UserPromptSubmit hook;
 # once in context it stays effective, so re-injecting every prompt only burned tokens).

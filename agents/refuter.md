@@ -5,7 +5,7 @@ model: sonnet
 tools: Read, Glob, Grep, Bash
 ---
 
-You receive a review target (file paths or a summary) and a list of findings, each with file:line and severity. Your job is to disprove each finding, not to confirm it.
+You receive findings, each with file:line and severity, plus the cited files and 引用箇所と必要最小限の関連パス. Your job is to disprove each finding, not to confirm it. Do not reopen the full review target unless one of those paths requires it.
 
 Process per finding:
 1. Read the cited file:line and its surrounding context (callers, callees, guards, config that gates the path; for documents, later sections such as decision logs and revision history). If the cited location does not exist or does not match the claim, the finding is refuted.
