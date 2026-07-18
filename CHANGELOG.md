@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.22.0 (2026-07-18)
+
+design-review パイプラインの精度を測定する評価ハーネスを追加 (これまで refuter・opus arbiter 等の各段の寄与が未検証だったギャップへの対応)。
+
+- `commands/eval.md` を追加: `/aidd:eval` が `tests/eval/cases/` のゴールデンセットに design-review を通常経路 (並列 dispatch → refuter → arbiter、ショートカット禁止) で実行し、正解キーと意味照合して採点。指標は 検出率 / 反証誤棄却 / 深刻度一致 / デコイ誤検出 / セキュリティ条件起動。結果は `tests/eval/results/YYYY-MM-DD.md` に version 付きで保存し、直近結果と比較する
+- `tests/eval/cases/` にシード欠陥入り設計書3件 (structure / data-error / security) を追加。structure には読了プロトコル検証用のデコイ (後半の決定事項で解決済みの論点)、security は Agent 6 の条件起動自体を測定対象に含む
+- `tests/eval/keys/` に正解キー3件を追加 (欠陥ID・該当セクション・期待深刻度・一致判定基準)。汚染防止のためケースと別ディレクトリに分離し、レビュー完了まで読まない運用をコマンドに明記
+- バージョン間比較の分母を「コアシード」(ケース作成時の意図的シード) に凍結。評価で昇格したキーは「昇格シード」として拡張検出率のみに数える (キー成長で比較が壊れるのを防ぐ)
+- README 運用ルール6を追加: レビューパイプラインのプロンプト (design-review / refuter / design-arbiter / security-reviewer / reviewer) を変更するリリースは、リリース前に `/aidd:eval` を実行し結果を残す
+
 ## 0.21.0 (2026-07-17)
 
 0.20.0 で design-review が出せるようになったセキュリティ指摘を、テスト観点まで流す受け皿を追加 (設計指摘 → 検証テストの導線の断絶を解消)。
