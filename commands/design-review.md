@@ -1,17 +1,21 @@
 ---
 description: 設計ドキュメントや実装方針を多観点でレビューする
-argument-hint: [設計ファイルのパス or 設計の要約] [--depth=standard|deep] [--verify-sources] [--security | --no-security]
+argument-hint: [設計ファイルのパス or 設計の要約] [--depth=standard|deep] [--review-delta=<前回レビュー後の変更範囲>] [--verify-sources] [--security | --no-security]
 ---
 
 対象: $ARGUMENTS
 
-`$ARGUMENTS` の `--depth=standard|deep`、`--verify-sources`、`--security`、`--no-security` はフラグとして解釈し、各 agent へ渡す対象からは除去すること。既定は `--depth=standard`。`--depth=deep` は品質重視の完全経路を明示する。
+`$ARGUMENTS` の `--depth=standard|deep`、`--review-delta=<前回レビュー後の変更範囲>`、`--verify-sources`、`--security`、`--no-security` はフラグとして解釈し、各 agent へ渡す対象からは除去すること。既定は `--depth=standard`。`--depth=deep` は品質重視の完全経路を明示する。
+
+`--review-delta` は前回のレビュー結果を踏まえた再レビューにだけ使う。各 agent には前回の未解決 high / blocking mid と、差分と必要な周辺文脈を渡し、前回指摘の解消確認と差分で生じた問題だけを報告させる。該当する静的検査・テスト結果も確認する。責務境界・公開インターフェース・データフローを変更した場合、変更範囲を確定できない場合、または agent 間で矛盾する場合は、`--review-delta` を使わず全体再レビューする。`deferred mid` はユーザー受容済みの追跡事項として最終報告に残すが、反証・終了判定の対象にはしない。
 
 レビュー開始時に対象プロジェクトの `.aidd/review-dismissed.md` が存在する場合は読み込む。対象ドキュメントが削除済み・大幅改訂済みのエントリは棄却一覧から除外してよい。残った一覧と、`$ARGUMENTS` に含まれる棄却済み指摘 (過去ラウンドでユーザー承認により棄却されたもの) を各 reviewer agent に渡し、「同一内容の指摘を再報告しない」よう指示すること。
 
 以下の3グループを **単一メッセージで aidd:reviewer agent に並列 dispatch** し、メインコンテキストで統合してください。各 agent には対象 (ファイルパス or 要約) と担当観点のみ渡すこと。対象が小さい (1ファイル・100行未満の要約) 場合のみ、dispatch せずメインで直接レビューしてよい。ただし `--verify-sources` 指定時はこのショートカットを適用せず、通常の並列 dispatch 経路に乗せること (Agent 5 を確実に起動するため)。
 
 対象が大きい場合 (目安: 5ファイル超 または 合計3000行超)、1つの agent に全ファイルを渡さず、観点グループごとに対象ファイルを分割して複数 agent を起動すること (1 agent の担当量を全文精読できる範囲に保つ)。ただしファイル横断の整合性を見る観点 (二重管理・責務境界の重複など) を担当する agent には対象全体の一覧を渡す。
+
+対象が独立してマージ可能な単位を2つ以上含む場合は、レビューを始める前に `/aidd:issue-split` を提案する。横断的変更など分割できない場合は理由を記録し、このレビューを続ける。
 
 対象プロジェクトに `.aidd/design-perspectives.md` が存在する場合、その内容を担当観点として渡す **Agent 4 — プロジェクト固有観点** を同じメッセージで並列 dispatch に追加する (標準6観点は常に維持し、置き換えない)。ファイルがなければ Agent 4 は起動しない。Agent 4 にはセキュリティ観点を含めない。信頼境界のセキュリティは Agent 6 が一貫して担当する。
 
