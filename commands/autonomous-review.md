@@ -1,23 +1,29 @@
 ---
 description: 異種AIレビュー・根拠検証・品質ゲートを統合し、ローカルで自動マージ可否を判定する
-argument-hint: [対象] [--base <branch>] [--reviewer codex]
+argument-hint: [対象] [--base <branch>] [--head <branch>] [--reviewer codex]
 ---
 
-`/aidd:autonomous-review [対象] [--base <branch>] [--reviewer codex]` を、**ローカル専用**のレビュー・ループとして実行してください。GitHub への操作はスコープ外です。`git push`、`gh pr create`、PR 更新、マージ、`git merge` は絶対に実行しません。最終結果は `auto_merge_eligible` / `human_required` / `failed` の判定までです。
+`/aidd:autonomous-review [対象] [--base <branch>] [--head <branch>] [--reviewer codex]` を、**ローカル専用**のレビュー・ループとして実行してください。GitHub への操作はスコープ外です。`git push`、`gh pr create`、PR 更新、マージ、`git merge` は絶対に実行しません。最終結果は `auto_merge_eligible` / `human_required` / `failed` の判定までです。
 
 ## 入力の確定と開始前停止
 
-- 引数を安全に分離する。受け付けるフラグは `--base <branch>` と `--reviewer codex` だけであり、`--reviewer` の既定値も `codex` とする。未知のフラグ、重複フラグ、値のないフラグは `human_required` として終了する。利用者指定の文字列をシェルとして解釈・評価・連結して実行してはならない。
-- `--base` 指定時は、先頭が `-` の値と Git refname として不正な値を拒否する。確認済みのブランチ名だけを、`git diff --no-ext-diff <base>...HEAD` と `git diff --no-ext-diff --name-only <base>...HEAD` の固定位置引数に渡す。ブランチの存在を `git rev-parse --verify --quiet --end-of-options <base>^{commit}` で確認する。
+- 引数を安全に分離する。受け付けるフラグは `--base <branch>`、`--head <branch>`、`--reviewer codex` だけであり、`--reviewer` の既定値も `codex` とする。未知のフラグ、重複フラグ、値のないフラグは `human_required` として終了する。利用者指定の文字列をシェルとして解釈・評価・連結して実行してはならない。
+- `--base` と `--head` は対で指定する。`--head` だけ、同じコミットを指す組、または空の差分は `human_required` として終了する。各値は先頭が `-` の値を拒否し、`git check-ref-format --branch <branch>` と `git rev-parse --verify --quiet --end-of-options <branch>^{commit}` の両方で検証してコミットを確定する。
+- `--base <base> --head <head>` 指定時は、確定したコミットだけを `git diff --no-ext-diff <base>...<head>` と `git diff --no-ext-diff --name-only <base>...<head>` の固定位置引数に渡す。`<head>` は比較対象と品質ゲートの実行対象であり、現在のチェックアウト状態には依存しない。
+- `--base` だけの指定時は、確認済みのブランチ名だけを `git diff --no-ext-diff <base>...HEAD` と `git diff --no-ext-diff --name-only <base>...HEAD` の固定位置引数に渡す。
 - `--base` 未指定時は、未コミット差分とステージ済み差分（`git diff --no-ext-diff` と `git diff --no-ext-diff --staged`）を対象にする。両方を空なら `human_required` として終了する。
 - `[対象]` がある場合は、確定した変更ファイル集合に含まれる相対パスまたは明示的な変更目的だけを許可する。対象に含まれない変更、追跡不能な生成物、または指定対象と変更ファイル集合の不一致があれば、**対象外の変更が混ざる場合、レビューを始めずに停止**する。
 - 各 Git 呼び出しは `--no-ext-diff` を付け、固定したサブコマンドと引数構成だけを使う。任意のシェル文字列、プロジェクト設定の検証コマンド、レビュー出力を `eval`・`source`・コマンド置換で実行してはならない。
+
+### 2ブランチ比較の隔離
+
+`--base` と `--head` の両方がある場合、品質ゲートと周辺コード確認は、実行IDにひも付く空の一時ディレクトリへ固定形式の `git worktree add --detach <temporary-dir> <head>` で作成した worktree だけで行う。現在の作業ツリーを変更してはならない。worktree 作成・削除に失敗した場合は理由を記録して `human_required` とし、作成に成功した一時worktreeだけを終了時に `git worktree remove <temporary-dir>` で削除する。比較対象の base / head 名、確定したSHA、worktreeパス、作成・削除結果を証跡に記録する。
 
 ## 状態と証跡
 
 開始時に UTC 時刻とランダム値から実行IDを作り、消費側プロジェクトの `.aidd/autonomous-review/<実行ID>/` を新規作成する。既存の利用者ファイルは上書きしない。以下を逐次保存し、書き込み失敗は `failed` とする。
 
-- `state.json`: `run_id`、`status`、`target`、`base`、`reviewer`、`rounds`、`findings`、`quality_gates`、`risk_flags`、`residual_risks`、`final_decision` を含む有効なJSON。状態は `started` → `reviewing` → `gating` → 最終判定だけを許可する。
+- `state.json`: `run_id`、`status`、`target`、`base`、`head`、`base_sha`、`head_sha`、`reviewer`、`rounds`、`findings`、`quality_gates`、`risk_flags`、`residual_risks`、`final_decision` を含む有効なJSON。状態は `started` → `reviewing` → `gating` → 最終判定だけを許可する。
 - `report.md`: 対象差分と基準ブランチ、レビュー担当と実行可否、各ラウンドの指摘・根拠・判定・修正／見送り理由、品質ゲートのコマンド・結果・スキップ理由、残存リスク・未検証の前提、最終判定と理由を記録する。
 
 `.aidd/` の成果物をコミット対象にするかは利用側リポジトリの方針に委ねる。コマンド自身は `.gitignore` を変更しない。

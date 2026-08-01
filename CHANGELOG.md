@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.25.2 (2026-08-01)
+
+- `autonomous-review.md`: `--base <branch> --head <branch>` を追加。任意の2ブランチ間の三点差分を、現在の作業ツリーを変更しない一時worktreeでレビュー・品質ゲートの対象にできるようにした
+
 ## 0.25.1 (2026-08-01)
 
 - `autonomous-review.md` を追加: Codex の read-only 異種AIレビュー、`aidd:refuter` による現物検証、最大3ラウンドの最小修正、検出済み品質ゲート、リスク別の自動マージ可否判定をローカルで統合。実行証跡は消費側 `.aidd/autonomous-review/<実行ID>/` に保存し、push・PR作成・マージは行わない

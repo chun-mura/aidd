@@ -4,10 +4,16 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
 command_file="$repo_root/commands/autonomous-review.md"
 
-grep -F -- '/aidd:autonomous-review [対象] [--base <branch>] [--reviewer codex]' "$command_file"
+grep -F -- '/aidd:autonomous-review [対象] [--base <branch>] [--head <branch>] [--reviewer codex]' "$command_file"
+grep -F -- '--head <branch>' "$command_file"
 grep -F -- 'git diff' "$command_file"
 grep -F -- '<base>...HEAD' "$command_file"
-grep -F -- '--end-of-options <base>^{commit}' "$command_file"
+grep -F -- '<base>...<head>' "$command_file"
+grep -F -- 'git worktree add --detach' "$command_file"
+grep -F -- '現在の作業ツリーを変更してはならない' "$command_file"
+grep -F -- '--base` と `--head` は対で指定する' "$command_file"
+grep -F -- 'git check-ref-format --branch <branch>' "$command_file"
+grep -F -- '--end-of-options <branch>^{commit}' "$command_file"
 grep -F -- '対象外の変更が混ざる場合、レビューを始めずに停止' "$command_file"
 grep -F -- 'codex exec --sandbox read-only' "$command_file"
 grep -F -- 'human_required' "$command_file"
