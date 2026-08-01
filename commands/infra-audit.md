@@ -19,8 +19,8 @@ description: 利用側プロジェクトの静的解析(複雑度制御)・重�
    - `@typescript-eslint/no-explicit-any`
    - `sonarjs/cognitive-complexity`
    不足していれば参考値 (関数長60行 / 循環的複雑度20 / ネスト4 / パラメータ6) と導入例を提示する
-3. **重複・未使用コード検出**: `package.json` の `devDependencies` に `jscpd` または `knip` があるか、`.github/workflows/*.yml` 内で実行されているか。未導入なら `npm i -D jscpd knip` と CI 設定例を提示する
-4. **多OS CI**: `.github/workflows/*.yml` の `runs-on:` の値を収集し、`ubuntu-latest` のみなら折衷案 (PR時: ubuntu + macOS、Windows: daily/main push限定) を提示する
+3. **重複・未使用コード検出**: `package.json` の `devDependencies` に `jscpd` または `knip` があるか、`.github/workflows/*.yml` / `*.yaml` 内で実行されているか。未導入なら `npm i -D jscpd knip` と CI 設定例を提示する
+4. **多OS CI**: `.github/workflows/*.yml` / `*.yaml` の `runs-on:` の値を収集し、`ubuntu-latest` のみなら折衷案 (PR時: ubuntu + macOS、Windows: daily/main push限定) を提示する
 
 各項目を実行するには Bash tool で以下相当のコマンドを使う:
 
@@ -36,7 +36,12 @@ echo "package.json: OK"
 if compgen -G ".eslintrc*" > /dev/null || compgen -G "eslint.config.*" > /dev/null; then
   echo "eslint config: OK"
   for rule in complexity max-lines-per-function max-depth max-params "@typescript-eslint/no-explicit-any" "sonarjs/cognitive-complexity"; do
-    grep -q -- "$rule" .eslintrc* eslint.config.* 2>/dev/null && echo "  $rule: OK" || echo "  $rule: 未導入 (参考値: 関数長60行/循環的複雑度20/ネスト4/パラメータ6)"
+    if [ "$rule" = "complexity" ]; then
+      # bare "complexity" rule key, not a substring of e.g. "sonarjs/cognitive-complexity"
+      grep -Eq -- '(^|[^A-Za-z-])"?complexity"?[[:space:]]*:' .eslintrc* eslint.config.* 2>/dev/null && echo "  $rule: OK" || echo "  $rule: 未導入 (参考値: 関数長60行/循環的複雑度20/ネスト4/パラメータ6)"
+    else
+      grep -q -- "$rule" .eslintrc* eslint.config.* 2>/dev/null && echo "  $rule: OK" || echo "  $rule: 未導入 (参考値: 関数長60行/循環的複雑度20/ネスト4/パラメータ6)"
+    fi
   done
 else
   echo "eslint config: 未導入 (.eslintrc.json や eslint.config.js の追加を検討)"
@@ -48,15 +53,19 @@ if grep -q '"jscpd"\|"knip"' package.json 2>/dev/null; then
 else
   echo "duplicate/unused detection: 未導入 (npm i -D jscpd knip を検討)"
 fi
-if [ -d .github/workflows ] && grep -rl 'jscpd\|knip' .github/workflows/*.yml > /dev/null 2>&1; then
+workflow_files=()
+while IFS= read -r -d '' f; do workflow_files+=("$f"); done < <(find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) -print0 2>/dev/null)
+if [ ${#workflow_files[@]} -eq 0 ]; then
+  echo "  CI統合: 対象外 (.github/workflows 内にワークフローファイルなし)"
+elif grep -l 'jscpd\|knip' "${workflow_files[@]}" > /dev/null 2>&1; then
   echo "  CI統合: OK"
 else
   echo "  CI統合: 未導入 (jscpd/knip を CI workflow に組み込むことを検討)"
 fi
 
 # 4. 多OS CI
-if [ -d .github/workflows ]; then
-  oses=$(grep -h 'runs-on:' .github/workflows/*.yml 2>/dev/null | sort -u)
+if [ ${#workflow_files[@]} -gt 0 ]; then
+  oses=$(grep -h 'runs-on:' "${workflow_files[@]}" 2>/dev/null | sort -u)
   echo "runs-on 一覧:"
   echo "$oses"
   if echo "$oses" | grep -q 'windows-latest\|macos-latest'; then
@@ -65,7 +74,7 @@ if [ -d .github/workflows ]; then
     echo "多OS CI: ubuntu-latest のみ (折衷案: PR時は ubuntu-latest + macOS-latest、Windows は daily/main push限定での実行を検討)"
   fi
 else
-  echo "多OS CI: 対象外 (.github/workflows なし)"
+  echo "多OS CI: 対象外 (.github/workflows 内にワークフローファイルなし)"
 fi
 ```
 
