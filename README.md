@@ -67,6 +67,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 | `test-perspectives.md` | 実装対象・変更差分からテスト観点 (6分類 + 信頼境界に触れる変更のみセキュリティ分類) を洗い出し、BVA/ECP 適用フラグを付ける (手法の導出は stdd の担当) |
 | `autonomous-review.md` | ローカル差分または `--base` / `--head` で指定した2ブランチ間の差分を、Codex の read-only 異種AIレビュー、現物反証、品質ゲート、リスク判定で最大3ラウンド検査し、自動マージ可否だけを判定する。push・PR作成・マージは行わない |
 | `doctor.md` | aidd/superpowers の導入状態・バージョン整合・hooks 実行可否を診断する |
+| `infra-audit.md` | 利用側プロジェクトの静的解析(複雑度制御)・重複コード検出(jscpd/knip)・多OS CI の導入状況を診断する。doctor が aidd 自身を診断するのに対し、こちらは利用側プロジェクトの品質ガードを対象とする |
 | `eval.md` | design-review パイプラインの精度測定。`tests/eval/` のゴールデンセット (シード欠陥入り設計書 + 正解キー) にレビューを実行し、検出率・反証誤棄却・デコイ誤検出等を採点して `tests/eval/results/` に記録する (aidd リポジトリ自身で実行) |
 
 ### Agents (サブエージェント定義)
