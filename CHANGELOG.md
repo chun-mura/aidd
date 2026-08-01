@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.25.1 (2026-08-01)
+
+- `autonomous-review.md` を追加: Codex の read-only 異種AIレビュー、`aidd:refuter` による現物検証、最大3ラウンドの最小修正、検出済み品質ゲート、リスク別の自動マージ可否判定をローカルで統合。実行証跡は消費側 `.aidd/autonomous-review/<実行ID>/` に保存し、push・PR作成・マージは行わない
+- `tests/autonomous-review-contract-test.sh` を追加し、レビュー担当の失敗時の `human_required`、構造化出力、品質ゲート、リスク判定、ローカル証跡の契約を検証
+
 ## 0.25.0 (2026-07-18)
 
 重複した運用機能を整理し、常時コンテキストと不要な reviewer 起動を削減。

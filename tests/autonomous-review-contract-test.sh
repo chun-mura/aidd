@@ -1,0 +1,30 @@
+#!/bin/bash
+set -euo pipefail
+
+repo_root=$(cd "$(dirname "$0")/.." && pwd)
+command_file="$repo_root/commands/autonomous-review.md"
+
+grep -F -- '/aidd:autonomous-review [対象] [--base <branch>] [--reviewer codex]' "$command_file"
+grep -F -- 'git diff' "$command_file"
+grep -F -- '<base>...HEAD' "$command_file"
+grep -F -- '--end-of-options <base>^{commit}' "$command_file"
+grep -F -- '対象外の変更が混ざる場合、レビューを始めずに停止' "$command_file"
+grep -F -- 'codex exec --sandbox read-only' "$command_file"
+grep -F -- 'human_required' "$command_file"
+grep -F -- '同一モデルの自己レビューへ黙ってフォールバックしてはならない' "$command_file"
+grep -F -- '"verdict": "approved" | "changes_requested"' "$command_file"
+grep -F -- 'JSON以外の出力' "$command_file"
+grep -F -- '最大3ラウンド' "$command_file"
+grep -F -- 'aidd:refuter' "$command_file"
+grep -F -- '.aidd/review-dismissed.md' "$command_file"
+grep -F -- 'build / lint / format / typecheck / test' "$command_file"
+grep -F -- 'ShellCheck' "$command_file"
+grep -F -- 'Hadolint' "$command_file"
+grep -F -- 'auto_merge_eligible' "$command_file"
+grep -F -- '外部公開APIの破壊的変更' "$command_file"
+grep -F -- '.aidd/autonomous-review/' "$command_file"
+grep -F -- 'state.json' "$command_file"
+grep -F -- 'report.md' "$command_file"
+grep -F -- 'git push' "$command_file"
+grep -F -- 'gh pr create' "$command_file"
+grep -F -- 'レビュー出力を `eval`・`source`・コマンド置換で実行してはならない' "$command_file"
