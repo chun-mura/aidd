@@ -1,6 +1,6 @@
 ---
 description: 異種AIレビュー・根拠検証・品質ゲートを統合し、ローカルで自動マージ可否を判定する
-argument-hint: [対象] [--base <branch>] [--head <branch>] [--reviewer codex]
+argument-hint: "[対象] [--base <branch>] [--head <branch>] [--reviewer codex]"
 ---
 
 `/aidd:autonomous-review [対象] [--base <branch>] [--head <branch>] [--reviewer codex]` を、**ローカル専用**のレビュー・ループとして実行してください。GitHub への操作はスコープ外です。`git push`、`gh pr create`、PR 更新、マージ、`git merge` は絶対に実行しません。最終結果は `auto_merge_eligible` / `human_required` / `failed` の判定までです。

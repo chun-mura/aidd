@@ -1,6 +1,6 @@
 ---
 description: 設計ドキュメントや実装方針を多観点でレビューする
-argument-hint: [設計ファイルのパス or 設計の要約] [--depth=standard|deep] [--review-delta=<前回レビュー後の変更範囲>] [--verify-sources] [--security | --no-security]
+argument-hint: "[設計ファイルのパス or 設計の要約] [--depth=standard|deep] [--review-delta=<前回レビュー後の変更範囲>] [--verify-sources] [--security | --no-security]"
 ---
 
 対象: $ARGUMENTS
