@@ -4,7 +4,12 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
 command_file="$repo_root/commands/autonomous-review.md"
 
-grep -F -- '/aidd:autonomous-review [対象] [--base <branch>] [--head <branch>] [--reviewer codex]' "$command_file"
+grep -F -- '/aidd:autonomous-review [対象] [--base <branch>] [--head <branch>] [--reviewer codex|claude]' "$command_file"
+grep -F -- '--reviewer codex|claude' "$command_file"
+grep -F -- '未指定時の既定値は `codex`' "$command_file"
+grep -F -- '--reviewer claude' "$command_file"
+grep -F -- '同一モデルによる自己レビュー' "$command_file"
+grep -F -- '最終判定は常に `human_required`' "$command_file"
 grep -F -- '--head <branch>' "$command_file"
 grep -F -- 'git diff' "$command_file"
 grep -F -- '<base>...HEAD' "$command_file"

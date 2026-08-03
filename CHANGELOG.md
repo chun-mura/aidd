@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.25.5 (2026-08-03)
+
+- `autonomous-review.md`: `--reviewer claude` を追加し、同一モデル自己レビューを既定の Codex 異種AIレビューの代替として選べるようにした。未指定時は従来どおり `codex`。`--reviewer claude` 時の最終判定は常に `human_required`（`auto_merge_eligible` 不可）
+
 ## 0.25.4 (2026-08-03)
 
 - `autonomous-review.md` / `design-review.md`: `argument-hint` の複数 `[...]` をクォートし、フロントマター YAML のパースエラーを修正
