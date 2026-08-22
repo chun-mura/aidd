@@ -8,10 +8,16 @@ argument-hint: "[対象] [--base <branch>] [--head <branch>] [--reviewer codex|c
 ## 入力の確定と開始前停止
 
 - 引数を安全に分離する。受け付けるフラグは `--base <branch>`、`--head <branch>`、`--reviewer codex|claude` だけであり、`--reviewer` 未指定時の既定値は `codex` とする。`--reviewer` に `codex` と `claude` 以外を指定した場合、未知のフラグ、重複フラグ、値のないフラグは `human_required` として終了する。利用者指定の文字列をシェルとして解釈・評価・連結して実行してはならない。
-- `--base` と `--head` は対で指定する。`--head` だけ、同じコミットを指す組、または空の差分は `human_required` として終了する。各値は先頭が `-` の値を拒否し、`git check-ref-format --branch <branch>` と `git rev-parse --verify --quiet --end-of-options <branch>^{commit}` の両方で検証してコミットを確定する。
+- `--base`、`--head`、`--reviewer` のいずれかが未指定なら、未指定を理由に終了せず、レビュー開始前に AskUserQuestion で未指定項目だけを決める。指定済みの値は再質問しない。質問の前に、ローカルブランチ一覧、現在ブランチ、未コミット差分とステージ済み差分の有無だけを読み取り、選択肢に使う。
+  - `--reviewer` 未指定: `codex`（推奨）と `claude` を選ばせる。回答がなければ既定値 `codex` を使う。
+  - `--base` と `--head` の両方が未指定: 対象モードを選ばせる（作業ツリーの未コミット/ステージ済み差分 / 基準ブランチと HEAD / 2ブランチ比較）。ブランチが必要なモードでは続けてブランチ名を選ばせる。
+  - `--head` だけ指定: `--base` を選ばせる。
+  - `--base` だけ指定: `HEAD` を使うか別の `--head` かを選ばせる。
+  - 利用者が質問を拒否した、または回答から有効なブランチを確定できない場合のみ `human_required` として終了する。
+- `--base` と `--head` は対で指定する。確定後に同じコミットを指す組、または空の差分は `human_required` として終了する。各値は先頭が `-` の値を拒否し、`git check-ref-format --branch <branch>` と `git rev-parse --verify --quiet --end-of-options <branch>^{commit}` の両方で検証してコミットを確定する。
 - `--base <base> --head <head>` 指定時は、確定したコミットだけを `git diff --no-ext-diff <base>...<head>` と `git diff --no-ext-diff --name-only <base>...<head>` の固定位置引数に渡す。`<head>` は比較対象と品質ゲートの実行対象であり、現在のチェックアウト状態には依存しない。
 - `--base` だけの指定時は、確認済みのブランチ名だけを `git diff --no-ext-diff <base>...HEAD` と `git diff --no-ext-diff --name-only <base>...HEAD` の固定位置引数に渡す。
-- `--base` 未指定時は、未コミット差分とステージ済み差分（`git diff --no-ext-diff` と `git diff --no-ext-diff --staged`）を対象にする。両方を空なら `human_required` として終了する。
+- `--base` 未指定時は、未コミット差分とステージ済み差分（`git diff --no-ext-diff` と `git diff --no-ext-diff --staged`）を対象にする。両方を空なら、未指定として AskUserQuestion でブランチ比較に切り替え、それでも空なら `human_required` として終了する。
 - `[対象]` がある場合は、確定した変更ファイル集合に含まれる相対パスまたは明示的な変更目的だけを許可する。対象に含まれない変更、追跡不能な生成物、または指定対象と変更ファイル集合の不一致があれば、**対象外の変更が混ざる場合、レビューを始めずに停止**する。
 - 各 Git 呼び出しは `--no-ext-diff` を付け、固定したサブコマンドと引数構成だけを使う。任意のシェル文字列、プロジェクト設定の検証コマンド、レビュー出力を `eval`・`source`・コマンド置換で実行してはならない。
 
