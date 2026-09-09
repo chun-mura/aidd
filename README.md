@@ -118,7 +118,7 @@ hooks は上記スクリプトをセッション中に自動実行する。フ�
 
 | ファイル | 説明 |
 |---------|------|
-| `CLAUDE.md.template` | プロジェクト概要・技術スタック・コマンド・AI運用をまとめるテンプレート |
+| `CLAUDE.md.template` | プロジェクト概要・技術スタック・コマンド・AI運用をまとめるテンプレート。コメントの置き場所 (How はコード / What はテスト / Why はコミットログ / Why not はコメント) を規約として同梱 |
 | `settings.json.template` | Claude Code 権限設定の基本構成テンプレート |
 | `team-settings.json.template` | チーム導入用。利用プロジェクトの `.claude/settings.json` にマージすると aidd が自動提案される |
 | `design-perspectives.md.template` | `.aidd/design-perspectives.md` の出発点。可観測性・プロジェクト固有観点 (design-review の Agent 4 が読む) |
