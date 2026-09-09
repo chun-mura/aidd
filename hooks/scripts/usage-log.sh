@@ -1,10 +1,9 @@
 #!/bin/bash
-# UserPromptSubmit + PreToolUse(Skill/Task) hook: log aidd command usage for /aidd:retro.
+# UserPromptSubmit + PreToolUse(Skill/Task/Agent) hook: log aidd command usage for /aidd:retro.
 # Non-blocking: always exit 0, never fail the prompt submission or the tool call.
 # Records command counts and last-seen timestamps only.
 # Opt-out: set AIDD_DISABLE_USAGE_LOG=1 (shell env or settings.json "env").
 [ "$AIDD_DISABLE_USAGE_LOG" = "1" ] && exit 0
-input=$(cat)
 
 STATE_DIR="${AIDD_TEST_STATE_DIR:-$HOME/.claude/aidd}"
 USAGE_FILE="$STATE_DIR/usage.json"
@@ -12,30 +11,38 @@ PLUGIN_ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 
 mkdir -p "$STATE_DIR" 2>/dev/null
 
-python3 - "$USAGE_FILE" "$PLUGIN_ROOT" "$input" <<'PYEOF' 2>/dev/null
+# The payload stays on stdin. Passing it as an argument breaks past ARG_MAX (a subagent
+# prompt can carry a whole diff), and exec would fail silently, dropping the record.
+PY_CODE=$(cat <<'PYEOF'
 import fcntl, json, os, re, sys
 from datetime import datetime, timezone
 
-usage_file, plugin_root, raw = sys.argv[1], sys.argv[2], sys.argv[3]
+usage_file, plugin_root = sys.argv[1], sys.argv[2]
 now = datetime.now(timezone.utc).isoformat()
 
 try:
-    event = json.loads(raw)
+    event = json.loads(sys.stdin.read())
 except Exception:
     event = {}
 
-# Both entry paths name the command as "aidd:<name>": the typed prompt on UserPromptSubmit,
-# and the tool arguments when an agent invokes it via Skill or hands it to a subagent (Task).
-# A single run may match on both paths, so command_counts is an upper bound; /aidd:retro
-# judges staleness by last_seen.
-haystacks = [event.get("prompt") or ""]
-tool_input = event.get("tool_input")
-if tool_input is not None:
-    haystacks.append(json.dumps(tool_input, ensure_ascii=False))
-
 names = set()
-for text in haystacks:
-    names.update(re.findall(r"aidd:([a-zA-Z0-9_-]+)", text))
+tool_input = event.get("tool_input") or {}
+
+# The Skill tool names the command exactly, so read the key instead of guessing.
+if event.get("tool_name") == "Skill":
+    skill = tool_input.get("skill")
+    if isinstance(skill, str) and skill.startswith("aidd:"):
+        names.add(skill[len("aidd:"):])
+else:
+    # Prompts (UserPromptSubmit) and subagent instructions (Task/Agent) only ever mention
+    # the command as "aidd:<name>". This is a heuristic: a prompt that merely talks about a
+    # command counts as one use of it. Over-counting is the acceptable side, since /aidd:retro
+    # uses this to find assets nobody uses.
+    haystacks = [event.get("prompt") or ""]
+    if tool_input:
+        haystacks.append(json.dumps(tool_input, ensure_ascii=False))
+    for text in haystacks:
+        names.update(re.findall(r"aidd:([a-zA-Z0-9_-]+)", text))
 
 # Only names backed by an actual asset are counted; a typo or half-typed string is not a command.
 known = set()
@@ -88,5 +95,8 @@ with open(lock_file, "w") as lock:
         finally:
             os.umask(old_umask)
 PYEOF
+)
+
+python3 -c "$PY_CODE" "$USAGE_FILE" "$PLUGIN_ROOT" 2>/dev/null
 
 exit 0

@@ -72,3 +72,42 @@ import json, sys
 data = json.load(open(sys.argv[1]))
 assert "prompt_log" not in data
 PYEOF
+
+# The Skill tool names the command exactly; the key is read, not pattern-matched.
+printf '%s' '{"hook_event_name":"PreToolUse","tool_name":"Skill","tool_input":{"skill":"aidd:doctor","args":"aidd:retro is only mentioned here"}}' | \
+  AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$usage_log"
+python3 - "$tmp_dir/aidd/usage.json" <<'PYEOF'
+import json, sys
+data = json.load(open(sys.argv[1]))
+assert data["command_counts"]["doctor"] == 1
+assert "retro" not in data["command_counts"]
+PYEOF
+
+# A payload larger than ARG_MAX must still be recorded: it is read from stdin, not argv.
+python3 - "$usage_log" "$tmp_dir/aidd" <<'PYEOF'
+import json, os, subprocess, sys
+usage_log, state_dir = sys.argv[1], sys.argv[2]
+payload = json.dumps({
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Task",
+    "tool_input": {"prompt": "run aidd:design-doc\n" + "x" * 1_200_000},
+})
+assert len(payload) > 1_048_576
+subprocess.run(
+    ["bash", usage_log],
+    input=payload.encode(),
+    check=True,
+    env=dict(os.environ, AIDD_TEST_STATE_DIR=state_dir),
+)
+data = json.load(open(os.path.join(state_dir, "usage.json")))
+assert data["command_counts"]["design-doc"] == 1, data["command_counts"]
+PYEOF
+
+# The PreToolUse matcher must be anchored: unanchored "Task" also matches TaskCreate/TaskOutput,
+# and "Skill" matches ListSkills/SearchSkills, firing this hook on unrelated tools.
+python3 - "$repo_root/hooks/hooks.json" <<'PYEOF'
+import json, sys
+hooks = json.load(open(sys.argv[1]))["hooks"]["PreToolUse"]
+matchers = [entry["matcher"] for entry in hooks]
+assert "^(Skill|Task|Agent)$" in matchers, matchers
+PYEOF
