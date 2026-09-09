@@ -94,7 +94,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 | スクリプト | 動作 |
 |---------|------|
 | `session-start.sh` | SessionStart で aidd 資産の使いどころと「実装を左右する不明点は AskUserQuestion で確認」を注入。superpowers 未導入を検知して警告 |
-| `usage-log.sh` | UserPromptSubmit と Skill / サブエージェント (Task) の起動時に、aidd コマンド使用数・最終利用時刻を `~/.claude/aidd/usage.json` に記録 (`/aidd:retro` が読む)。実在するコマンド・skill 名だけを計上し、旧版が残した `prompt_log` は起動時に削除する |
+| `usage-log.sh` | 起動を2経路で記録し、aidd コマンド使用数・最終利用時刻を `~/.claude/aidd/usage.json` に残す (`/aidd:retro` が読む): 行頭が `/aidd:<name>` のプロンプト (UserPromptSubmit) と、Skill ツール経由の起動 (PreToolUse、サブエージェント内の起動もここに入る)。文中で名前に触れただけのプロンプトは計上しない。実在するコマンド・skill 名だけを計上し、旧版が残した `prompt_log` は起動時に削除する |
 | `tool-reminder.sh` | `git commit` 前の test-perspectives 確認、`gh pr/issue create・edit` 前の日本語確認、`git push` 後の PR 同期確認を1本で処理 (非ブロック) |
 
 #### Hooks の書き込み先と無効化

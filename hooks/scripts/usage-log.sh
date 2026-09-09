@@ -1,5 +1,5 @@
 #!/bin/bash
-# UserPromptSubmit + PreToolUse(Skill/Task/Agent) hook: log aidd command usage for /aidd:retro.
+# UserPromptSubmit + PreToolUse(Skill) hook: log aidd command usage for /aidd:retro.
 # Non-blocking: always exit 0, never fail the prompt submission or the tool call.
 # Records command counts and last-seen timestamps only.
 # Opt-out: set AIDD_DISABLE_USAGE_LOG=1 (shell env or settings.json "env").
@@ -28,21 +28,21 @@ except Exception:
 names = set()
 tool_input = event.get("tool_input") or {}
 
-# The Skill tool names the command exactly, so read the key instead of guessing.
+# Only actual invocations are counted, on the two paths that identify one:
+#   - the Skill tool, which names the command in tool_input.skill (this also covers a
+#     subagent's own invocation, since plugin hooks fire inside subagents)
+#   - a prompt that starts with the slash command
+# Scanning free text for "aidd:<name>" was tried and reverted: a single run counted 4 times
+# (parent prompt, Agent dispatch prompt, the subagent's Skill call, task notification),
+# and a prompt that merely discusses a command is not a use of it.
 if event.get("tool_name") == "Skill":
     skill = tool_input.get("skill")
     if isinstance(skill, str) and skill.startswith("aidd:"):
         names.add(skill[len("aidd:"):])
 else:
-    # Prompts (UserPromptSubmit) and subagent instructions (Task/Agent) only ever mention
-    # the command as "aidd:<name>". This is a heuristic: a prompt that merely talks about a
-    # command counts as one use of it. Over-counting is the acceptable side, since /aidd:retro
-    # uses this to find assets nobody uses.
-    haystacks = [event.get("prompt") or ""]
-    if tool_input:
-        haystacks.append(json.dumps(tool_input, ensure_ascii=False))
-    for text in haystacks:
-        names.update(re.findall(r"aidd:([a-zA-Z0-9_-]+)", text))
+    match = re.match(r"\s*/aidd:([a-zA-Z0-9_-]+)", event.get("prompt") or "")
+    if match:
+        names.add(match.group(1))
 
 # Only names backed by an actual asset are counted; a typo or half-typed string is not a command.
 known = set()
