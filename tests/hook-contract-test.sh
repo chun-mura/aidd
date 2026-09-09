@@ -37,3 +37,38 @@ data = json.load(open(sys.argv[1]))
 assert data["command_counts"]["design-review"] == 2
 assert "prompt_log" not in data
 PYEOF
+
+# Skill / subagent invocations carry the command name in tool_input, not in a prompt.
+printf '%s' '{"hook_event_name":"PreToolUse","tool_name":"Skill","tool_input":{"skill":"aidd:adr"}}' | \
+  AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$usage_log"
+printf '%s' '{"hook_event_name":"PreToolUse","tool_name":"Task","tool_input":{"prompt":"run aidd:autonomous-review on the branch"}}' | \
+  AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$usage_log"
+python3 - "$tmp_dir/aidd/usage.json" <<'PYEOF'
+import json, sys
+data = json.load(open(sys.argv[1]))
+assert data["command_counts"]["adr"] == 1
+assert data["command_counts"]["autonomous-review"] == 1
+assert "adr" in data["last_seen"]
+PYEOF
+
+# Names without a backing command/skill file are not commands.
+printf '%s' '{"prompt":"/aidd:aut"}' | AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$usage_log"
+python3 - "$tmp_dir/aidd/usage.json" <<'PYEOF'
+import json, sys
+data = json.load(open(sys.argv[1]))
+assert "aut" not in data["command_counts"]
+PYEOF
+
+# prompt_log left behind by pre-0.25.0 installs is dropped, not carried forward.
+python3 - "$tmp_dir/aidd/usage.json" <<'PYEOF'
+import json, sys
+data = json.load(open(sys.argv[1]))
+data["prompt_log"] = [{"ts": "2026-01-01T00:00:00+00:00", "text": "secret prompt fragment"}]
+json.dump(data, open(sys.argv[1], "w"))
+PYEOF
+printf '%s' '{"prompt":"no aidd command here"}' | AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$usage_log"
+python3 - "$tmp_dir/aidd/usage.json" <<'PYEOF'
+import json, sys
+data = json.load(open(sys.argv[1]))
+assert "prompt_log" not in data
+PYEOF
