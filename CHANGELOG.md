@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.27.0 (2026-09-09)
+
+- `autonomous-review.md`: `state.json` のキーを型・必須・意味の表として固定し、`schema_version` を導入。同じ概念への別名 (`head_sha_at_start` / `findings_summary` / `worktree_isolation` など) を禁止し、`reviewer_version` / `reviewer_command` / `final_decision_reason` / `worktree` を正規キーに昇格。必須キー欠落・値域外の書き込みは `failed` とする。run を横断した証跡集計ができなかったため (#11)
+- `autonomous-review.md` / `review-loop` skill: `deferred` の追跡先 (確定した issue 番号、または `.aidd/review-dismissed.md` への理由つき追記) をループの終了条件に加えた。どちらも満たさない `deferred` は `tracking: unresolved` として `human_required` とし、`auto_merge_eligible` にしない。判定した時点で指摘が証跡の中に消えていたため (#10)
+
 ## 0.26.0 (2026-09-09)
 
 - `autonomous-review.md`: レビュー担当の verdict に関わらず、差分の性質に応じた観点別レビューを条件付きで追加する。例外捕捉・既定値フォールバック・空値返却を含む差分では `aidd:reviewer` にエラーハンドリング観点を、信頼境界を跨ぐ差分では `aidd:security-reviewer` を実行し、該当分が未実行なら `auto_merge_eligible` にしない。単一レビュー担当の `approved` を網羅性の根拠にできないため (#9)

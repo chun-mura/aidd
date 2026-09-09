@@ -65,7 +65,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 | `issue-split.md` | 設計を独立マージ可能なPR単位 (縦切り・5ファイル以内目安) に分割し、承認後に GitHub issue 化。design-doc が規模超過を検知すると提案 |
 | `design-sync.md` | 設計書と実装の乖離を検知し、status を最新化する |
 | `test-perspectives.md` | 実装対象・変更差分からテスト観点 (6分類 + 信頼境界に触れる変更のみセキュリティ分類) を洗い出し、BVA/ECP 適用フラグを付ける (手法の導出は stdd の担当) |
-| `autonomous-review.md` | ローカル差分または `--base` / `--head` で指定した2ブランチ間の差分を、既定の Codex read-only 異種AIレビュー（`--reviewer claude` で同一モデル自己レビュー）、差分の性質に応じた観点別レビュー (エラーハンドリング / セキュリティ) の条件付き追加、現物反証、品質ゲート、リスク判定で最大3ラウンド検査し、自動マージ可否だけを判定する。未指定の `--base` / `--head` / `--reviewer` は AskUserQuestion で決める。`--reviewer claude` 時は最終判定が常に `human_required`。push・PR作成・マージは行わない |
+| `autonomous-review.md` | ローカル差分または `--base` / `--head` で指定した2ブランチ間の差分を、既定の Codex read-only 異種AIレビュー（`--reviewer claude` で同一モデル自己レビュー）、差分の性質に応じた観点別レビュー (エラーハンドリング / セキュリティ) の条件付き追加、現物反証、品質ゲート、リスク判定で最大3ラウンド検査し、`deferred` は追跡先 (issue 番号 or `review-dismissed.md`) の確定を終了条件にし、自動マージ可否だけを判定する。未指定の `--base` / `--head` / `--reviewer` は AskUserQuestion で決める。`--reviewer claude` 時は最終判定が常に `human_required`。push・PR作成・マージは行わない |
 | `doctor.md` | aidd/superpowers の導入状態・バージョン整合・hooks 実行可否を診断する |
 | `infra-audit.md` | 利用側プロジェクトの静的解析(複雑度制御)・重複コード検出(jscpd/knip)・多OS CI の導入状況を診断する。doctor が aidd 自身を診断するのに対し、こちらは利用側プロジェクトの品質ガードを対象とする |
 | `eval.md` | design-review パイプラインの精度測定。`tests/eval/` のゴールデンセット (シード欠陥入り設計書 + 正解キー) にレビューを実行し、検出率・反証誤棄却・デコイ誤検出等を採点して `tests/eval/results/` に記録する (aidd リポジトリ自身で実行) |
@@ -87,7 +87,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 |---------|------|
 | `adr-recall/` | アーキ変更・既存構造変更・設計判断の前 |
 | `model-selection/` | サブエージェント起動時・model 指定に迷ったとき |
-| `review-loop/` | レビュー→修正のラウンドを反復するとき・指摘が尽きないとき・重要度語彙が混在したとき (最大3ラウンド、終了条件、deferred mid、棄却指摘の持ち越しを規定) |
+| `review-loop/` | レビュー→修正のラウンドを反復するとき・指摘が尽きないとき・重要度語彙が混在したとき (最大3ラウンド、終了条件、deferred mid と認める追跡先、棄却指摘の持ち越しを規定) |
 
 ### Hooks (強制力のある運用)
 
