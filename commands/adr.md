@@ -12,7 +12,7 @@ argument-hint: [決定内容の要約]
 1. `git fetch --quiet` を試す。失敗したら中止せず、リモート未確認のまま採番したことを報告する
 2. ローカル作業ツリー: `docs/adr/` のファイル名
 3. ローカルの全ブランチ: `git for-each-ref --format='%(refname)' refs/heads/` の各 ref に対する `git ls-tree -r --name-only <ref> -- docs/adr/`
-4. マージ済みリモート: `git ls-tree -r --name-only origin/HEAD -- docs/adr/`
+4. マージ済みリモート: `git symbolic-ref --quiet refs/remotes/origin/HEAD` で既定ブランチを確認し、取れた ref に対して `git ls-tree -r --name-only <ref> -- docs/adr/` を実行する。`origin/HEAD` は clone 以外の方法で作られたリポジトリ (CI の checkout など) では未設定で、`git ls-tree ... origin/HEAD` は `fatal: Not a valid object name origin/HEAD` で終了コード 128 になる。未設定なら手順 5 に委ね、その旨を報告する
 5. 未マージのリモートブランチ (エージェントを worktree で並行実行しているなど、並行作業がある場合は必須。ブランチ数が多いと重いので、それ以外では省略してよい):
 
 ```
