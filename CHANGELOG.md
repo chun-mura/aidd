@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.26.0 (2026-09-09)
+
+- `autonomous-review.md`: レビュー担当の verdict に関わらず、差分の性質に応じた観点別レビューを条件付きで追加する。例外捕捉・既定値フォールバック・空値返却を含む差分では `aidd:reviewer` にエラーハンドリング観点を、信頼境界を跨ぐ差分では `aidd:security-reviewer` を実行し、該当分が未実行なら `auto_merge_eligible` にしない。単一レビュー担当の `approved` を網羅性の根拠にできないため (#9)
+- `usage-log.sh`: UserPromptSubmit だけでなく PreToolUse(Skill / Task / Agent) でも記録し、Skill・サブエージェント経由の起動を取りこぼさないようにした。計上対象を `commands/` と `skills/` の実在名に限定し、旧版が残した `prompt_log` (プロンプト先頭120文字) を hook 実行時に削除する (#7)
+
 ## 0.25.6 (2026-08-22)
 
 - `autonomous-review.md`: `--base` / `--head` / `--reviewer` が未指定でも即終了せず、AskUserQuestion で未指定項目だけを決めてからレビューを始める。作業ツリー差分が空のときもブランチ比較へ切り替えを尋ねる
