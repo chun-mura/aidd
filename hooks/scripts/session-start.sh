@@ -8,11 +8,12 @@ echo 'aidd: 設計案は design-review、不明点は確認、コミット前は
 # once in context it stays effective, so re-injecting every prompt only burned tokens).
 # The wording names no single channel on purpose: naming AskUserQuestion sent supervised
 # workers and non-interactive runs (print mode, scheduled sessions) toward a tool with nobody
-# to answer it, instead of the channel back to whoever dispatched them.
+# to answer it, instead of the channel back to whoever dispatched them. Keep it one short
+# sentence per the token-optimization spec — this text enters every session.
 # Opt-out: set AIDD_DISABLE_CLARIFY_NUDGE=1 (shell env or settings.json "env").
 if [ "$AIDD_DISABLE_CLARIFY_NUDGE" != "1" ]; then
   cat <<'EOF'
-aidd: if a request has ambiguities that would change the implementation or design, confirm them instead of guessing, through whichever channel this session actually has: AskUserQuestion in an interactive session, otherwise the channel back to whoever dispatched this session (the orchestration layer's ask/reply, a reply to the parent agent). If no channel is available, state the assumption you proceeded on in your final report. For trivial choices, proceed with sensible defaults.
+aidd: if a request has ambiguities that would change the implementation or design, confirm them instead of guessing — AskUserQuestion if interactive, otherwise back to whoever dispatched this session; if neither exists, state the assumption in your final report. For trivial choices, use sensible defaults.
 EOF
 fi
 
