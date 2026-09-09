@@ -65,7 +65,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 | `issue-split.md` | 設計を独立マージ可能なPR単位 (縦切り・5ファイル以内目安) に分割し、承認後に GitHub issue 化。design-doc が規模超過を検知すると提案 |
 | `design-sync.md` | 設計書と実装の乖離を検知し、status を最新化する |
 | `test-perspectives.md` | 実装対象・変更差分からテスト観点 (6分類 + 信頼境界に触れる変更のみセキュリティ分類) を洗い出し、BVA/ECP 適用フラグを付ける (手法の導出は stdd の担当) |
-| `autonomous-review.md` | ローカル差分または `--base` / `--head` で指定した2ブランチ間の差分を、既定の Codex read-only 異種AIレビュー（`--reviewer claude` で同一モデル自己レビュー）、現物反証、品質ゲート、リスク判定で最大3ラウンド検査し、自動マージ可否だけを判定する。未指定の `--base` / `--head` / `--reviewer` は AskUserQuestion で決める。`--reviewer claude` 時は最終判定が常に `human_required`。push・PR作成・マージは行わない |
+| `autonomous-review.md` | ローカル差分または `--base` / `--head` で指定した2ブランチ間の差分を、既定の Codex read-only 異種AIレビュー（`--reviewer claude` で同一モデル自己レビュー）、差分の性質に応じた観点別レビュー (エラーハンドリング / セキュリティ) の条件付き追加、現物反証、品質ゲート、リスク判定で最大3ラウンド検査し、自動マージ可否だけを判定する。未指定の `--base` / `--head` / `--reviewer` は AskUserQuestion で決める。`--reviewer claude` 時は最終判定が常に `human_required`。push・PR作成・マージは行わない |
 | `doctor.md` | aidd/superpowers の導入状態・バージョン整合・hooks 実行可否を診断する |
 | `infra-audit.md` | 利用側プロジェクトの静的解析(複雑度制御)・重複コード検出(jscpd/knip)・多OS CI の導入状況を診断する。doctor が aidd 自身を診断するのに対し、こちらは利用側プロジェクトの品質ガードを対象とする |
 | `eval.md` | design-review パイプラインの精度測定。`tests/eval/` のゴールデンセット (シード欠陥入り設計書 + 正解キー) にレビューを実行し、検出率・反証誤棄却・デコイ誤検出等を採点して `tests/eval/results/` に記録する (aidd リポジトリ自身で実行) |
@@ -94,7 +94,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 | スクリプト | 動作 |
 |---------|------|
 | `session-start.sh` | SessionStart で aidd 資産の使いどころと「実装を左右する不明点は AskUserQuestion で確認」を注入。superpowers 未導入を検知して警告 |
-| `usage-log.sh` | UserPromptSubmit 毎に aidd コマンド使用数・最終利用時刻を `~/.claude/aidd/usage.json` に記録 (`/aidd:retro` が読む) |
+| `usage-log.sh` | 起動を2経路で記録し、aidd コマンド使用数・最終利用時刻を `~/.claude/aidd/usage.json` に残す (`/aidd:retro` が読む): 行頭が `/aidd:<name>` のプロンプト (UserPromptSubmit) と、Skill ツール経由の起動 (PreToolUse、サブエージェント内の起動もここに入る)。文中で名前に触れただけのプロンプトは計上しない。実在するコマンド・skill 名だけを計上し、旧版が残した `prompt_log` は起動時に削除する |
 | `tool-reminder.sh` | `git commit` 前の test-perspectives 確認、`gh pr/issue create・edit` 前の日本語確認、`git push` 後の PR 同期確認を1本で処理 (非ブロック) |
 
 #### Hooks の書き込み先と無効化
@@ -105,11 +105,11 @@ hooks は上記スクリプトをセッション中に自動実行する。フ�
 |-----------|------|-----------|
 | `~/.claude/aidd/usage.json` | `/aidd:*` コマンドの使用数・最終使用時刻 | `usage-log.sh` |
 
-プロンプトログは `/aidd:retro` がコマンド昇格候補を検出するためだけに使う。記録したくない場合や注入がノイズな場合は、環境変数で個別に無効化できる (シェル環境、または settings.json の `env` で設定):
+プロンプト本文は記録しない (0.25.0 で廃止。旧版が書いた `prompt_log` は次回の hook 実行時に削除される)。記録したくない場合や注入がノイズな場合は、環境変数で個別に無効化できる (シェル環境、または settings.json の `env` で設定):
 
 | 変数 | 効果 |
 |------|------|
-| `AIDD_DISABLE_USAGE_LOG=1` | `usage-log.sh` の利用統計・プロンプト記録をすべて止める |
+| `AIDD_DISABLE_USAGE_LOG=1` | `usage-log.sh` の利用統計の記録をすべて止める (`prompt_log` の削除も行われなくなる) |
 | `AIDD_DISABLE_CLARIFY_NUDGE=1` | `session-start.sh` の AskUserQuestion 確認指示の注入を止める |
 
 ### Templates (設定雛形)
