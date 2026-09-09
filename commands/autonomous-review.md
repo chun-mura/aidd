@@ -29,8 +29,8 @@ argument-hint: "[対象] [--base <branch>] [--head <branch>] [--reviewer codex|c
 
 開始時に UTC 時刻とランダム値から実行IDを作り、消費側プロジェクトの `.aidd/autonomous-review/<実行ID>/` を新規作成する。既存の利用者ファイルは上書きしない。以下を逐次保存し、書き込み失敗は `failed` とする。
 
-- `state.json`: `run_id`、`status`、`target`、`base`、`head`、`base_sha`、`head_sha`、`reviewer`、`rounds`、`findings`、`quality_gates`、`risk_flags`、`residual_risks`、`final_decision` を含む有効なJSON。状態は `started` → `reviewing` → `gating` → 最終判定だけを許可する。
-- `report.md`: 対象差分と基準ブランチ、レビュー担当と実行可否、各ラウンドの指摘・根拠・判定・修正／見送り理由、品質ゲートのコマンド・結果・スキップ理由、残存リスク・未検証の前提、最終判定と理由を記録する。
+- `state.json`: `run_id`、`status`、`target`、`base`、`head`、`base_sha`、`head_sha`、`reviewer`、`perspective_reviews`、`rounds`、`findings`、`quality_gates`、`risk_flags`、`residual_risks`、`final_decision` を含む有効なJSON。状態は `started` → `reviewing` → `gating` → 最終判定だけを許可する。
+- `report.md`: 対象差分と基準ブランチ、レビュー担当と実行可否、観点別レビューの該当理由と実行結果、各ラウンドの指摘・根拠・判定・修正／見送り理由、品質ゲートのコマンド・結果・スキップ理由、残存リスク・未検証の前提、最終判定と理由を記録する。レビュー担当の `approved` は網羅的レビューの証明ではないことを明記する。
 
 `.aidd/` の成果物をコミット対象にするかは利用側リポジトリの方針に委ねる。コマンド自身は `.gitignore` を変更しない。
 
@@ -64,12 +64,17 @@ argument-hint: "[対象] [--base <branch>] [--head <branch>] [--reviewer codex|c
 }
 ```
 
-4. 各有効な指摘を `aidd:refuter` の方針で現物検証し、`confirmed`、`false_positive`、`deferred` のいずれかに判定する。指摘が矛盾する、根拠が不足する、仕様判断が必要である場合は修正せず `deferred` にする。
-5. `confirmed` の blocker / major だけを最小限に修正する。minor / nit は低リスクかつ安価な場合だけ修正し、好みだけの指摘は修正しない。修正理由・見送り理由・該当コミット前後の差分を記録する。
-6. ロジックを変えた場合は、`/aidd:test-perspectives` で観点を洗い出し、手法・テストスイートの評価は stdd に委ねる。superpowers の実装・TDD・検証プロセスに従い、関連テストを追加または更新する。新規・変更テストは可能な範囲で実装を意図的に壊した場合に失敗することを確認する。
-7. 次ラウンドでは修正差分を対象に戻す。3ラウンド後に confirmed の blocker / major が残る場合は `failed` とする。
+4. 差分の性質に応じて観点別レビューを追加で実行する。単一のレビュー担当は観点が構造的に欠けるため、2 のレビュー担当が `approved` / 0 findings を返した場合も該当する観点別レビューを省略しない。該当判定は差分の意味を見て行い、該当理由・実行有無・結果を `state.json` の `perspective_reviews` と `report.md` に記録する。
+   - エラーハンドリング観点: 差分に例外捕捉 (`try` / `catch` / `except` / `rescue`)、既定値へのフォールバック (`??` / `||` / `or` による代替値)、空配列・`null`・`undefined` の返却、再送出しないログ出力のいずれかが含まれる場合、`aidd:reviewer` に「握り潰されたエラー、沈黙するフォールバック、本番で沈黙して壊れる経路」の観点だけを割り当てて実行する。
+   - セキュリティ観点: 差分が信頼境界を跨ぐ場合 (外部入力、認証・認可、秘密情報、公開エンドポイント、権限設定)、`aidd:security-reviewer` を実行する。
+   - 追加レビューにも 3 と同じJSON契約を要求し、得られた指摘は主レビューの指摘と同じ経路で 5 の現物検証にかける。
+   - 該当する観点別レビューを実行できなかった場合は、理由を記録して `human_required` とする。
+5. 各有効な指摘を `aidd:refuter` の方針で現物検証し、`confirmed`、`false_positive`、`deferred` のいずれかに判定する。指摘が矛盾する、根拠が不足する、仕様判断が必要である場合は修正せず `deferred` にする。
+6. `confirmed` の blocker / major だけを最小限に修正する。minor / nit は低リスクかつ安価な場合だけ修正し、好みだけの指摘は修正しない。修正理由・見送り理由・該当コミット前後の差分を記録する。
+7. ロジックを変えた場合は、`/aidd:test-perspectives` で観点を洗い出し、手法・テストスイートの評価は stdd に委ねる。superpowers の実装・TDD・検証プロセスに従い、関連テストを追加または更新する。新規・変更テストは可能な範囲で実装を意図的に壊した場合に失敗することを確認する。
+8. 次ラウンドでは修正差分を対象に戻す。3ラウンド後に confirmed の blocker / major が残る場合は `failed` とする。
 
-AIがLGTMだったことは安全性の保証ではない。`--reviewer codex` ではレビュー担当は Codex、`--reviewer claude` では同一モデルの自己レビューとする。検収観点は必要に応じて `aidd:reviewer` を使い、役割を重複させない。
+AIがLGTMだったことは安全性の保証ではない。**レビュー担当が `approved` を返したことは、網羅的にレビューされたことを意味しない**。異種であることと網羅性は別であり、単一のレビュー担当では観点が欠けるため、4 の観点別レビューは verdict に関わらず該当時は必ず実行する。`--reviewer codex` ではレビュー担当は Codex、`--reviewer claude` では同一モデルの自己レビューとする。検収観点は必要に応じて `aidd:reviewer` を使い、役割を重複させない。
 
 ## 品質ゲート
 
@@ -84,4 +89,4 @@ AIがLGTMだったことは安全性の保証ではない。`--reviewer codex` �
 
 次を意味判断で検査し、一つでも該当すれば理由とファイルを記録して `human_required` とする: 認証・認可・秘密情報・暗号、決済・課金、DBスキーマまたはデータ移行、外部公開APIの破壊的変更、インフラ権限・デプロイ・CI権限、依存関係の大幅更新、ロールバック不能な変更、UIの見た目・操作感など人間の体験確認が必要な変更。
 
-`--reviewer claude` の場合は、自己レビューである残存リスクをレポートに必ず記録し、他条件を満たしていても最終判定は常に `human_required` とする（`auto_merge_eligible` にはしない）。`--reviewer codex` の場合、`auto_merge_eligible` は異種AIレビュー完了、必須品質ゲート全成功、confirmed blocker / major なし、高リスク領域非該当、実行証跡と残存リスク記録済みのすべてを満たす場合だけにする。それ以外で解決不能なレビュー・検証失敗は `failed`、人間の判断が必要な場合、または異種AIレビューが未実施の場合は `human_required` とする。
+`--reviewer claude` の場合は、自己レビューである残存リスクをレポートに必ず記録し、他条件を満たしていても最終判定は常に `human_required` とする（`auto_merge_eligible` にはしない）。`--reviewer codex` の場合、`auto_merge_eligible` は異種AIレビュー完了、該当する観点別レビューの完了、必須品質ゲート全成功、confirmed blocker / major なし、高リスク領域非該当、実行証跡と残存リスク記録済みのすべてを満たす場合だけにする。それ以外で解決不能なレビュー・検証失敗は `failed`、人間の判断が必要な場合、または異種AIレビューが未実施の場合は `human_required` とする。
