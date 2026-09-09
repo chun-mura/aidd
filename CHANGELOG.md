@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.27.1 (2026-09-09)
+
+- `adr.md`: 採番手順を追加。チェックアウト中の `docs/adr/` だけでなく、ローカル全ブランチ・`origin/HEAD` (未設定なら `git symbolic-ref` で検出して手順を委譲)・(並行作業がある場合は) 未マージのリモートブランチから既存番号を集め、その最大 +1 を使う。worktree / ブランチを並行させると同じ番号が二重に生まれ、番号は本文中と他 ADR から参照されるため後からの振り直しが高コストだったため。番号を捨てて slug だけにする代替案とその不採用理由もコマンド内に残した (#12)
+
 ## 0.27.0 (2026-09-09)
 
 - `autonomous-review.md`: `state.json` のキーを型・必須・意味の表として固定し、`schema_version` を導入。同じ概念への別名 (`head_sha_at_start` / `findings_summary` / `worktree_isolation` など) を禁止し、`reviewer_version` / `reviewer_command` / `final_decision_reason` / `worktree` を正規キーに昇格。必須キー欠落・値域外の書き込みは `failed` とする。run を横断した証跡集計ができなかったため (#11)
