@@ -219,11 +219,13 @@ def env_regex(name, default):
         return re.compile(default)
 
 
-def scan(args, short_with_value="", long_with_value=()):
+def scan(args, short_with_value="", long_with_value=(), short_attached=""):
     """Split git-style args into short flag letters, long flag names and positionals.
 
     Short clusters are read letter by letter (-am is -a -m); a letter that takes a value ends
     the cluster (-ma is -m "a"), and a value given as the next word is not read as a flag.
+    A letter whose value is optional and only attached (-S[<keyid>]) ends the cluster too, but
+    the next word stays an argument of its own (-S -a is -S and -a).
     """
     shorts, longs, positionals = set(), set(), []
     i = 0
@@ -244,6 +246,8 @@ def scan(args, short_with_value="", long_with_value=()):
                 if letter in short_with_value:
                     if j == len(arg) - 2:
                         i += 1
+                    break
+                if letter in short_attached:
                     break
         else:
             positionals.append(arg)
@@ -378,7 +382,38 @@ UNNAMED_STAGE = "aidd: {} は変更を名指しせずにステージするため
 STASH = "aidd: git stash は拒否した。stash のスタックは worktree とセッションの間で共有され、別のセッションの変更を pop したり消したりする。退避は一時コミットか別の worktree で行うこと (git stash list / show は可)。"
 
 
-def deny_unsafe_git(sub, args):
+def is_whole_tree(pathspec, directory, top):
+    """True if a pathspec names the directory itself, the repository root or above (., ./, :, :/, ..)."""
+    base = directory
+    rest = pathspec
+    if pathspec.startswith(":("):
+        end = pathspec.find(")")
+        magic = pathspec[2:end].split(",") if end > 0 else []
+        if "exclude" in magic:
+            return False
+        if "top" in magic:
+            base = top
+        rest = pathspec[end + 1:] if end > 0 else ""
+    elif pathspec.startswith(":"):
+        rest = pathspec[1:]
+        magic = ""
+        while rest and rest[0] in "/!^":
+            magic += rest[0]
+            rest = rest[1:]
+        if "!" in magic or "^" in magic:
+            return False
+        if rest.startswith(":"):
+            rest = rest[1:]
+        if "/" in magic:
+            base = top
+    resolved = os.path.realpath(os.path.join(base, rest or "."))
+    if resolved == os.path.realpath(directory):
+        return True
+    root = os.path.realpath(top)
+    return root == resolved or root.startswith(resolved.rstrip(os.sep) + os.sep)
+
+
+def deny_unsafe_git(sub, args, directory):
     if env.get("AIDD_DISABLE_GIT_SAFETY") == "1":
         return
     if sub == "stash":
@@ -389,9 +424,21 @@ def deny_unsafe_git(sub, args):
         if "--hard" in longs:
             add(denials, DISCARDS.format("git reset --hard"))
     elif sub == "checkout":
-        _, _, positionals = scan(args, "bB", ("--orphan",))
-        if "--" in positionals or "." in positionals:
-            add(denials, DISCARDS.format("git checkout -- <path> / git checkout ."))
+        shorts, longs, positionals = scan(args, "bB", ("--orphan", "--pathspec-from-file"))
+        # checkout [<tree-ish>] [--] <pathspec>...: everything after the first positional is a
+        # path, and a lone positional is a path when it is not a commit but exists on disk.
+        paths = positionals[1:] or [
+            p for p in positionals
+            if not resolve_commit(directory, [p])[0] and os.path.lexists(os.path.join(directory, p))
+        ]
+        if paths or "--pathspec-from-file" in longs:
+            add(denials, DISCARDS.format("git checkout <path> / git checkout -- <path> / git checkout ."))
+        elif "f" in shorts or "--force" in longs:
+            add(denials, DISCARDS.format("git checkout -f / --force"))
+    elif sub == "switch":
+        shorts, longs, _ = scan(args, "cC", ("--create", "--force-create", "--orphan"))
+        if "f" in shorts or longs & {"--force", "--discard-changes"}:
+            add(denials, DISCARDS.format("git switch -f / --force / --discard-changes"))
     elif sub == "restore":
         shorts, longs, _ = scan(args, "s", ("--source",))
         staged = "S" in shorts or "--staged" in longs
@@ -404,13 +451,16 @@ def deny_unsafe_git(sub, args):
             add(denials, DISCARDS.format("git clean (-n / --dry-run を除く)"))
     elif sub == "add":
         shorts, longs, positionals = scan(args, "", ("--chmod", "--pathspec-from-file"))
-        if shorts & set("Au") or longs & {"--all", "--update"} or set(positionals) & {".", ":/"}:
+        top = git(directory, "rev-parse", "--show-toplevel") or directory
+        whole = any(is_whole_tree(p, directory, top) for p in positionals if p != "--")
+        if shorts & set("Au") or longs & {"--all", "--update"} or whole:
             add(denials, UNNAMED_STAGE.format("git add -A / . / -u"))
     elif sub == "commit":
         shorts, longs, _ = scan(
-            args, "mFCctSu",
+            args, "mFCct",
             ("--message", "--file", "--reuse-message", "--reedit-message", "--fixup", "--squash",
              "--author", "--date", "--template", "--cleanup", "--trailer"),
+            short_attached="Su",
         )
         if "a" in shorts or "--all" in longs:
             add(denials, UNNAMED_STAGE.format("git commit -a"))
@@ -446,8 +496,12 @@ def warn_shared_main_tree(directory):
             trees[path] = {s: t for s, t in trees[path].items() if now - t < ttl}
             if not trees[path]:
                 del trees[path]
-        for key in [k for k, t in warned.items() if now - t >= ttl]:
-            del warned[key]
+        # A pair is forgotten only once the peer's occupancy has expired, so a peer that keeps
+        # working is warned about once, not once per TTL.
+        for key in list(warned):
+            parts = key.split("\t")
+            if len(parts) != 3 or parts[2] not in trees.get(parts[1], {}):
+                del warned[key]
         others = [s for s in trees.get(top, {}) if s != session]
         trees.setdefault(top, {})[session] = now
         fresh = [s for s in others if f"{session}\t{top}\t{s}" not in warned]
@@ -464,29 +518,66 @@ def warn_shared_main_tree(directory):
             f"(例: git worktree add {target} -b <branch>)。同じセッションが resume / compact で別 ID になった場合は無視してよい。この警告は相手ごとに1回だけ出す。")
 
 
-def record_issue_search(args):
+def normalize_repo(value):
+    """OWNER/REPO (lowercase) from OWNER/REPO, HOST/OWNER/REPO, an https URL or an ssh remote."""
+    value = re.sub(r"\.git/?$", "", value.strip().rstrip("/"))
+    parts = [p for p in re.split(r"[/:]", value) if p]
+    return "/".join(parts[-2:]).lower() if len(parts) >= 2 else value.lower()
+
+
+def target_repo(repo_flag, directory):
+    # gh resolves the same way: -R / --repo first, else the checkout's remote.
+    if repo_flag:
+        return normalize_repo(repo_flag)
+    origin = git(directory, "remote", "get-url", "origin")
+    return normalize_repo(origin) if origin else ""
+
+
+def record_issue_search(args, repo):
     session = event.get("session_id")
     if session and option_values(args, "--search", "-S"):
         now = time.time()
 
         def record(data):
-            data[session] = now
-            for key in [k for k, t in data.items() if now - t > 86400]:
+            data[f"{session}\t{repo}"] = now
+            for key in [k for k, t in data.items() if not isinstance(t, (int, float)) or now - t > 86400]:
                 del data[key]
 
         update_state("issue-search.json", record)
 
 
-def require_issue_search():
+def require_issue_search(repo):
     session = event.get("session_id")
     if env.get("AIDD_DISABLE_ISSUE_SEARCH_GATE") == "1" or not session:
         return
     ttl = env_int("AIDD_ISSUE_SEARCH_TTL_MINUTES", 30) * 60
-    last = update_state("issue-search.json", lambda data: data.get(session))
+    last = update_state("issue-search.json", lambda data: data.get(f"{session}\t{repo}"))
     if not isinstance(last, (int, float)) or time.time() - last > ttl:
+        where = f" ({repo})" if repo else ""
         add(denials,
-            f"aidd: gh issue create の前に、このセッションで gh issue list --search '<キーワード>' を実行して重複を確認すること (直近 {ttl // 60} 分以内の検索が無い)。"
+            f"aidd: gh issue create の前に、このセッションで起票先のリポジトリ{where}に対して gh issue list --search '<キーワード>' を実行して重複を確認すること (直近 {ttl // 60} 分以内の検索が無い)。"
             "検索は起票と別のコマンドとして実行する (同じコマンドの中の検索は、起票の判定より後に記録される)。")
+
+
+def parse_gh(argv):
+    """Return (group, action, args, repo flag); gh accepts -R / --repo before the group too."""
+    i = 1
+    repo = None
+    while i < len(argv) and argv[i].startswith("-"):
+        if argv[i] in ("-R", "--repo") and i + 1 < len(argv):
+            repo = argv[i + 1]
+            i += 2
+            continue
+        if argv[i].startswith("--repo="):
+            repo = argv[i][len("--repo="):]
+        elif argv[i].startswith("-R") and not argv[i].startswith("--"):
+            repo = argv[i][2:]
+        i += 1
+    if i + 1 >= len(argv):
+        return None
+    args = argv[i + 2:]
+    repos = option_values(args, "--repo", "-R")
+    return argv[i], argv[i + 1], args, (repos[-1] if repos else repo)
 
 
 JAPANESE_NUDGE = "aidd: GitHub issue/PR のタイトルと本文は日本語で書くこと (コード識別子・コマンド・コミットメッセージは英語のまま)。既に日本語なら変更不要。"
@@ -499,24 +590,27 @@ for argv, directory in simple_commands(command):
         if not parsed:
             continue
         if hook_event == "PreToolUse":
-            deny_unsafe_git(parsed["sub"], parsed["args"])
+            deny_unsafe_git(parsed["sub"], parsed["args"], parsed["dir"])
             warn_shared_main_tree(parsed["dir"])
             if parsed["sub"] == "commit":
                 remind_test_perspectives(parsed["dir"])
         elif hook_event == "PostToolUse" and parsed["sub"] == "push":
             add(contexts, PUSH_NUDGE)
-    elif program == "gh" and len(argv) >= 3:
-        group, action, args = argv[1], argv[2], argv[3:]
+    elif program == "gh":
+        parsed = parse_gh(argv)
+        if not parsed:
+            continue
+        group, action, args, repo_flag = parsed
         if hook_event == "PostToolUse":
             if group == "issue" and action == "list":
-                record_issue_search(args)
+                record_issue_search(args, target_repo(repo_flag, directory))
             continue
         if group in ("pr", "issue") and action in ("create", "edit"):
             add(contexts, JAPANESE_NUDGE)
         if group == "pr" and action == "create":
             warn_review_before_pr(args, directory)
         if group == "issue" and action == "create":
-            require_issue_search()
+            require_issue_search(target_repo(repo_flag, directory))
 
 if denials or contexts:
     output = {"hookEventName": hook_event}

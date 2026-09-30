@@ -179,11 +179,19 @@ expect_deny 'git stash' 'git stash push -m wip' 'git stash pop' 'git stash -u' \
   'git clean -fd' 'git clean --force' \
   'git add -A' 'git add .' 'git add -u' 'git add --all' 'git add -Av' 'git add -- .' "git -C $repo add ." \
   'git commit -am msg' 'git commit -a -m msg' 'git commit --all -m msg' 'FOO=1 git commit -vam msg' \
-  'env GIT_EDITOR=true git commit -a' 'git -c core.editor=true commit -a'
+  'env GIT_EDITOR=true git commit -a' 'git -c core.editor=true commit -a' \
+  "$(printf 'git status # c\ngit stash')" 'curl http://x/#a && git stash' 'if true; then git reset --hard; fi' \
+  'git checkout app.sh' 'git checkout HEAD app.sh' 'git checkout -f main' 'git checkout --force main' \
+  'git switch -f main' 'git switch --discard-changes main' \
+  'git commit -S -a' 'git commit -u -a' 'git commit -Skey -a' \
+  'git add ./' 'git add :' 'git add :/' 'git add ":(top)"' 'git add ":/."' 'cd src && git add ..' 'cd src && git add ../..'
 expect_allow 'git stash list' 'git stash show -p' 'git reset --soft HEAD~1' 'git reset app.sh' \
-  'git checkout -b topic' 'git checkout main' 'git restore --staged app.sh' 'git restore -S app.sh' \
+  'git checkout -b topic' 'git checkout main' 'git checkout -' 'git checkout -b topic main' \
+  'git switch feat' 'git switch -c topic' 'git restore --staged app.sh' 'git restore -S app.sh' \
   'git clean -n' 'git clean -nd' 'git clean --dry-run -f' 'git add src/a.sh' 'git add -p' \
+  'git add ./app.sh' 'cd src && git add ../app.sh' 'git add ":(top)app.sh"' \
   'git commit -m "fix -a flag"' 'git commit -ma' 'git commit -F msg.txt' 'git commit -m msg -- app.sh' \
+  'git commit -S -m msg' 'git commit -u -m msg' \
   'echo "git stash"' 'grep -r "git reset --hard" docs' \
   "$(printf 'git commit -F - <<EOF\ngit stash\nEOF')" \
   "$(printf "git commit -m \"\$(cat <<'EOF'\nfeat: x\n\ndon't git add -A\nEOF\n)\"")"
@@ -214,6 +222,16 @@ printf '%s\n' "$out" | grep -F "$shared/.claude/worktrees/<name>"
 [ "$(printf '%s\n' "$out" | decision_of)" = none ]
 [ -z "$(hook PreToolUse "$shared" 'git log' session-y)" ]
 hook PreToolUse "$shared" 'git log' session-x | grep -F '主ツリー'
+# Once per peer means once while the peer stays active, not once per TTL.
+python3 - "$tmp_dir/aidd/main-tree.json" <<'PYEOF'
+import json, sys, time
+data = json.load(open(sys.argv[1]))
+for key in data["warned"]:
+    data["warned"][key] = time.time() - 31 * 60
+json.dump(data, open(sys.argv[1], "w"))
+PYEOF
+[ -z "$(hook PreToolUse "$shared" 'git log' session-y)" ]
+[ -z "$(hook PreToolUse "$shared" 'git log' session-x)" ]
 # A linked worktree is not the main tree.
 git -C "$shared" worktree add -q "$tmp_dir/shared-wt" -b wt
 [ -z "$(hook PreToolUse "$tmp_dir/shared-wt" 'git status' session-z)" ]
@@ -249,7 +267,7 @@ hook PostToolUse "$repo" 'rtk gh issue list -S dup --state all' session-s3
 python3 - "$tmp_dir/aidd/issue-search.json" <<'PYEOF'
 import json, sys, time
 data = json.load(open(sys.argv[1]))
-data["session-s1"] = time.time() - 31 * 60
+data["session-s1\t"] = time.time() - 31 * 60
 json.dump(data, open(sys.argv[1], "w"))
 PYEOF
 [ "$(hook PreToolUse "$repo" 'gh issue create --title t' session-s1 | decision_of)" = deny ]
@@ -257,6 +275,28 @@ PYEOF
 [ "$(AIDD_DISABLE_ISSUE_SEARCH_GATE=1 hook PreToolUse "$repo" 'gh issue create' session-s9 | decision_of)" = none ]
 # Without a session id there is nothing to match the search against, so it does not deny.
 [ "$(hook PreToolUse "$repo" 'gh issue create' '' | decision_of)" = none ]
+# The search counts only for the repository it searched: -R / --repo (also before the group,
+# where gh accepts it), else the cwd's origin remote.
+repo_a="$tmp_dir/repo-a"
+repo_b="$tmp_dir/repo-b"
+git init -q --template= -b main "$repo_a"
+git init -q --template= -b main "$repo_b"
+git -C "$repo_a" remote add origin git@github.com:Owner/A.git
+git -C "$repo_b" remote add origin https://github.com/owner/b
+hook PostToolUse "$repo_a" 'gh issue list --search dup' session-r1
+[ "$(hook PreToolUse "$repo_a" 'gh issue create -t t' session-r1 | decision_of)" = none ]
+[ "$(hook PreToolUse "$repo_b" 'gh issue create -t t' session-r1 | decision_of)" = deny ]
+[ "$(hook PreToolUse "$repo_b" 'gh issue create -R owner/a -t t' session-r1 | decision_of)" = none ]
+[ "$(hook PreToolUse "$repo_b" 'gh -R github.com/owner/a issue create -t t' session-r1 | decision_of)" = none ]
+hook PostToolUse "$repo_a" 'gh issue list -R owner/zzz --search dup' session-r2
+[ "$(hook PreToolUse "$repo_a" 'gh issue create -t t' session-r2 | decision_of)" = deny ]
+[ "$(hook PreToolUse "$repo_a" 'gh --repo owner/zzz issue create -t t' session-r2 | decision_of)" = none ]
+hook PostToolUse "$repo_b" 'gh --repo=owner/a issue list -S dup' session-r3
+[ "$(hook PreToolUse "$repo_a" 'gh issue create -t t' session-r3 | decision_of)" = none ]
+# A global -R / --repo before the group does not hide gh issue create from the checks.
+[ "$(hook PreToolUse "$repo_a" 'gh -R o/r issue create -t x' session-r4 | decision_of)" = deny ]
+[ "$(hook PreToolUse "$repo_a" 'gh --repo o/r issue create -t x' session-r4 | decision_of)" = deny ]
+hook PreToolUse "$repo_a" 'gh -R o/r pr create -t x' session-r4 | grep -F 'タイトルと本文は日本語'
 
 usage_input='{"prompt":"/aidd:design-review sample"}'
 printf '%s' "$usage_input" | AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$usage_log"
