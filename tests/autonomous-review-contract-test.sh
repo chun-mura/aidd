@@ -54,3 +54,8 @@ grep -F -- '件数だけの要約に置き換えてはならない' "$command_fi
 grep -F -- 'deferred の追跡' "$command_file"
 grep -F -- '"type": "unresolved"' "$command_file"
 grep -F -- '`tracking` が `unresolved` の `deferred` なし' "$command_file"
+grep -F -- '< /dev/null' "$command_file"
+grep -F -- 'exit 0 で空の応答' "$command_file"
+grep -F -- '終了コードだけで成否を判断しない' "$command_file"
+grep -F -- 'worktree から `.aidd/` を削除' "$command_file"
+grep -F -- '拡張子は `.txt`' "$command_file"
