@@ -92,6 +92,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 | `model-selection/` | サブエージェント起動時・model 指定に迷ったとき |
 | `four-kinds-check/` | コミット直前に、staged diff の追加行にコメントやテスト名があるとき・コミット本文を書くとき (CLAUDE.md の「コメントの置き場所」を採るか `AIDD_COMMIT_WHY_CANON` を設定したプロジェクトだけ。コメントは Why not 以外を置き場所へ移し、テスト名は What、本文は Why を言っているかを見る) |
 | `issue-priority/` | 優先度ラベルの付与や見直しを頼まれたとき・優先度ラベルを使うリポジトリで issue を起票するとき (`AIDD_REQUIRED_LABEL_PREFIX`・`.aidd/issue-priority.md`・`gh label list` の優先度ラベルがどれも無ければ何もしない。深刻さ×広さに放置コストを足して判定。最上位は根拠を示して確認、既存ラベルは黙って張り替えない、系列独自の運用があれば従う。ラベル名・段数・追加の軸は `.aidd/issue-priority.md` で上書き) |
+| `parallel-coordinator/` | 複数の issue・タスクを worker に並行実装させるコーディネーターの立場のとき (superpowers に無い差分のみ) |
 | `review-loop/` | レビュー→修正のラウンドを反復するとき・指摘が尽きないとき・重要度語彙が混在したとき (最大3ラウンド、終了条件、deferred mid と認める追跡先、棄却指摘の持ち越しを規定) |
 
 ### Hooks (強制力のある運用)

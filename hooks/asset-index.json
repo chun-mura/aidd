@@ -88,6 +88,11 @@
     },
     {
       "kind": "skill",
+      "name": "parallel-coordinator",
+      "description": "Use when acting as the coordinator that has multiple workers implement several issues or tasks in parallel."
+    },
+    {
+      "kind": "skill",
       "name": "review-loop",
       "description": "Use when running repeated review-fix rounds (design review, PR review, or subagent findings) and deciding when to stop, or when findings arrive in mixed severity vocabularies."
     },

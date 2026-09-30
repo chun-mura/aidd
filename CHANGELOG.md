@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.38.0 (2026-09-30)
+
+- `skills/parallel-coordinator/`: 複数の issue・タスクを worker に並行実装させるコーディネーターの規律を追加。並列化の一般的な進め方は `superpowers:dispatching-parallel-agents` / `subagent-driven-development` / `using-git-worktrees` を指すだけにし、それらに無い差分だけを置く: 組み込みサブエージェント (`isolation: "worktree"`、バックグラウンド実行、完了通知、`SendMessage`) を既定とする実行環境、worktree が既定ブランチから切られること、`subagent-driven-development` の並列禁止が worktree で分けた worker には当たらないこと、`model` 省略時の決まり方と fork (`aidd:model-selection` 参照)、検証環境の割り当て、worktree 内の hook・スクリプトは `CLAUDE_PROJECT_DIR` ではなく入力の `cwd` を使うこと、外部実行環境の手順を写さないこと、spec に書く事実の確かめ方、共有ファイルの衝突、マージ順と rebase、worker への指示、報告の検証。複数 issue の並行実装で、古い issue 本文から書いた spec、新しく作るテストファイルの衝突、新しいテストが1度も CI で走らないまま後発がマージされること、数え直されない worker の報告が繰り返し起きたため (#25)
+
 ## 0.37.0 (2026-09-30)
 
 - `asset-audit.md` (新規): 利用側プロジェクトの `.claude/` と `CLAUDE.md` を棚卸しし、削除・改訂・修正・統合・見直しの候補を根拠つきで出す。基準は、一定期間発火しない hook、期間内 (直したならその後) に `error` 行・`killed` 行・終わりの行が続かない `start` 行を持つ hook (削除ではなく修正候補。直す前の古い失敗で修正候補に残り続けないため期間で区切る)、参照先が消えた・状態を述べる記述が食い違う、前提が変わった、上流に吸収された、2箇所に同じ基準がある、観測1件からの一般化。候補が0件なら「問題なし」で終えず、基準と根拠の不足を疑う。実施日の記録 (サンドボックスでは `~/.claude/aidd/` に書けないことがある) に失敗したら黙って続けず、ユーザーが実行するコマンドを示す (nudge が止まらなくなるため)。規約と hook は事故のたびに足されて単調に増えるのに、削る入口が無かったため。`/aidd:retro` と同じ型だが、retro は aidd 自身の資産、こちらは利用側の資産と境界を分けた
