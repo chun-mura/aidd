@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.31.0 (2026-09-30)
+
+- `tool-reminder.sh`: `gh pr create` の直前に、PR のブランチが基点ブランチに対してコードを変更しているのに `.aidd/autonomous-review/` にそのブランチの証跡 (`state.json` の `head` か `head_sha` / `head_sha_after_fixes` が一致するもの) が無ければ警告する。拒否はしない。証跡は `git worktree list` の全 worktree (主ツリーを含む) から探す (`/aidd:autonomous-review` は実行した worktree に証跡を書くため、PR を出す場所と一致するとは限らない)。`/aidd:autonomous-review` は PR の前に回す前提だが、手順書だけでは順序を守らせられなかったため。docs だけの変更では鳴らさない (毎回鳴る警告は読まれなくなる)。警告には変更ファイルの一覧を出し、docs だけのつもりのブランチに別ブランチのコミットが混入していることに気づけるようにした。対象は cwd の HEAD ではなく `--head` のブランチにする (worktree から PR を出すと cwd は別のブランチを指していることがある)。基点ブランチ・警告しないパス・一覧の上限・無効化は `AIDD_REVIEW_BASE` / `AIDD_REVIEW_SKIP_PATHS` / `AIDD_REVIEW_LIST_LIMIT` / `AIDD_DISABLE_REVIEW_BEFORE_PR` で設定する。基点ブランチは `--base`、`AIDD_REVIEW_BASE`、`origin/HEAD` の順に決め、どれも無ければ `main`、次に `master` を試す。どれも解決できなければ、確認しなかったことを1行で伝える (黙って通すと、証跡の確認が働いていないことに気づけないため)
+- `tool-reminder.sh`: 判定を集めて最後に1回だけ出力する形にし、1回の起動で複数の判定が当たっても JSON 1つにまとめる (後続の拒否系の判定と注入文を1つの応答で両立させるため)。コマンドは shlex で分割し、`&&` / `;` / 改行で連結した各コマンド、`cd` と `git -C` による作業ディレクトリ、前置のラッパー (`rtk` など)、ヒアドキュメントの本文、`#` のコメント、`if` / `then` / `do` / `{` / `!` などの後ろに置いたコマンドを見分ける。コメントはシェルと同じく引用符の外で語の先頭にある `#` から行末までとし (`cd /x#y` の `#` はコメントではない)、コメントの次の行は別のコマンドとして判定する。引用符の中で触れただけのコマンドには反応しない。git の判定は hook 入力の `cwd` を基準にする (worktree の中では `CLAUDE_PROJECT_DIR` がメインのチェックアウトを指すため)。トークン最適化設計の方針4どおり1本の dispatcher のままで、コマンド (`tool_input.command`) に語としての `git` / `gh` が無い入力は python を起動せずに終わる。入力全体ではなくコマンドだけを見る (`cwd` や `transcript_path` に `git` / `gh` を含むプロジェクトで、毎回 python を起動していたため) (#19)
+
 ## 0.30.0 (2026-09-30)
 
 - `model-selection` skill: 報告に使ったモデルを書く前に、実際に渡した `model` 引数を見る手順を追加。あわせて「デフォルトは継承」を実際の決まる順序 (`model` 引数 → agent 定義 → `CLAUDE_CODE_SUBAGENT_MODEL` → メインループ、fork は親のモデル) に直した。aidd の agent は定義で model を固定しており省略しても継承されず、弱いモデルのレビューは「指摘なし」で返り、意図したモデルで走らなかったことが出力に現れないため (#23)

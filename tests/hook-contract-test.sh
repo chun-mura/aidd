@@ -4,7 +4,8 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
 dispatcher="$repo_root/hooks/scripts/tool-reminder.sh"
 usage_log="$repo_root/hooks/scripts/usage-log.sh"
-tmp_dir=$(mktemp -d)
+# An explicit template keeps TMPDIR honored (macOS mktemp -d alone ignores it).
+tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/aidd-hook-test.XXXXXX")
 trap 'rm -rf "$tmp_dir"' EXIT
 
 [ -x "$dispatcher" ]
@@ -20,6 +21,139 @@ run_hook() {
 run_hook PreToolUse 'git commit -m test' | grep -F '/aidd:test-perspectives'
 run_hook PreToolUse 'gh issue create --title test' | grep -F 'タイトルと本文は日本語'
 run_hook PostToolUse 'git push origin main' | grep -F 'open PR'
+
+# --- Git-aware checks: fake hook input against throwaway repositories --------------------------
+export HOME="$tmp_dir/home"
+mkdir -p "$HOME"
+export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
+export GIT_CONFIG_NOSYSTEM=1
+
+# hook EVENT CWD COMMAND [SESSION]: runs the dispatcher on a well-formed payload.
+hook() {
+  python3 -c '
+import json, sys
+print(json.dumps({"hook_event_name": sys.argv[1], "cwd": sys.argv[2], "session_id": sys.argv[4],
+                  "tool_name": "Bash", "tool_input": {"command": sys.argv[3]}}))
+' "$1" "$2" "$3" "${4:-session-a}" | AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$dispatcher"
+}
+
+# Each call must produce at most one JSON document; decision_of prints its permissionDecision.
+json_count() { python3 -c 'import sys; print(sum(1 for l in sys.stdin if l.strip()))'; }
+decision_of() {
+  python3 -c '
+import json, sys
+text = sys.stdin.read().strip()
+print(json.loads(text)["hookSpecificOutput"].get("permissionDecision", "none") if text else "empty")
+'
+}
+
+repo="$tmp_dir/repo"
+git init -q --template= -b main "$repo"
+echo base > "$repo/app.sh"
+git -C "$repo" add app.sh
+git -C "$repo" commit -qm 'chore: base'
+git -C "$repo" switch -qc feat
+mkdir -p "$repo/src"
+echo code > "$repo/src/a.sh"
+echo code > "$repo/src/b.sh"
+git -C "$repo" add src
+git -C "$repo" commit -qm 'feat: code'
+git -C "$repo" switch -qc docs-only main
+mkdir -p "$repo/docs"
+echo doc > "$repo/docs/x.md"
+git -C "$repo" add docs
+git -C "$repo" commit -qm 'docs: x'
+git -C "$repo" switch -q main
+
+# #19: the PR's branch is --head, not the cwd's HEAD (cwd is on main, which has no diff).
+out=$(hook PreToolUse "$repo" 'gh pr create --base main --head feat --title t --body b')
+printf '%s\n' "$out" | grep -F '/aidd:autonomous-review --base main --head feat'
+printf '%s\n' "$out" | grep -F 'src/a.sh, src/b.sh'
+# It warns without denying, and shares one JSON reply with the Japanese-language nudge.
+[ "$(printf '%s\n' "$out" | json_count)" = 1 ]
+[ "$(printf '%s\n' "$out" | decision_of)" = none ]
+printf '%s\n' "$out" | grep -F 'タイトルと本文は日本語'
+# Without --head, the checked-out branch is the PR's branch; wrappers and cd are seen through.
+git -C "$repo" switch -q feat
+hook PreToolUse "$tmp_dir" "cd $repo && rtk gh pr create --title t" | grep -F -- '--head feat'
+git -C "$repo" switch -q main
+# Docs-only branches stay quiet apart from the language nudge.
+out=$(hook PreToolUse "$repo" 'gh pr create --head docs-only')
+if printf '%s\n' "$out" | grep -Fq 'autonomous-review'; then exit 1; fi
+# The file list is capped.
+AIDD_REVIEW_LIST_LIMIT=1 hook PreToolUse "$repo" 'gh pr create --head=feat' | grep -F 'src/a.sh ほか 1 件'
+# Opt-out.
+out=$(AIDD_DISABLE_REVIEW_BEFORE_PR=1 hook PreToolUse "$repo" 'gh pr create --head feat')
+if printf '%s\n' "$out" | grep -Fq 'autonomous-review'; then exit 1; fi
+# Evidence for the branch silences it.
+mkdir -p "$repo/.aidd/autonomous-review/run1"
+printf '{"head":"feat","head_sha":null}' > "$repo/.aidd/autonomous-review/run1/state.json"
+out=$(hook PreToolUse "$repo" 'gh pr create --head feat')
+if printf '%s\n' "$out" | grep -Fq 'autonomous-review'; then exit 1; fi
+rm -rf "$repo/.aidd"
+# A command that only mentions gh pr create in a quoted string is not an invocation.
+[ -z "$(hook PreToolUse "$repo" 'echo "gh pr create --head feat"')" ]
+# Evidence also matches by head_sha / head_sha_after_fixes (the branch may have been renamed).
+feat_sha=$(git -C "$repo" rev-parse feat)
+mkdir -p "$repo/.aidd/autonomous-review/run1"
+printf '{"head":"renamed","head_sha":"%s"}' "$feat_sha" > "$repo/.aidd/autonomous-review/run1/state.json"
+out=$(hook PreToolUse "$repo" 'gh pr create --head feat')
+if printf '%s\n' "$out" | grep -Fq 'autonomous-review'; then exit 1; fi
+printf '{"head":"renamed","head_sha":"0000000","head_sha_after_fixes":"%s"}' "$feat_sha" > "$repo/.aidd/autonomous-review/run1/state.json"
+out=$(hook PreToolUse "$repo" 'gh pr create --head feat')
+if printf '%s\n' "$out" | grep -Fq 'autonomous-review'; then exit 1; fi
+rm -rf "$repo/.aidd"
+# Evidence written in any worktree counts, whichever worktree (or the main tree) opens the PR.
+git -C "$repo" worktree add -q "$tmp_dir/wt-a" feat
+git -C "$repo" worktree add -q --detach "$tmp_dir/wt-b" main
+mkdir -p "$tmp_dir/wt-a/.aidd/autonomous-review/run1"
+printf '{"head":"feat","head_sha":"%s"}' "$feat_sha" > "$tmp_dir/wt-a/.aidd/autonomous-review/run1/state.json"
+for cwd in "$repo" "$tmp_dir/wt-a" "$tmp_dir/wt-b"; do
+  out=$(hook PreToolUse "$cwd" 'gh pr create --head feat --base main')
+  if printf '%s\n' "$out" | grep -Fq 'autonomous-review'; then exit 1; fi
+done
+git -C "$repo" worktree remove --force "$tmp_dir/wt-a"
+git -C "$repo" worktree remove --force "$tmp_dir/wt-b"
+# Without --base, origin/HEAD or AIDD_REVIEW_BASE, main then master is the base.
+master_repo="$tmp_dir/master-repo"
+git init -q --template= -b master "$master_repo"
+echo base > "$master_repo/app.sh"
+git -C "$master_repo" add app.sh
+git -C "$master_repo" commit -qm 'chore: base'
+git -C "$master_repo" switch -qc feat
+echo code > "$master_repo/app.sh"
+git -C "$master_repo" commit -qam 'feat: code'
+hook PreToolUse "$master_repo" 'gh pr create --head feat' | grep -F -- '--base master --head feat'
+# When no base resolves, it says so instead of staying silent.
+git -C "$master_repo" branch -qm master trunk
+hook PreToolUse "$master_repo" 'gh pr create --head feat' | grep -F '基点ブランチ (main / master) を解決できない'
+
+# Comments and compound statements: a word-initial # starts a comment that ends at the newline
+# (the next line is still a command); a # inside a word or quotes does not; commands after
+# then/do/{/! are still seen.
+hook PreToolUse "$repo" 'cd /x#y && git commit -m x' | grep -F '/aidd:test-perspectives'
+hook PreToolUse "$repo" 'if true; then git commit -m x; fi' | grep -F '/aidd:test-perspectives'
+hook PreToolUse "$repo" $'git status # check\ngit commit -m x' | grep -F '/aidd:test-perspectives'
+hook PreToolUse "$repo" $'npm test # run\ngh pr create --head docs-only' | grep -F 'タイトルと本文は日本語'
+hook PreToolUse "$repo" 'echo "#x"; gh issue create -t t' | grep -F 'タイトルと本文は日本語'
+[ -z "$(hook PreToolUse "$repo" 'echo x # git commit -m x')" ]
+
+# Commands that are not git or gh never start python, even when cwd or transcript_path
+# contains "git" / "gh"; a git on a later line of the command still does.
+fake_bin="$tmp_dir/fake-bin"
+mkdir -p "$fake_bin"
+real_python=$(command -v python3)
+printf '#!/bin/bash\ntouch "%s/python-started"\nexec "%s" "$@"\n' "$tmp_dir" "$real_python" > "$fake_bin/python3"
+chmod +x "$fake_bin/python3"
+fast_path() {
+  printf '{"hook_event_name":"PreToolUse","cwd":"/work/git/light-door","transcript_path":"/home/.claude/gh/t.jsonl","tool_name":"Bash","tool_input":{"command":"%s"}}' "$1" | \
+    PATH="$fake_bin:$PATH" AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$dispatcher"
+}
+rm -f "$tmp_dir/python-started"
+[ -z "$(fast_path 'ls -la light-door')" ]
+[ ! -e "$tmp_dir/python-started" ]
+fast_path 'npm test\ngit commit -m x' | grep -F '/aidd:test-perspectives'
+[ -e "$tmp_dir/python-started" ]
 
 usage_input='{"prompt":"/aidd:design-review sample"}'
 printf '%s' "$usage_input" | AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$usage_log"
