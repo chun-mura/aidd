@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.35.0 (2026-09-30)
+
+- `write-guard.sh` を追加。Write・Edit・NotebookEdit の PreToolUse を1本の dispatcher で受け、まだ存在しないファイルがサンドボックスの読み取り拒否によく入る名前 (`.env*`・`*.pem`・`*.key`・`*secret*`・`*credential*`・`*token*.json`・`*/.ssh/*` など) に当たるときだけ拒否する。そうした名前で作ったファイルは sandbox 内の git・テスト・シェルから読めなくなり、作った後で気づいて名前を変える手戻りが複数セッションで起きていたため。Claude Code には読み取り拒否の既定リストが無い (`sandbox.filesystem.denyRead` の既定は未設定) ので、既定パターンは aidd が持ち、`AIDD_UNREADABLE_NAME_PATTERNS` で利用側の設定に合わせて差し替え、`AIDD_DISABLE_UNREADABLE_NAME_GUARD=1` で止められる。hooks.json では `if` で絞らない (名前はどの場所にも現れ、1つの permission ルールでは表せない)。既存ファイルと対象外のパスでは何も出さずに終わる (#21)
+
 ## 0.29.0 (2026-09-09)
 
 - `CLAUDE.md.template`: コメントの置き場所の規約を同梱。「コードには How、テストコードには What、コミットログには Why、コードコメントには Why not」を原則とし、コメントは Why not だけを書く (排他) ことと、実況型・変更履歴・タスクID参照の違反例を各1行で添える。参考記事の実測では抽象原則だけの版は効果が半分で、具体的な違反例の列挙が効いたため両方を入れる。skill / hook 化はしない (実装フェーズのほぼ全タスクで発火し、常時注入と hook 起動を増やすため) (#6)

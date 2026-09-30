@@ -112,3 +112,49 @@ hooks = json.load(open(sys.argv[1]))["hooks"]["PreToolUse"]
 matchers = [entry["matcher"] for entry in hooks]
 assert "^Skill$" in matchers, matchers
 PYEOF
+
+# write-guard.sh: Write/Edit/NotebookEdit dispatcher. Only files that do not exist yet are checked.
+write_guard="$repo_root/hooks/scripts/write-guard.sh"
+[ -x "$write_guard" ]
+project="$tmp_dir/project"
+mkdir -p "$project/src"
+
+run_write_guard() {
+  local tool=$1 key=$2 path=$3
+  printf '{"hook_event_name":"PreToolUse","tool_name":"%s","cwd":"%s","tool_input":{"%s":"%s"}}' \
+    "$tool" "$project" "$key" "$path" | bash "$write_guard"
+}
+
+# A new file whose name sandboxed commands are commonly denied reading is refused.
+out=$(run_write_guard Write file_path "$project/.env.local")
+printf '%s' "$out" | python3 -c 'import json,sys; o=json.load(sys.stdin)["hookSpecificOutput"]; assert o["permissionDecision"]=="deny", o; assert ".env.local" in o["permissionDecisionReason"]'
+run_write_guard NotebookEdit notebook_path "$project/secret-analysis.ipynb" | grep -F '"deny"'
+# Patterns containing "/" match the whole path, not just the file name.
+run_write_guard Write file_path "$tmp_dir/home/.ssh/config" | grep -F '"deny"'
+# A relative path is resolved against the hook input's cwd.
+run_write_guard Write file_path "config/prod.pem" | grep -F '"deny"'
+
+# An existing file is left alone: the name already exists, so refusing gains nothing.
+touch "$project/src/existing.key"
+[ -z "$(run_write_guard Edit file_path "$project/src/existing.key")" ]
+[ -z "$(run_write_guard Edit file_path "src/existing.key")" ]
+
+# Paths that match nothing produce no output.
+[ -z "$(run_write_guard Write file_path "$project/src/main.py")" ]
+[ -z "$(printf '{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{}}' | bash "$write_guard")" ]
+
+# The pattern list is replaceable, and the guard can be turned off.
+[ -z "$(AIDD_UNREADABLE_NAME_PATTERNS='*.draft' run_write_guard Write file_path "$project/.env")" ]
+AIDD_UNREADABLE_NAME_PATTERNS='*.draft:*.tmp' run_write_guard Write file_path "$project/notes.tmp" | grep -F "'*.tmp'"
+[ -z "$(AIDD_DISABLE_UNREADABLE_NAME_GUARD=1 run_write_guard Write file_path "$project/.env")" ]
+
+# Wired as one handler for all three tools, filtered in the script rather than by `if`
+# (the checks match names at any location, which one permission rule cannot express).
+python3 - "$repo_root/hooks/hooks.json" <<'PYEOF'
+import json, sys
+hooks = json.load(open(sys.argv[1]))["hooks"]["PreToolUse"]
+entries = [e for e in hooks if any("write-guard.sh" in h.get("command", "") for h in e["hooks"])]
+assert len(entries) == 1, entries
+assert entries[0]["matcher"] == "Write|Edit|NotebookEdit", entries[0]
+assert all("if" not in h for h in entries[0]["hooks"]), entries[0]
+PYEOF
