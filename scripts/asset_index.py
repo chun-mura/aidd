@@ -9,12 +9,20 @@ Component locations come from .claude-plugin/plugin.json, following the plugin m
 and `hooks` is loaded together with hooks/hooks.json. Directories are never assumed beyond that.
 The manifest is optional; without one the default layout is scanned and the plugin is named after
 its directory, as Claude Code does for --plugin-dir.
+
+Names follow the standard layout: a SKILL.md at the plugin root is a single skill when there is no
+skills/ directory and no `skills` key, and a subfolder of the default commands/ or agents/ adds a
+`<subfolder>:` segment in front of the file name (or its frontmatter `name`).
 """
 import json
 import os
 import re
+import unicodedata
 
 MANIFEST = ".claude-plugin/plugin.json"
+# The plugins-reference `name` rule: no spaces, "@", ":", path separators, control characters, or
+# bidirectional-formatting characters (the last two are Unicode categories Cc and Cf).
+NAME_FORBIDDEN = set(" @:/\\")
 
 
 def as_list(value):
@@ -35,16 +43,43 @@ def frontmatter(path):
         return {}
     match = re.match(r"---\n(.*?)\n---", text, re.S)
     fields = {}
-    for line in (match.group(1) if match else "").splitlines():
-        m = re.match(r"([A-Za-z_-]+):\s*(.*)", line)
-        if m:
-            fields[m.group(1)] = m.group(2).strip().strip("\"'")
+    lines = (match.group(1) if match else "").splitlines()
+    i = 0
+    while i < len(lines):
+        m = re.match(r"([A-Za-z_-]+):\s*(.*)", lines[i])
+        i += 1
+        if not m:
+            continue
+        value = m.group(2).strip()
+        # A YAML block scalar (| or >, with optional chomping and indentation indicators) takes the
+        # following indented or blank lines: `|` keeps the line breaks and `>` folds them into spaces.
+        block = re.fullmatch(r"([|>])(?:[+-]?[1-9]?|[1-9][+-])(?:\s+#.*)?", value)
+        if block:
+            body = []
+            while i < len(lines) and (not lines[i].strip() or lines[i][:1] in " \t"):
+                body.append(lines[i].strip())
+                i += 1
+            value = ("\n" if block.group(1) == "|" else " ").join(body).strip()
+        else:
+            value = value.strip("\"'")
+        fields[m.group(1)] = value
     return fields
 
 
-def md_entry(kind, path, default_name):
+def md_entry(kind, path, default_name, prefix=""):
     fm = frontmatter(path)
-    return {"kind": kind, "name": fm.get("name") or default_name, "description": fm.get("description", "")}
+    return {"kind": kind, "name": prefix + (fm.get("name") or default_name), "description": fm.get("description", "")}
+
+
+def md_tree(base):
+    """Return (path, "<subfolder>:" prefix) for every .md file under base, subfolders included."""
+    out = []
+    for dirpath, dirnames, filenames in os.walk(base):
+        dirnames.sort()
+        sub = os.path.relpath(dirpath, base)
+        prefix = "" if sub == "." else sub.replace(os.sep, ":") + ":"
+        out += [(os.path.join(dirpath, f), prefix) for f in sorted(filenames) if f.endswith(".md")]
+    return out
 
 
 def commands(root, manifest):
@@ -57,21 +92,31 @@ def commands(root, manifest):
                 desc = frontmatter(rel(root, spec["source"])).get("description", "")
             out.append({"kind": "command", "name": name, "description": desc or ""})
         return out
-    out = []
-    for entry in as_list(declared) or ["./commands"]:
-        path = rel(root, entry)
-        if os.path.isdir(path):
-            files = sorted(os.path.join(path, f) for f in os.listdir(path) if f.endswith(".md"))
-        else:
-            files = [path] if os.path.isfile(path) else []
-        for f in files:
-            out.append(md_entry("command", f, os.path.splitext(os.path.basename(f))[0]))
-    return out
+    if not declared:
+        # The default commands/ directory: a subfolder adds a segment (commands/db/migrate.md is db:migrate).
+        base = rel(root, "./commands")
+        files = md_tree(base) if os.path.isdir(base) else []
+    else:
+        # A declared directory is scanned flat: the docs describe it only as a directory of flat
+        # .md command files.
+        files = []
+        for entry in as_list(declared):
+            path = rel(root, entry)
+            if os.path.isdir(path):
+                files += [(os.path.join(path, f), "") for f in sorted(os.listdir(path)) if f.endswith(".md")]
+            elif os.path.isfile(path):
+                files.append((path, ""))
+    return [md_entry("command", f, os.path.splitext(os.path.basename(f))[0], prefix) for f, prefix in files]
 
 
 def skills(root, manifest):
     out = []
-    for entry in ["./skills"] + as_list(manifest.get("skills")):
+    entries = ["./skills"] + as_list(manifest.get("skills"))
+    # A SKILL.md at the plugin root loads as one skill only without skills/ and without a `skills` key.
+    if (os.path.isfile(rel(root, "SKILL.md")) and not os.path.isdir(rel(root, "./skills"))
+            and "skills" not in manifest):
+        entries = ["."]
+    for entry in entries:
         path = rel(root, entry)
         if os.path.isfile(os.path.join(path, "SKILL.md")):
             dirs = [path]
@@ -90,11 +135,14 @@ def skills(root, manifest):
 def agents(root, manifest):
     declared = as_list(manifest.get("agents"))
     if declared:
-        files = [rel(root, p) for p in declared]
+        # A file listed in the manifest loads without subfolder names.
+        files = [(rel(root, p), "") for p in declared]
     else:
+        # The default agents/ directory loads recursively: each subfolder adds a segment, and a
+        # frontmatter name replaces only the file name (agents/review/security.md is review:security).
         base = rel(root, "./agents")
-        files = sorted(os.path.join(base, f) for f in os.listdir(base) if f.endswith(".md")) if os.path.isdir(base) else []
-    return [md_entry("agent", f, os.path.splitext(os.path.basename(f))[0]) for f in files if os.path.isfile(f)]
+        files = md_tree(base) if os.path.isdir(base) else []
+    return [md_entry("agent", f, os.path.splitext(os.path.basename(f))[0], prefix) for f, prefix in files if os.path.isfile(f)]
 
 
 def hooks(root, manifest):
@@ -130,6 +178,12 @@ def hooks(root, manifest):
     return out
 
 
+def valid_name(name):
+    return isinstance(name, str) and bool(name) and not any(
+        c in NAME_FORBIDDEN or unicodedata.category(c) in ("Cc", "Cf") for c in name
+    )
+
+
 def build_index(root):
     """Return {"plugin", "assets"}; raises on an unreadable manifest or component file."""
     path = rel(root, MANIFEST)
@@ -140,5 +194,9 @@ def build_index(root):
             raise ValueError(f"{MANIFEST} has no name")
     else:
         manifest = {"name": os.path.basename(os.path.normpath(root))}
+    # Claude Code does not load a plugin whose name breaks the naming rule. The name is not echoed,
+    # since it is the part that failed the check.
+    if not valid_name(manifest["name"]):
+        raise ValueError("plugin name breaks the plugins-reference naming rule")
     assets = commands(root, manifest) + skills(root, manifest) + agents(root, manifest) + hooks(root, manifest)
     return {"plugin": manifest["name"], "assets": assets}
