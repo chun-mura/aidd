@@ -64,7 +64,7 @@ log_line() {
 # hook exits; the trap passes it on, so a timed-out hook is not left running as an orphan.
 # bash starts background commands with INT ignored, so INT is passed on as TERM.
 child=
-# shellcheck disable=SC2329 # invoked from the traps below
+# shellcheck disable=SC2317,SC2329 # invoked from the traps below
 on_signal() {
   if [ -n "$child" ]; then
     if [ "$1" = INT ]; then kill -TERM "$child"; else kill -s "$1" "$child"; fi
