@@ -14,8 +14,6 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 
 **工数見積もりは [estimate](https://github.com/chun-mura/estimate-workload)**: 仕様・Issue・短い作業説明から WBS + 3点見積もり + モンテカルロで P50/P80 を出す (aidd は見積もりしない。`/reqd:new` や設計書のパスを `/estimate:new` に渡す)。
 
-**Issue 起点の自動実行は [aidd-autopilot](https://github.com/chun-mura/aidd-autopilot)**: Issue にラベルを付けると隔離コンテナ内のヘッドレス Claude Code が triage→設計→実装→検証→PR 作成まで進める (マージ判断は人間。aidd / superpowers の資産を実行環境として使う)。
-
 ## 導入 (他プロジェクトから使う)
 
 ### 個人で使う
@@ -151,7 +149,7 @@ hooks は上記スクリプトをセッション中に自動実行する。フ�
 | `AIDD_DISABLE_ASSET_OVERLAP=1` | `write-guard.sh` の資産重複の案内と同名拒否を止める |
 | `AIDD_ASSET_OVERLAP_DIRS=<k1>:<k2>` | 資産重複の検査対象にする `.claude/` 直下のディレクトリ (既定 `hooks:skills:commands:rules:agents`) |
 | `AIDD_ASSET_OVERLAP_DENY_SAME_NAME=0` | 同名の資産も拒否せず、一覧の案内だけにする |
-| `AIDD_ASSET_OVERLAP_PLUGINS=<dir1>:<dir2>` | 資産重複の一覧に加える他のプラグインのディレクトリ (コロン区切り。`~/` はホーム、相対パスは hook 入力の cwd から。既定は aidd の一覧だけ)。**信頼できるディレクトリ (導入済みのプラグインの置き場) だけを指定する**: 指定したディレクトリの manifest と frontmatter の名前・description は、改行と制御文字を空白にし長さを切ったうえで、ほぼそのまま additionalContext (system reminder) に入る (一覧は各プラグインのファイルから読んだデータで指示ではない、と1文添えるが、それで防げるとは限らない)。相対パスは作業中のリポジトリの中を指すので、リポジトリに書き込める人が文面を差し込める (aidd-autopilot のように issue の作者を信頼しきれない環境では特に)。絶対パスか `~/` で書く。導入済みのプラグインだけを指すなら、Claude Code がもともと読んでいる description を並べ直すだけなので、新しい危険はほぼ増えない。置き場は各ディレクトリの `.claude-plugin/plugin.json` から `scripts/generate-asset-index.py` と同じ規則 (`commands`・`agents` は既定の走査を置き換え、`skills` は既定に追加、`hooks` はマージ。manifest が無ければ既定の配置を読み、名前はディレクトリ名) で決め、資産ディレクトリへの新規作成のときだけ読む。名前は plugins-reference の既定の配置に従う: `skills/` も `skills` キーも無ければルートの `SKILL.md` を1つの skill として読み、既定の `agents/`・`commands/` のサブフォルダは名前に `<サブフォルダ>:` を足す (manifest の `commands` に書いたディレクトリはサブフォルダを読まない。公式のドキュメントが平らな `.md` のディレクトリとしか書いていないため)。frontmatter の YAML ブロックスカラー (`|`・`>`) も読む。manifest の `name` が命名規則 (空白・`@`・`:`・パス区切り・制御文字・双方向制御文字を含まない) に反するプラグインは Claude Code が読み込まないので、読めなかったものとして扱う。プラグインごとに `[<plugin>]` の見出しを付け、名前は 64 字、description は 120 字で切り、additionalContext の上限 (10,000 字。UTF-16 の単位で数える) に収まらない分は件数だけ出す (aidd の一覧は常に全件)。存在しない・manifest が壊れている・manifest も資産も無いディレクトリは飛ばし、その旨を1行添える。導入済みのプラグインの置き場 (`~/.claude/plugins/cache/...`) は更新でバージョンのディレクトリが変わるため、変わったら読めなかった旨の行で気づける。`asset-overlap-prompt-hook.json.template` は同梱の一覧から生成するので、他のプラグインの資産は含まない |
+| `AIDD_ASSET_OVERLAP_PLUGINS=<dir1>:<dir2>` | 資産重複の一覧に加える他のプラグインのディレクトリ (コロン区切り。`~/` はホーム、相対パスは hook 入力の cwd から。既定は aidd の一覧だけ)。**信頼できるディレクトリ (導入済みのプラグインの置き場) だけを指定する**: 指定したディレクトリの manifest と frontmatter の名前・description は、改行と制御文字を空白にし長さを切ったうえで、ほぼそのまま additionalContext (system reminder) に入る (一覧は各プラグインのファイルから読んだデータで指示ではない、と1文添えるが、それで防げるとは限らない)。相対パスは作業中のリポジトリの中を指すので、リポジトリに書き込める人が文面を差し込める (issue やコメントの作者を信頼しきれない自動実行の環境では特に)。絶対パスか `~/` で書く。導入済みのプラグインだけを指すなら、Claude Code がもともと読んでいる description を並べ直すだけなので、新しい危険はほぼ増えない。置き場は各ディレクトリの `.claude-plugin/plugin.json` から `scripts/generate-asset-index.py` と同じ規則 (`commands`・`agents` は既定の走査を置き換え、`skills` は既定に追加、`hooks` はマージ。manifest が無ければ既定の配置を読み、名前はディレクトリ名) で決め、資産ディレクトリへの新規作成のときだけ読む。名前は plugins-reference の既定の配置に従う: `skills/` も `skills` キーも無ければルートの `SKILL.md` を1つの skill として読み、既定の `agents/`・`commands/` のサブフォルダは名前に `<サブフォルダ>:` を足す (manifest の `commands` に書いたディレクトリはサブフォルダを読まない。公式のドキュメントが平らな `.md` のディレクトリとしか書いていないため)。frontmatter の YAML ブロックスカラー (`|`・`>`) も読む。manifest の `name` が命名規則 (空白・`@`・`:`・パス区切り・制御文字・双方向制御文字を含まない) に反するプラグインは Claude Code が読み込まないので、読めなかったものとして扱う。プラグインごとに `[<plugin>]` の見出しを付け、名前は 64 字、description は 120 字で切り、additionalContext の上限 (10,000 字。UTF-16 の単位で数える) に収まらない分は件数だけ出す (aidd の一覧は常に全件)。存在しない・manifest が壊れている・manifest も資産も無いディレクトリは飛ばし、その旨を1行添える。導入済みのプラグインの置き場 (`~/.claude/plugins/cache/...`) は更新でバージョンのディレクトリが変わるため、変わったら読めなかった旨の行で気づける。`asset-overlap-prompt-hook.json.template` は同梱の一覧から生成するので、他のプラグインの資産は含まない |
 
 <プロジェクトキー> は git の共通ディレクトリ (`git rev-parse --git-common-dir`) の親のパスの英数字以外を `-` に置き換えたもの。worktree を含めて1リポジトリ1キーになる (hook が見る `CLAUDE_PROJECT_DIR` はセッション開始時のルートのまま、モデルのシェルの cwd は worktree や `cd` 先に移るため)。git の外では `CLAUDE_PROJECT_DIR` (無ければ cwd) から作る。
 
@@ -204,7 +202,7 @@ cp <aidd>/templates/aidd-hook-log.sh .claude/hooks/   # 実行ビットごとコ
 1. **1ファイル1関心事**: 各ファイルは単一トピックに集中。docs は冒頭に「いつ使うか」を明記
 2. **2回ルール**: 同じプロンプトを2回以上使ったものだけ commands/skills に昇格
 3. **README更新**: 資産追加時は本インデックスを更新し、plugin.json の version を上げて CHANGELOG に記録。command・skill・agent・hook の追加・削除・改名、frontmatter の `name`・`description` の変更、`hooks/hooks.json` の配線や hook スクリプトの shebang 直後のコメント行の変更、plugin.json の `commands`・`skills`・`agents`・`hooks` の宣言の変更をしたら `python3 scripts/generate-asset-index.py` で資産一覧を再生成する (CI の `python3 scripts/generate-asset-index.py --check` と `tests/hook-contract-test.sh` が不一致で落ちる)
-4. **重複禁止**: superpowers・reqd・estimate・uidd・stdd・aidd-autopilot・グローバル資産と被る機能は作らず、ポインタのみ記載
+4. **重複禁止**: superpowers・reqd・estimate・uidd・stdd・グローバル資産と被る機能は作らず、ポインタのみ記載
 5. **受動ドキュメント禁止**: セッション中に効かせたい知見は docs でなく skills (自動トリガ) か hooks (強制) にする
 6. **パイプライン変更時の評価**: `design-review.md`・`refuter.md`・`design-arbiter.md`・`security-reviewer.md`・`reviewer.md` のプロンプトを変更するリリースは、リリース前に `/aidd:eval` を実行し結果を `tests/eval/results/` に残す (退行の検知はこの記録の比較でのみ可能)
 
