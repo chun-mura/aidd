@@ -1,0 +1,125 @@
+{
+  "plugin": "aidd",
+  "assets": [
+    {
+      "kind": "command",
+      "name": "adr",
+      "description": "アーキテクチャ決定記録 (ADR) を作成し docs/adr/ に保存する"
+    },
+    {
+      "kind": "command",
+      "name": "autonomous-review",
+      "description": "異種AIレビュー・根拠検証・品質ゲートを統合し、ローカルで自動マージ可否を判定する"
+    },
+    {
+      "kind": "command",
+      "name": "design-doc",
+      "description": "要件から設計書を生成し docs/design/ に保存する"
+    },
+    {
+      "kind": "command",
+      "name": "design-review",
+      "description": "設計ドキュメントや実装方針を多観点でレビューする"
+    },
+    {
+      "kind": "command",
+      "name": "design-sync",
+      "description": "設計書と実装の乖離を検知し、status を最新化する"
+    },
+    {
+      "kind": "command",
+      "name": "doctor",
+      "description": "aidd/superpowers の導入状態・バージョン整合・hooks 実行可否を診断する"
+    },
+    {
+      "kind": "command",
+      "name": "eval",
+      "description": "design-review パイプラインをゴールデンセットで評価し、検出率・誤棄却率を測定する"
+    },
+    {
+      "kind": "command",
+      "name": "infra-audit",
+      "description": "利用側プロジェクトの静的解析(複雑度制御)・重複コード検出・多OS CI導入状況を診断する"
+    },
+    {
+      "kind": "command",
+      "name": "issue-split",
+      "description": "設計を独立マージ可能なPR単位に分割し、GitHub issue 化する"
+    },
+    {
+      "kind": "command",
+      "name": "retro",
+      "description": "aidd 資産の棚卸し。利用実績と陳腐化した資産を洗い出す"
+    },
+    {
+      "kind": "command",
+      "name": "test-perspectives",
+      "description": "実装対象・変更差分からテスト観点を洗い出す"
+    },
+    {
+      "kind": "skill",
+      "name": "adr-recall",
+      "description": "Use when making an architectural decision, changing existing structure, or proposing a design that could contradict a past decision. Checks docs/adr/ for related ADRs before proceeding."
+    },
+    {
+      "kind": "skill",
+      "name": "model-selection",
+      "description": "Use when dispatching a subagent, choosing a model parameter (haiku/sonnet/opus/fable), or unsure whether a task is cheap enough for a smaller model."
+    },
+    {
+      "kind": "skill",
+      "name": "review-loop",
+      "description": "Use when running repeated review-fix rounds (design review, PR review, or subagent findings) and deciding when to stop, or when findings arrive in mixed severity vocabularies."
+    },
+    {
+      "kind": "agent",
+      "name": "design-arbiter",
+      "description": "Final arbiter for design reviews. Use after parallel reviewer agents return their findings, to resolve contradictions and pick the single highest-priority fix. Requires deep judgment, so it always runs on opus regardless of the main-loop model."
+    },
+    {
+      "kind": "agent",
+      "name": "refuter",
+      "description": "Adversarial verifier for review findings. Use after reviewer agents return high/mid findings, to actively attempt to refute each finding against the actual target before it is accepted. Findings that survive refutation are promoted; refuted ones are discarded with reasons."
+    },
+    {
+      "kind": "agent",
+      "name": "reviewer",
+      "description": "Code and document reviewer for routine quality checks. Use after a task completes to verify the deliverable matches its requirements. For deep architectural review use the design-review command instead."
+    },
+    {
+      "kind": "agent",
+      "name": "scout",
+      "description": "Lightweight read-only investigator. Use for codebase reconnaissance, file inventories, and fact-finding that only needs conclusions, not analysis. Dispatch multiple scouts in parallel for independent questions."
+    },
+    {
+      "kind": "agent",
+      "name": "security-reviewer",
+      "description": "STRIDE-based threat reviewer for designs that cross trust boundaries (external input, authn/authz, secrets, public endpoints). Launched conditionally by design-review; also usable standalone on a design document."
+    },
+    {
+      "kind": "agent",
+      "name": "source-verifier",
+      "description": "Verifies externally checkable claims in a design document (tech choices, API/spec assertions, version compatibility) against official docs and specs. Opt-in via design-review's --verify-sources flag."
+    },
+    {
+      "kind": "hook",
+      "name": "session-start",
+      "description": "[SessionStart] SessionStart hook: surface aidd assets so they are used without relying on memory."
+    },
+    {
+      "kind": "hook",
+      "name": "tool-reminder",
+      "description": "[PostToolUse, PreToolUse] Event-aware Bash hook dispatcher. Non-matching commands produce no context."
+    },
+    {
+      "kind": "hook",
+      "name": "usage-log",
+      "description": "[PreToolUse, UserPromptSubmit] UserPromptSubmit + PreToolUse(Skill) hook: log aidd command usage for /aidd:retro."
+    },
+    {
+      "kind": "hook",
+      "name": "write-guard",
+      "description": "[PreToolUse] Write/Edit/NotebookEdit guard for new files: unreadable names, and assets aidd already has."
+    }
+  ]
+}

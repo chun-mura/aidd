@@ -96,7 +96,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 | `session-start.sh` | SessionStart で aidd 資産の使いどころと「実装を左右する不明点は、このセッションが実際に持つ手段で確認する (対話なら AskUserQuestion、監督下なら親への返答)」を注入。superpowers 未導入を検知して警告 |
 | `usage-log.sh` | 起動を2経路で記録し、aidd コマンド使用数・最終利用時刻を `~/.claude/aidd/usage.json` に残す (`/aidd:retro` が読む): 行頭が `/aidd:<name>` のプロンプト (UserPromptSubmit) と、Skill ツール経由の起動 (PreToolUse、サブエージェント内の起動もここに入る)。文中で名前に触れただけのプロンプトは計上しない。実在するコマンド・skill 名だけを計上し、旧版が残した `prompt_log` は起動時に削除する |
 | `tool-reminder.sh` | `git commit` 前の test-perspectives 確認、`gh pr/issue create・edit` 前の日本語確認、`git push` 後の PR 同期確認を1本で処理 (非ブロック) |
-| `write-guard.sh` | Write・Edit・NotebookEdit の PreToolUse を1本で処理する。対象はまだ存在しないファイルだけで、既存ファイルと対象外のパスでは何も出さずに終わる。サンドボックスの読み取り拒否によく入る名前 (`.env*`・`*.pem`・`*secret*`・`*credential*` など) のファイルを新しく作ろうとしたら拒否する (作った後に git・テスト・シェルから読めなくなるため)。Claude Code には読み取り拒否の既定リストが無いので、パターンは `AIDD_UNREADABLE_NAME_PATTERNS` で利用側の設定に合わせて差し替える |
+| `write-guard.sh` | Write・Edit・NotebookEdit の PreToolUse を1本で処理する。対象はまだ存在しないファイルだけで、既存ファイルと対象外のパスでは何も出さずに終わる。サンドボックスの読み取り拒否によく入る名前 (`.env*`・`*.pem`・`*secret*`・`*credential*` など) のファイルを新しく作ろうとしたら拒否する (作った後に git・テスト・シェルから読めなくなるため)。Claude Code には読み取り拒否の既定リストが無いので、パターンは `AIDD_UNREADABLE_NAME_PATTERNS` で利用側の設定に合わせて差し替える。あわせて、`.claude/{hooks,skills,commands,rules,agents}/` (プロジェクト側・`~/.claude/` 側の両方) に新しい資産を作ろうとしたら、同梱の `hooks/asset-index.json` から aidd の資産一覧 (名前と description) を additionalContext で渡し、役割が重なるならそれを使うか aidd への要望として起票するよう促す。重なりの判断はモデルに任せ、aidd の command・skill・agent と同名のときだけ拒否する。既存の資産と既存 skill 内のファイルは対象外 |
 
 #### Hooks の書き込み先と無効化
 
@@ -114,6 +114,9 @@ hooks は上記スクリプトをセッション中に自動実行する。フ�
 | `AIDD_DISABLE_CLARIFY_NUDGE=1` | `session-start.sh` の不明点確認指示の注入を止める。注入文は確認手段を1つに固定しないため非対話セッションでも矛盾しないが、確認自体を求めたくない自動実行では設定する |
 | `AIDD_DISABLE_UNREADABLE_NAME_GUARD=1` | `write-guard.sh` の読み取り拒否名の検査を止める |
 | `AIDD_UNREADABLE_NAME_PATTERNS=<p1>:<p2>` | `write-guard.sh` が拒否するパターンを既定から差し替える (コロン区切りの glob)。利用側の `sandbox.filesystem.denyRead`・`sandbox.credentials.files` の値はそのまま書ける: `~/` はホーム、`/` と `//` は絶対パス、`./` と接頭辞なしで `/` を含むものは hook 入力の cwd (通常はプロジェクトルート) からの相対で、パスはそのディレクトリの下すべてにも当たる (末尾の `/`・`/**` は有っても無くても同じ。ユーザー設定の `./`・接頭辞なしの値は `~/.claude` 基準なので `~/.claude/...` と書く)。`/` を含まない名前はどの深さのファイル名とも照合し、`secrets/`・`secrets/**` のようにディレクトリと示した名前は cwd 以下のどの深さの同名ディレクトリの中にも当たる。`Read(...)` の deny ルールは `/` の意味が違うので書き換える: `Read(//abs/**)` → `/abs/**`、プロジェクト設定の `Read(/path)` → `./path`、ユーザー設定の `Read(/path)` → `~/.claude/path` (`Read(~/x)`・`Read(.env)`・`Read(secrets/**)` はそのまま) |
+| `AIDD_DISABLE_ASSET_OVERLAP=1` | `write-guard.sh` の資産重複の案内と同名拒否を止める |
+| `AIDD_ASSET_OVERLAP_DIRS=<k1>:<k2>` | 資産重複の検査対象にする `.claude/` 直下のディレクトリ (既定 `hooks:skills:commands:rules:agents`) |
+| `AIDD_ASSET_OVERLAP_DENY_SAME_NAME=0` | 同名の資産も拒否せず、一覧の案内だけにする |
 
 非対話・監督下のセッション (print モード、スケジュール実行、親エージェントが指示を出すサブエージェント) では、注入文の指示どおり「このセッションが持つ確認手段」を使う。人間に届く手段が無い場合は前提を最終報告に明記させる形になるため、確認そのものを止めたい場合は `AIDD_DISABLE_CLARIFY_NUDGE=1` を設定する。
 
@@ -125,6 +128,7 @@ hooks は上記スクリプトをセッション中に自動実行する。フ�
 | `settings.json.template` | Claude Code 権限設定の基本構成テンプレート |
 | `team-settings.json.template` | チーム導入用。利用プロジェクトの `.claude/settings.json` にマージすると aidd が自動提案される |
 | `design-perspectives.md.template` | `.aidd/design-perspectives.md` の出発点。可観測性・プロジェクト固有観点 (design-review の Agent 4 が読む) |
+| `asset-overlap-prompt-hook.json.template` | 資産の重複を厳格に止めたい利用側向けの prompt 型 PreToolUse hook (既定では無効。`.claude/settings.json` の `hooks` にマージして有効化)。`.claude/{hooks,skills,commands,rules,agents}/` への Write をモデルが aidd の資産一覧と照らし、役割が重なれば拒否する。`scripts/generate-asset-index.py` が生成する |
 
 ### Tips (方法論の知見)
 
@@ -141,7 +145,7 @@ hooks は上記スクリプトをセッション中に自動実行する。フ�
 
 1. **1ファイル1関心事**: 各ファイルは単一トピックに集中。docs は冒頭に「いつ使うか」を明記
 2. **2回ルール**: 同じプロンプトを2回以上使ったものだけ commands/skills に昇格
-3. **README更新**: 資産追加時は本インデックスを更新し、plugin.json の version を上げて CHANGELOG に記録
+3. **README更新**: 資産追加時は本インデックスを更新し、plugin.json の version を上げて CHANGELOG に記録。command・skill・agent・hook を追加・削除・改名したら `python3 scripts/generate-asset-index.py` で資産一覧を再生成する (`tests/hook-contract-test.sh` が不一致で落ちる)
 4. **重複禁止**: superpowers・reqd・estimate・uidd・stdd・aidd-autopilot・グローバル資産と被る機能は作らず、ポインタのみ記載
 5. **受動ドキュメント禁止**: セッション中に効かせたい知見は docs でなく skills (自動トリガ) か hooks (強制) にする
 6. **パイプライン変更時の評価**: `design-review.md`・`refuter.md`・`design-arbiter.md`・`security-reviewer.md`・`reviewer.md` のプロンプトを変更するリリースは、リリース前に `/aidd:eval` を実行し結果を `tests/eval/results/` に残す (退行の検知はこの記録の比較でのみ可能)

@@ -1,9 +1,12 @@
 #!/bin/bash
-# PreToolUse dispatcher for Write/Edit/NotebookEdit. Every check here concerns a file that does
-# not exist yet, so an existing target (or a non-matching path) exits with no output.
-# No `if` filter in hooks.json on purpose: the checks match file names at any location,
-# which one permission rule per handler cannot express.
+# Write/Edit/NotebookEdit guard for new files: unreadable names, and assets aidd already has.
+# Every check concerns a file that does not exist yet, so an existing target (or a non-matching
+# path) exits with no output.
+# No `if` filter in hooks.json on purpose: the checks match file names at any location, and
+# asset directories both under the project and under ~/.claude, which one permission rule per
+# handler cannot express.
 input=$(cat)
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}"
 
 PY_CODE=$(cat <<'PYEOF'
 import fnmatch, json, os, sys
@@ -96,10 +99,58 @@ def unreadable_name_guard():
             )
 
 
+def asset_overlap():
+    # A consumer-side asset that duplicates an aidd one gets fixed in one place and goes stale in
+    # the other, so the model is shown aidd's list at the moment of creation. Judging overlap is
+    # left to the model; only an identical name is refused.
+    if os.environ.get("AIDD_DISABLE_ASSET_OVERLAP") == "1":
+        return
+    kinds = os.environ.get("AIDD_ASSET_OVERLAP_DIRS") or "hooks:skills:commands:rules:agents"
+    parts = path.split("/")
+    hit = None
+    for i in range(len(parts) - 2, 0, -1):
+        if parts[i - 1] == ".claude" and parts[i] in kinds.split(":"):
+            hit = i
+            break
+    if hit is None:
+        return
+    kind, first = parts[hit], parts[hit + 1]
+    # A skill is its directory: a new file inside an existing skill is not a new asset.
+    if kind == "skills" and hit + 1 < len(parts) - 1 and os.path.lexists("/".join(parts[:hit + 2])):
+        return
+    try:
+        with open(os.path.join(sys.argv[1], "hooks", "asset-index.json"), encoding="utf-8") as f:
+            index = json.load(f)
+    except Exception:
+        return
+    plugin = index.get("plugin", "aidd")
+    assets = index.get("assets", [])
+    name = first if kind == "skills" else os.path.splitext(first)[0]
+    same_kind = {"commands": ("command", "skill"), "skills": ("command", "skill"), "agents": ("agent",)}.get(kind, ())
+    if os.environ.get("AIDD_ASSET_OVERLAP_DENY_SAME_NAME") != "0":
+        for a in assets:
+            if a.get("kind") in same_kind and a.get("name") == name:
+                deny(
+                    f"aidd: {plugin}:{name} ({a['kind']}) already exists: {a.get('description', '')} "
+                    f"Use it instead of creating a same-named copy. If it falls short, file a request "
+                    f"against {plugin} rather than forking it locally."
+                )
+    listing = "\n".join(f"- {a['kind']} {plugin}:{a['name']}: {a.get('description', '')}" for a in assets)
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "additionalContext": (
+            f"aidd: a new {kind[:-1]} is being created. If one of these {plugin} assets covers "
+            f"the same role, use it instead of creating a new one, or file a request against "
+            f"{plugin}:\n{listing}"
+        ),
+    }}, ensure_ascii=False))
+
+
 unreadable_name_guard()
+asset_overlap()
 PYEOF
 )
 
-printf '%s' "$input" | python3 -c "$PY_CODE" 2>/dev/null
+printf '%s' "$input" | python3 -c "$PY_CODE" "$PLUGIN_ROOT" 2>/dev/null
 
 exit 0

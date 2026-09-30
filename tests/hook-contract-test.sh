@@ -187,3 +187,93 @@ assert len(entries) == 1, entries
 assert entries[0]["matcher"] == "Write|Edit|NotebookEdit", entries[0]
 assert all("if" not in h for h in entries[0]["hooks"]), entries[0]
 PYEOF
+
+# write-guard.sh asset overlap: a new consumer-side asset gets aidd's asset list as context;
+# only an identical command/skill/agent name is refused.
+context_of() { python3 -c 'import json,sys; print(json.load(sys.stdin)["hookSpecificOutput"]["additionalContext"])'; }
+decision_of() { python3 -c 'import json,sys; print(json.load(sys.stdin)["hookSpecificOutput"].get("permissionDecision", "none"))'; }
+
+out=$(run_write_guard Write file_path "$project/.claude/commands/deploy-check.md")
+[ "$(printf '%s' "$out" | decision_of)" = none ]
+printf '%s' "$out" | context_of | grep -F 'aidd:design-review'
+printf '%s' "$out" | context_of | grep -F 'agent aidd:reviewer'
+# The whole list must stay under the 10,000-character additionalContext cap, past which Claude
+# Code replaces it with a file path and a preview.
+[ "$(printf '%s' "$out" | context_of | wc -c)" -lt 10000 ]
+# User-level assets under ~/.claude are covered too (the script matches the path segment).
+run_write_guard Write file_path "$tmp_dir/home/.claude/skills/pr-helper/SKILL.md" | context_of | grep -F 'aidd:'
+# Hooks and rules have no namespace clash, so a same-named one only gets the list.
+[ "$(run_write_guard Write file_path "$project/.claude/hooks/usage-log.sh" | decision_of)" = none ]
+
+# Same name as an aidd command/skill (they share the slash namespace) or agent: refused.
+out=$(run_write_guard Write file_path "$project/.claude/commands/design-review.md")
+[ "$(printf '%s' "$out" | decision_of)" = deny ]
+printf '%s' "$out" | grep -F 'aidd:design-review'
+[ "$(run_write_guard Write file_path "$project/.claude/skills/adr/SKILL.md" | decision_of)" = deny ]
+[ "$(run_write_guard Write file_path "$project/.claude/agents/reviewer.md" | decision_of)" = deny ]
+[ "$(AIDD_ASSET_OVERLAP_DENY_SAME_NAME=0 run_write_guard Write file_path "$project/.claude/agents/reviewer.md" | decision_of)" = none ]
+
+# Existing assets are out of scope: an existing file, or a new file inside an existing skill.
+mkdir -p "$project/.claude/commands" "$project/.claude/skills/local-skill"
+touch "$project/.claude/commands/design-review.md" "$project/.claude/skills/local-skill/SKILL.md"
+[ -z "$(run_write_guard Edit file_path "$project/.claude/commands/design-review.md")" ]
+[ -z "$(run_write_guard Write file_path "$project/.claude/skills/local-skill/reference.md")" ]
+# A path outside the asset directories, even under .claude/, is silent.
+[ -z "$(run_write_guard Write file_path "$project/.claude/notes/commands.md")" ]
+
+# Target directories are configurable, and the check can be turned off.
+[ -z "$(AIDD_ASSET_OVERLAP_DIRS=skills run_write_guard Write file_path "$project/.claude/commands/new-one.md")" ]
+[ -z "$(AIDD_DISABLE_ASSET_OVERLAP=1 run_write_guard Write file_path "$project/.claude/commands/new-one.md")" ]
+
+# The list is read from ${CLAUDE_PLUGIN_ROOT}; a missing list fails open with no output.
+mkdir -p "$tmp_dir/fake-plugin/hooks"
+printf '{"plugin":"fake","assets":[{"kind":"command","name":"only-here","description":"x"}]}' > "$tmp_dir/fake-plugin/hooks/asset-index.json"
+CLAUDE_PLUGIN_ROOT="$tmp_dir/fake-plugin" run_write_guard Write file_path "$project/.claude/commands/new-one.md" | context_of | grep -F 'fake:only-here'
+[ -z "$(CLAUDE_PLUGIN_ROOT="$tmp_dir/nowhere" run_write_guard Write file_path "$project/.claude/commands/new-one.md")" ]
+
+# The bundled list and the strict prompt-hook template must match the real assets.
+python3 "$repo_root/scripts/generate-asset-index.py" --check
+
+# The generator takes component locations from plugin.json, not from fixed directories:
+# `commands` and `agents` replace the default scan, `skills` adds to it. A stale output fails --check.
+fixture="$tmp_dir/fixture-plugin"
+mkdir -p "$fixture/.claude-plugin" "$fixture/scripts" "$fixture/hooks" "$fixture/templates" \
+  "$fixture/commands" "$fixture/cmds" "$fixture/agents" "$fixture/custom-agents" \
+  "$fixture/skills/base-skill" "$fixture/extra/more-skill"
+cp "$repo_root/scripts/generate-asset-index.py" "$fixture/scripts/"
+printf '{"name":"fx","commands":["./cmds"],"agents":["./custom-agents/picked.md"],"skills":["./extra"]}' > "$fixture/.claude-plugin/plugin.json"
+printf -- '---\ndescription: ignored\n---\n' > "$fixture/commands/default-cmd.md"
+printf -- '---\ndescription: declared command\n---\n' > "$fixture/cmds/declared-cmd.md"
+printf -- '---\nname: default-agent\ndescription: ignored\n---\n' > "$fixture/agents/default-agent.md"
+printf -- '---\nname: picked\ndescription: declared agent\n---\n' > "$fixture/custom-agents/picked.md"
+printf -- '---\nname: base-skill\ndescription: default skill\n---\n' > "$fixture/skills/base-skill/SKILL.md"
+printf -- '---\nname: more-skill\ndescription: added skill\n---\n' > "$fixture/extra/more-skill/SKILL.md"
+python3 "$fixture/scripts/generate-asset-index.py"
+python3 - "$fixture/hooks/asset-index.json" <<'PYEOF'
+import json, sys
+index = json.load(open(sys.argv[1]))
+names = {(a["kind"], a["name"]) for a in index["assets"]}
+assert index["plugin"] == "fx", index
+assert names == {("command", "declared-cmd"), ("agent", "picked"), ("skill", "base-skill"), ("skill", "more-skill")}, names
+PYEOF
+python3 "$fixture/scripts/generate-asset-index.py" --check
+printf -- '---\ndescription: added later\n---\n' > "$fixture/cmds/added-later.md"
+if python3 "$fixture/scripts/generate-asset-index.py" --check 2>/dev/null; then
+  echo "stale asset index was not detected" >&2
+  exit 1
+fi
+
+# The strict prompt hook ships only as a template (off by default): it is never wired into
+# hooks.json, targets Write (Edit cannot create files), and narrows each asset directory by `if`.
+python3 - "$repo_root/templates/asset-overlap-prompt-hook.json.template" "$repo_root/hooks/hooks.json" <<'PYEOF'
+import json, sys
+template = json.load(open(sys.argv[1]))
+groups = template["hooks"]["PreToolUse"]
+assert [g["matcher"] for g in groups] == ["Write"], groups
+handlers = groups[0]["hooks"]
+assert {h["if"] for h in handlers} == {f"Edit(**/.claude/{k}/**)" for k in ["hooks", "skills", "commands", "rules", "agents"]}, handlers
+for h in handlers:
+    assert h["type"] == "prompt" and "$ARGUMENTS" in h["prompt"] and h["continueOnBlock"] is True, h
+    assert "aidd:design-review" in h["prompt"], h
+assert "prompt" not in open(sys.argv[2]).read()
+PYEOF
