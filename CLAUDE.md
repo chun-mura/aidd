@@ -22,16 +22,19 @@ npm install -g @anthropic-ai/claude-code       # install the claude CLI
 claude plugin validate . --strict              # validates .claude-plugin/marketplace.json + plugin.json
 ```
 
-Adding, removing or renaming a command/agent/skill, or changing a hook script's line-2 description, changes the
-asset index shipped for `write-guard.sh`: run `python3 scripts/generate-asset-index.py` in the same commit or CI
-fails.
+`scripts/generate-asset-index.py` builds `hooks/asset-index.json` (read by `write-guard.sh`) and
+`templates/asset-overlap-prompt-hook.json.template` from: command/skill/agent files and their frontmatter `name`/
+`description`, the event names each hook script is wired to in `hooks.json`, each hook script's first comment line
+after the shebang, and the `commands`/`skills`/`agents`/`hooks` declarations in `plugin.json`. Changing any of these
+— including just editing an existing command's `description` — requires `python3 scripts/generate-asset-index.py`
+in the same commit, or CI fails.
 
 There is no `package.json`/Makefile/test runner. The contract tests are plain bash scripts run directly:
 
 ```bash
 bash tests/autonomous-review-contract-test.sh  # grep-asserts required phrases in commands/autonomous-review.md
-bash tests/command-contract-test.sh      # grep-asserts exact phrases exist in commands/design-review.md, agents/reviewer.md, agents/refuter.md, commands/eval.md, commands/incident-retro.md, commands/asset-audit.md
-bash tests/hook-contract-test.sh         # feeds fake hook-event JSON into hooks/scripts/*.sh via stdin, asserts output
+bash tests/command-contract-test.sh      # grep-asserts exact phrases exist in commands/design-review.md, agents/reviewer.md, agents/refuter.md, commands/eval.md, skills/review-loop/SKILL.md, commands/adr.md, commands/incident-retro.md, commands/asset-audit.md
+bash tests/hook-contract-test.sh         # feeds fake hook-event JSON into hooks/scripts/*.sh via stdin, asserts output; also runs generate-asset-index.py --check
 bash tests/hook-log-test.sh              # exercises templates/aidd-hook-log.sh (pass-through, signals, per-hook markers)
 bash tests/redundancy-contract-test.sh   # asserts removed assets stay removed and de-duplication boundaries hold
 bash tests/session-start-test.sh         # asserts session-start.sh injects the short nudges only when due
@@ -40,11 +43,15 @@ bash tests/session-start-test.sh         # asserts session-start.sh injects the 
 On macOS inside the Claude Code sandbox, `mktemp -d` may ignore `$TMPDIR` and fail under `/var/folders`; run the
 tests outside the sandbox (or with a writable temp dir) rather than treating that as a test failure.
 
-These are **not** a general-purpose test framework — each script greps for literal strings that must appear in
-specific prompt files. If you edit `commands/design-review.md`, `agents/reviewer.md`, `agents/refuter.md`,
-`commands/eval.md`, `skills/review-loop/SKILL.md`, `templates/design-perspectives.md.template`, or
-`hooks/scripts/*.sh`, run the matching test script — a wording change can silently break the contract. There is
-no CI job that runs these `tests/*.sh` scripts automatically; run them locally before committing.
+These are **not** a general-purpose test framework — some grep for literal strings that must appear in specific
+prompt files; `hook-contract`, `hook-log` and `session-start` execute the scripts. If you edit
+`commands/design-review.md`, `agents/reviewer.md`, `agents/refuter.md`, `commands/eval.md`, `commands/adr.md`,
+`commands/incident-retro.md`, `commands/autonomous-review.md`, `commands/asset-audit.md` (also executed by
+`hook-log-test.sh`), `skills/review-loop/SKILL.md`, `templates/design-perspectives.md.template`,
+`templates/CLAUDE.md.template`, `templates/aidd-hook-log.sh`, `hooks/hooks.json`, `hooks/scripts/*.sh`,
+`scripts/generate-asset-index.py`, or any command/skill/agent frontmatter, run the matching test script — a wording
+change can silently break the contract. There is no CI job that runs these `tests/*.sh` scripts automatically; run
+them locally before committing.
 
 `claude plugin validate . --strict` requires the `claude` CLI on PATH (`npm install -g @anthropic-ai/claude-code`
 if missing) and validates both `.claude-plugin/marketplace.json` and `.claude-plugin/plugin.json`.
@@ -60,7 +67,7 @@ if missing) and validates both `.claude-plugin/marketplace.json` and `.claude-pl
   `model-selection` fires when choosing a subagent model). They hold *reusable* judgment logic that would
   otherwise be duplicated across commands.
 - **Hooks** (`hooks/hooks.json` + `hooks/scripts/*.sh`) are the only assets with actual enforcement power —
-  everything else is advisory text a model can ignore. `hooks.json` wires 6 lifecycle entries to 4 scripts:
+  everything else is advisory text a model can ignore. `hooks.json` wires 7 entries across 5 events to 4 scripts:
   - `session-start.sh` (SessionStart): injects a one-time short nudge, an `/aidd:asset-audit` nudge only when the
     consumer's audit is overdue, and detects missing `superpowers` plugin
   - `usage-log.sh` (UserPromptSubmit + PreToolUse `^Skill$`): counts `/aidd:*` usage into `~/.claude/aidd/usage.json`
@@ -75,19 +82,23 @@ if missing) and validates both `.claude-plugin/marketplace.json` and `.claude-pl
   - `write-guard.sh` (PreToolUse, matcher `Write|Edit|NotebookEdit`): acts only on files that don't exist yet —
     denies names the sandbox usually can't read back, and points new consumer `.claude/{hooks,skills,commands,rules,agents}`
     assets at the aidd assets they duplicate (denying same-name commands/skills/agents)
-  Git checks use the hook input's `cwd`, not `CLAUDE_PROJECT_DIR` (which stays on the main checkout inside a worktree).
+  `tool-reminder.sh` and `write-guard.sh` resolve paths from the hook input's `cwd`, not `CLAUDE_PROJECT_DIR` (which
+  stays on the main checkout inside a worktree); `session-start.sh` uses `${CLAUDE_PROJECT_DIR:-$PWD}`.
   All hook writes are confined to `~/.claude/aidd/` — no network calls, no writes elsewhere.
 - **Templates** (`templates/*.template`) are copied into a *consumer* project (e.g.
   `.aidd/design-perspectives.md.template` → consumer's `.aidd/design-perspectives.md`), not used in this repo
   directly, except that `tests/redundancy-contract-test.sh` asserts invariants about their content (e.g. no
-  `## セキュリティ` section, since security perspectives were centralized into Agent 6 / `security-reviewer`).
+  `## セキュリティ` section, since security perspectives were centralized into Agent 6 / `security-reviewer`),
+  `asset-overlap-prompt-hook.json.template` is generated here (checked by CI `--check` and `hook-contract-test.sh`),
+  and `templates/aidd-hook-log.sh` is shellchecked in CI and tested by `hook-log-test.sh`.
 
 ### The design-review pipeline (`commands/design-review.md`)
 
 This is the most structurally complex asset — read the file itself before modifying it, but the shape is:
 
-1. **Flag parsing**: `--depth=standard|deep` (default `standard`), `--verify-sources`, `--security`/`--no-security`
-   are stripped from `$ARGUMENTS` before anything is dispatched to agents.
+1. **Flag parsing**: `--depth=standard|deep` (default `standard`), `--review-delta=<range>` (re-review limited to
+   the diff since the last review), `--verify-sources`, `--security`/`--no-security` are stripped from `$ARGUMENTS`
+   before anything is dispatched to agents.
 2. **Dismissed-findings intake**: reads consumer's `.aidd/review-dismissed.md` if present, passes it to every
    reviewer so previously user-approved dismissals aren't re-reported.
 3. **Parallel dispatch, single message**: up to 6 `aidd:reviewer`/specialist agents fire together —
@@ -96,15 +107,16 @@ This is the most structurally complex asset — read the file itself before modi
    (`aidd:source-verifier`, only with `--verify-sources`), Agent 6 (`aidd:security-reviewer`, STRIDE, only if the
    design crosses a trust boundary — decided semantically by the main loop, not by keyword match; forced/suppressed
    by `--security`/`--no-security`).
-   Below 5 files / 3000 lines total the whole thing can shortcut to a direct in-context review — except when
-   `--verify-sources` is set, which always forces the full parallel path (to guarantee Agent 5 runs).
+   Only a small target (1 file, or a summary under 100 lines) may shortcut to a direct in-context review — except
+   when `--verify-sources` is set, which always forces the full parallel path (to guarantee Agent 5 runs). A large
+   target (over 5 files or 3000 lines total) is instead split across multiple agents per perspective group.
 4. **Refutation stage**: `aidd:refuter` (sonnet) runs only if any high/mid findings exist, and only receives the
    findings + citations + minimal related paths (not the whole target again). `low` findings and Agent 5 output
    skip refutation entirely.
-5. **Arbitration**: `aidd:design-arbiter` (opus, fixed regardless of main-loop model) runs only when
-   `--depth=deep`, or when there's cross-agent contradiction, or when Agent 5 ran. In `standard` mode with no
-   contradiction and nothing surviving refutation, results are reported directly without invoking the arbiter —
-   this shortcut is the main token-saving mechanism of `standard` vs `deep`.
+5. **Arbitration**: `aidd:design-arbiter` (opus, fixed regardless of main-loop model). In `standard`, high/mid
+   surviving refutation are reported directly; the arbiter runs only on cross-agent contradiction or when Agent 5
+   ran. In `deep`, it also runs whenever high/mid survive refutation. Skipping the arbiter for surviving high/mid is
+   the main token-saving mechanism of `standard` vs `deep`.
 6. Findings needing a code-level security audit after implementation are pointed at `/security-review` (a
    *different*, code-diff-focused tool) — Agent 6 only covers the design document, not implementation.
 

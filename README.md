@@ -202,7 +202,7 @@ cp <aidd>/templates/aidd-hook-log.sh .claude/hooks/   # 実行ビットごとコ
 
 1. **1ファイル1関心事**: 各ファイルは単一トピックに集中。docs は冒頭に「いつ使うか」を明記
 2. **2回ルール**: 同じプロンプトを2回以上使ったものだけ commands/skills に昇格
-3. **README更新**: 資産追加時は本インデックスを更新し、plugin.json の version を上げて CHANGELOG に記録。command・skill・agent・hook を追加・削除・改名したら `python3 scripts/generate-asset-index.py` で資産一覧を再生成する (CI の `python3 scripts/generate-asset-index.py --check` と `tests/hook-contract-test.sh` が不一致で落ちる)
+3. **README更新**: 資産追加時は本インデックスを更新し、plugin.json の version を上げて CHANGELOG に記録。command・skill・agent・hook の追加・削除・改名、frontmatter の `name`・`description` の変更、`hooks/hooks.json` の配線や hook スクリプトの shebang 直後のコメント行の変更、plugin.json の `commands`・`skills`・`agents`・`hooks` の宣言の変更をしたら `python3 scripts/generate-asset-index.py` で資産一覧を再生成する (CI の `python3 scripts/generate-asset-index.py --check` と `tests/hook-contract-test.sh` が不一致で落ちる)
 4. **重複禁止**: superpowers・reqd・estimate・uidd・stdd・aidd-autopilot・グローバル資産と被る機能は作らず、ポインタのみ記載
 5. **受動ドキュメント禁止**: セッション中に効かせたい知見は docs でなく skills (自動トリガ) か hooks (強制) にする
 6. **パイプライン変更時の評価**: `design-review.md`・`refuter.md`・`design-arbiter.md`・`security-reviewer.md`・`reviewer.md` のプロンプトを変更するリリースは、リリース前に `/aidd:eval` を実行し結果を `tests/eval/results/` に残す (退行の検知はこの記録の比較でのみ可能)
