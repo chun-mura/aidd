@@ -113,7 +113,7 @@ hooks は上記スクリプトをセッション中に自動実行する。フ�
 | `AIDD_DISABLE_USAGE_LOG=1` | `usage-log.sh` の利用統計の記録をすべて止める (`prompt_log` の削除も行われなくなる) |
 | `AIDD_DISABLE_CLARIFY_NUDGE=1` | `session-start.sh` の不明点確認指示の注入を止める。注入文は確認手段を1つに固定しないため非対話セッションでも矛盾しないが、確認自体を求めたくない自動実行では設定する |
 | `AIDD_DISABLE_UNREADABLE_NAME_GUARD=1` | `write-guard.sh` の読み取り拒否名の検査を止める |
-| `AIDD_UNREADABLE_NAME_PATTERNS=<p1>:<p2>` | `write-guard.sh` が拒否するパターンを既定から差し替える (コロン区切りの glob。`/` を含まないものはファイル名、含むものは絶対パスと照合)。利用側の `sandbox.filesystem.denyRead`・`sandbox.credentials.files`・`Read(...)` の deny ルールに合わせる |
+| `AIDD_UNREADABLE_NAME_PATTERNS=<p1>:<p2>` | `write-guard.sh` が拒否するパターンを既定から差し替える (コロン区切りの glob)。利用側の `sandbox.filesystem.denyRead`・`sandbox.credentials.files` の値はそのまま書ける: `~/` はホーム、`/` と `//` は絶対パス、`./` と接頭辞なしで `/` を含むものは hook 入力の cwd (通常はプロジェクトルート) からの相対で、パスはそのディレクトリの下すべてにも当たる (末尾の `/`・`/**` は有っても無くても同じ。ユーザー設定の `./`・接頭辞なしの値は `~/.claude` 基準なので `~/.claude/...` と書く)。`/` を含まない名前はどの深さのファイル名とも照合し、`secrets/`・`secrets/**` のようにディレクトリと示した名前は cwd 以下のどの深さの同名ディレクトリの中にも当たる。`Read(...)` の deny ルールは `/` の意味が違うので書き換える: `Read(//abs/**)` → `/abs/**`、プロジェクト設定の `Read(/path)` → `./path`、ユーザー設定の `Read(/path)` → `~/.claude/path` (`Read(~/x)`・`Read(.env)`・`Read(secrets/**)` はそのまま) |
 
 非対話・監督下のセッション (print モード、スケジュール実行、親エージェントが指示を出すサブエージェント) では、注入文の指示どおり「このセッションが持つ確認手段」を使う。人間に届く手段が無い場合は前提を最終報告に明記させる形になるため、確認そのものを止めたい場合は `AIDD_DISABLE_CLARIFY_NUDGE=1` を設定する。
 

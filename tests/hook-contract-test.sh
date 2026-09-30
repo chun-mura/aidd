@@ -131,13 +131,42 @@ printf '%s' "$out" | python3 -c 'import json,sys; o=json.load(sys.stdin)["hookSp
 run_write_guard NotebookEdit notebook_path "$project/secret-analysis.ipynb" | grep -F '"deny"'
 # Patterns containing "/" match the whole path, not just the file name.
 run_write_guard Write file_path "$tmp_dir/home/.ssh/config" | grep -F '"deny"'
-# A relative path is resolved against the hook input's cwd.
-run_write_guard Write file_path "config/prod.pem" | grep -F '"deny"'
 
 # An existing file is left alone: the name already exists, so refusing gains nothing.
+# The relative form also checks that a relative file path is resolved against the hook input's cwd.
 touch "$project/src/existing.key"
 [ -z "$(run_write_guard Edit file_path "$project/src/existing.key")" ]
 [ -z "$(run_write_guard Edit file_path "src/existing.key")" ]
+# An absolute pattern matches a relative file path only once the path is resolved against cwd.
+AIDD_UNREADABLE_NAME_PATTERNS="$project/config/*.draft" run_write_guard Write file_path "config/prod.draft" | grep -F '"deny"'
+
+# Patterns follow the sandbox path syntax of denyRead / credentials.files: "~/" is home, "/" and
+# "//" are absolute, "./" or no prefix is relative to cwd, and a directory entry (with or without a
+# trailing "/" or "/**") covers everything under it.
+guard_home="$tmp_dir/home"
+# `! cmd` is exempt from `set -e`, so the negative cases assert empty output instead.
+guard_with() {
+  HOME="$guard_home" AIDD_UNREADABLE_NAME_PATTERNS=$1 run_write_guard Write file_path "$2"
+}
+denied_with() {
+  guard_with "$1" "$2" | grep -qF '"deny"'
+}
+denied_with '~/.aws/*' "$guard_home/.aws/config"
+denied_with '~/.aws' "$guard_home/.aws/config"
+[ -z "$(guard_with '~/.aws' "$guard_home/.awsx/config")" ]
+denied_with '//**/.env' "$project/.env"
+denied_with '~/**/.env' "$guard_home/.env"
+denied_with "$guard_home/.aws" "$guard_home/.aws/config"
+denied_with "$guard_home/.aws/" "$guard_home/.aws/nested/config"
+denied_with "$guard_home/.aws/**" "$guard_home/.aws/config"
+# A single directory name matches that directory at any depth under cwd.
+denied_with 'secrets/**' "$project/secrets/a.txt"
+denied_with 'secrets/' "$project/pkg/secrets/a.txt"
+[ -z "$(guard_with 'secrets/**' "$tmp_dir/elsewhere/secrets/a.txt")" ]
+# A relative pattern with "/" is anchored at cwd.
+denied_with './config/*.draft' "$project/config/a.draft"
+denied_with 'config/*.draft' "$project/config/a.draft"
+[ -z "$(guard_with 'config/*.draft' "$project/pkg/config/a.draft")" ]
 
 # Paths that match nothing produce no output.
 [ -z "$(run_write_guard Write file_path "$project/src/main.py")" ]

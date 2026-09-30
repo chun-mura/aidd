@@ -2,7 +2,7 @@
 
 ## 0.35.0 (2026-09-30)
 
-- `write-guard.sh` を追加。Write・Edit・NotebookEdit の PreToolUse を1本の dispatcher で受け、まだ存在しないファイルがサンドボックスの読み取り拒否によく入る名前 (`.env*`・`*.pem`・`*.key`・`*secret*`・`*credential*`・`*token*.json`・`*/.ssh/*` など) に当たるときだけ拒否する。そうした名前で作ったファイルは sandbox 内の git・テスト・シェルから読めなくなり、作った後で気づいて名前を変える手戻りが複数セッションで起きていたため。Claude Code には読み取り拒否の既定リストが無い (`sandbox.filesystem.denyRead` の既定は未設定) ので、既定パターンは aidd が持ち、`AIDD_UNREADABLE_NAME_PATTERNS` で利用側の設定に合わせて差し替え、`AIDD_DISABLE_UNREADABLE_NAME_GUARD=1` で止められる。hooks.json では `if` で絞らない (名前はどの場所にも現れ、1つの permission ルールでは表せない)。既存ファイルと対象外のパスでは何も出さずに終わる (#21)
+- `write-guard.sh` を追加。Write・Edit・NotebookEdit の PreToolUse を1本の dispatcher で受け、まだ存在しないファイルがサンドボックスの読み取り拒否によく入る名前 (`.env*`・`*.pem`・`*.key`・`*secret*`・`*credential*`・`*token*.json`・`*/.ssh/*` など) に当たるときだけ拒否する。そうした名前で作ったファイルは sandbox 内の git・テスト・シェルから読めなくなり、作った後で気づいて名前を変える手戻りが複数セッションで起きていたため。Claude Code には読み取り拒否の既定リストが無い (`sandbox.filesystem.denyRead` の既定は未設定) ので、既定パターンは aidd が持ち、`AIDD_UNREADABLE_NAME_PATTERNS` で利用側の設定に合わせて差し替え (書き方は `sandbox.filesystem.denyRead` と同じで、`~/`・`/`・`//`・cwd 相対を解決し、ディレクトリはその下すべてに当たる。`Read(...)` の deny ルールは `/` の意味が違うため README の書き換え例に従う)、`AIDD_DISABLE_UNREADABLE_NAME_GUARD=1` で止められる。hooks.json では `if` で絞らない (名前はどの場所にも現れ、1つの permission ルールでは表せない)。既存ファイルと対象外のパスでは何も出さずに終わる (#21)
 
 ## 0.29.0 (2026-09-09)
 
