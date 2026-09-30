@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.32.0 (2026-09-30)
+
+- `tool-reminder.sh`: 複数のセッションが同じリポジトリを扱うと起きる事故を止める3つの判定を足した。手順書では止まらなかったため。(1) 未コミットの作業を失う git 操作 (`stash` の `list` / `show` 以外、`reset --hard`、`checkout --` と `checkout .`、`--staged` だけでない `restore`、`-n` / `--dry-run` の無い `clean`) と、指名しないステージ (`add -A` / `--all` / `.` / `-u`、`commit -a`) を拒否する。`-am` のような結合したフラグは1文字ずつ読み、値を取るフラグ (`-m` など) の後ろは値として扱うので `commit -ma` や `-m "... -a ..."` は拒否しない。(2) 主ツリーを別のセッションが直近 (`AIDD_MAIN_TREE_TTL_MINUTES`、既定 30 分) に使っているとき、相手ごとに1回だけ worktree への移動を促す。`session_id` は resume や compact の前後で同じと保証されていないため、拒否にはしない。(3) `gh issue create` を、同じセッションで直近 (`AIDD_ISSUE_SEARCH_TTL_MINUTES`、既定 30 分) に実行した `gh issue list --search` の後ろに置く (無ければ拒否)。検索の記録は PostToolUse で行う。settings.json 側の `if: Bash(gh *)` のようなフィルタはシェル展開を含むコマンドを取りこぼす実測があるため付けず、スクリプトの中で判定する。前置のラッパーは `AIDD_COMMAND_WRAPPERS` で足せる。状態は `~/.claude/aidd/main-tree.json` と `issue-search.json` に置く (#21)
+
 ## 0.31.0 (2026-09-30)
 
 - `tool-reminder.sh`: `gh pr create` の直前に、PR のブランチが基点ブランチに対してコードを変更しているのに `.aidd/autonomous-review/` にそのブランチの証跡 (`state.json` の `head` か `head_sha` / `head_sha_after_fixes` が一致するもの) が無ければ警告する。拒否はしない。証跡は `git worktree list` の全 worktree (主ツリーを含む) から探す (`/aidd:autonomous-review` は実行した worktree に証跡を書くため、PR を出す場所と一致するとは限らない)。`/aidd:autonomous-review` は PR の前に回す前提だが、手順書だけでは順序を守らせられなかったため。docs だけの変更では鳴らさない (毎回鳴る警告は読まれなくなる)。警告には変更ファイルの一覧を出し、docs だけのつもりのブランチに別ブランチのコミットが混入していることに気づけるようにした。対象は cwd の HEAD ではなく `--head` のブランチにする (worktree から PR を出すと cwd は別のブランチを指していることがある)。基点ブランチ・警告しないパス・一覧の上限・無効化は `AIDD_REVIEW_BASE` / `AIDD_REVIEW_SKIP_PATHS` / `AIDD_REVIEW_LIST_LIMIT` / `AIDD_DISABLE_REVIEW_BEFORE_PR` で設定する。基点ブランチは `--base`、`AIDD_REVIEW_BASE`、`origin/HEAD` の順に決め、どれも無ければ `main`、次に `master` を試す。どれも解決できなければ、確認しなかったことを1行で伝える (黙って通すと、証跡の確認が働いていないことに気づけないため)

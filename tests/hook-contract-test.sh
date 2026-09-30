@@ -6,6 +6,7 @@ dispatcher="$repo_root/hooks/scripts/tool-reminder.sh"
 usage_log="$repo_root/hooks/scripts/usage-log.sh"
 # An explicit template keeps TMPDIR honored (macOS mktemp -d alone ignores it).
 tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/aidd-hook-test.XXXXXX")
+tmp_dir=$(cd "$tmp_dir" && pwd -P)  # git reports physical paths (/tmp is a symlink on macOS)
 trap 'rm -rf "$tmp_dir"' EXIT
 
 [ -x "$dispatcher" ]
@@ -34,7 +35,7 @@ hook() {
 import json, sys
 print(json.dumps({"hook_event_name": sys.argv[1], "cwd": sys.argv[2], "session_id": sys.argv[4],
                   "tool_name": "Bash", "tool_input": {"command": sys.argv[3]}}))
-' "$1" "$2" "$3" "${4:-session-a}" | AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$dispatcher"
+' "$1" "$2" "$3" "${4-session-a}" | AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$dispatcher"
 }
 
 # Each call must produce at most one JSON document; decision_of prints its permissionDecision.
@@ -154,6 +155,108 @@ rm -f "$tmp_dir/python-started"
 [ ! -e "$tmp_dir/python-started" ]
 fast_path 'npm test\ngit commit -m x' | grep -F '/aidd:test-perspectives'
 [ -e "$tmp_dir/python-started" ]
+
+# #21 (1): git operations that lose uncommitted work, and staging that names nothing, are denied.
+# The lists pin the boundary: joined flags, git -C, wrappers, env prefixes, cd and joined
+# commands are seen through; quoted text, heredoc bodies and values of -m are not commands.
+expect_deny() {
+  local c
+  for c in "$@"; do
+    [ "$(hook PreToolUse "$repo" "$c" | decision_of)" = deny ] || { echo "not denied: $c" >&2; exit 1; }
+  done
+}
+expect_allow() {
+  local c
+  for c in "$@"; do
+    [ "$(hook PreToolUse "$repo" "$c" | decision_of)" != deny ] || { echo "denied: $c" >&2; exit 1; }
+  done
+}
+expect_deny 'git stash' 'git stash push -m wip' 'git stash pop' 'git stash -u' \
+  'rtk git stash' "git -C $repo stash" 'cd src && git stash' 'git status; git stash' \
+  "$(printf 'git status\ngit stash')" '(git stash)' \
+  'git reset --hard HEAD~1' 'git checkout -- app.sh' 'git checkout .' 'git checkout main -- app.sh' \
+  'git restore app.sh' 'git restore --staged --worktree app.sh' 'git restore -SW app.sh' \
+  'git clean -fd' 'git clean --force' \
+  'git add -A' 'git add .' 'git add -u' 'git add --all' 'git add -Av' 'git add -- .' "git -C $repo add ." \
+  'git commit -am msg' 'git commit -a -m msg' 'git commit --all -m msg' 'FOO=1 git commit -vam msg' \
+  'env GIT_EDITOR=true git commit -a' 'git -c core.editor=true commit -a'
+expect_allow 'git stash list' 'git stash show -p' 'git reset --soft HEAD~1' 'git reset app.sh' \
+  'git checkout -b topic' 'git checkout main' 'git restore --staged app.sh' 'git restore -S app.sh' \
+  'git clean -n' 'git clean -nd' 'git clean --dry-run -f' 'git add src/a.sh' 'git add -p' \
+  'git commit -m "fix -a flag"' 'git commit -ma' 'git commit -F msg.txt' 'git commit -m msg -- app.sh' \
+  'echo "git stash"' 'grep -r "git reset --hard" docs' \
+  "$(printf 'git commit -F - <<EOF\ngit stash\nEOF')" \
+  "$(printf "git commit -m \"\$(cat <<'EOF'\nfeat: x\n\ndon't git add -A\nEOF\n)\"")"
+# Known misses (not a shell parser): a nested shell, and a wrapper not on the list.
+expect_allow "bash -c 'git stash'" 'chronic git stash'
+AIDD_COMMAND_WRAPPERS='chronic,sudo -E' expect_deny 'chronic git stash' 'sudo -E git stash'
+AIDD_DISABLE_GIT_SAFETY=1 expect_allow 'git stash' 'git commit -am msg'
+# Two denials and an injected reminder in one command come back as one JSON reply.
+out=$(hook PreToolUse "$repo" 'git stash && git add -A && git commit -m msg')
+[ "$(printf '%s\n' "$out" | json_count)" = 1 ]
+python3 - "$out" <<'PYEOF'
+import json, sys
+reply = json.loads(sys.argv[1])["hookSpecificOutput"]
+assert reply["permissionDecision"] == "deny", reply
+assert "git stash" in reply["permissionDecisionReason"], reply
+assert "git add -A" in reply["permissionDecisionReason"], reply
+assert "/aidd:test-perspectives" in reply["additionalContext"], reply
+PYEOF
+
+# #21 (2): a main tree used by another live session warns once per other session.
+shared="$tmp_dir/shared"
+git init -q --template= -b main "$shared"
+git -C "$shared" commit -q --allow-empty -m 'chore: base'
+[ -z "$(hook PreToolUse "$shared" 'git status' session-x)" ]
+out=$(hook PreToolUse "$shared" 'git status' session-y)
+printf '%s\n' "$out" | grep -F "主ツリー $shared"
+printf '%s\n' "$out" | grep -F "$shared/.claude/worktrees/<name>"
+[ "$(printf '%s\n' "$out" | decision_of)" = none ]
+[ -z "$(hook PreToolUse "$shared" 'git log' session-y)" ]
+hook PreToolUse "$shared" 'git log' session-x | grep -F '主ツリー'
+# A linked worktree is not the main tree.
+git -C "$shared" worktree add -q "$tmp_dir/shared-wt" -b wt
+[ -z "$(hook PreToolUse "$tmp_dir/shared-wt" 'git status' session-z)" ]
+# Occupancy expires, and the warning can be switched off.
+python3 - "$tmp_dir/aidd/main-tree.json" <<'PYEOF'
+import json, sys
+data = json.load(open(sys.argv[1]))
+for sessions in data["trees"].values():
+    for s in sessions:
+        sessions[s] = 0
+json.dump(data, open(sys.argv[1], "w"))
+PYEOF
+[ -z "$(hook PreToolUse "$shared" 'git status' session-w)" ]
+[ -z "$(AIDD_DISABLE_MAIN_TREE_WARNING=1 hook PreToolUse "$shared" 'git status' session-v)" ]
+AIDD_WORKTREE_DIR=/elsewhere hook PreToolUse "$shared" 'git status' session-u | grep -F '/elsewhere/<name>'
+
+# #21 (3): gh issue create needs this session's gh issue list --search first.
+out=$(hook PreToolUse "$repo" 'gh issue create --title t' session-s1)
+[ "$(printf '%s\n' "$out" | json_count)" = 1 ]
+[ "$(printf '%s\n' "$out" | decision_of)" = deny ]
+printf '%s\n' "$out" | grep -F 'gh issue list --search'
+printf '%s\n' "$out" | grep -F 'タイトルと本文は日本語'
+[ -z "$(hook PostToolUse "$repo" 'gh issue list --search "hook dup"' session-s1)" ]
+[ "$(hook PreToolUse "$repo" 'gh issue create --title t' session-s1 | decision_of)" = none ]
+# Another session's search, or a list without --search, does not count.
+hook PostToolUse "$repo" 'gh issue list --label bug' session-s2
+[ "$(hook PreToolUse "$repo" 'gh issue create --title t' session-s2 | decision_of)" = deny ]
+hook PostToolUse "$repo" 'rtk gh issue list -S dup --state all' session-s3
+[ "$(hook PreToolUse "$repo" 'gh issue create --title t' session-s3 | decision_of)" = none ]
+# A search in the same command is recorded only after this check runs.
+[ "$(hook PreToolUse "$repo" 'gh issue list --search x && gh issue create' session-s4 | decision_of)" = deny ]
+# Searches expire.
+python3 - "$tmp_dir/aidd/issue-search.json" <<'PYEOF'
+import json, sys, time
+data = json.load(open(sys.argv[1]))
+data["session-s1"] = time.time() - 31 * 60
+json.dump(data, open(sys.argv[1], "w"))
+PYEOF
+[ "$(hook PreToolUse "$repo" 'gh issue create --title t' session-s1 | decision_of)" = deny ]
+[ "$(AIDD_ISSUE_SEARCH_TTL_MINUTES=60 hook PreToolUse "$repo" 'gh issue create' session-s1 | decision_of)" = none ]
+[ "$(AIDD_DISABLE_ISSUE_SEARCH_GATE=1 hook PreToolUse "$repo" 'gh issue create' session-s9 | decision_of)" = none ]
+# Without a session id there is nothing to match the search against, so it does not deny.
+[ "$(hook PreToolUse "$repo" 'gh issue create' '' | decision_of)" = none ]
 
 usage_input='{"prompt":"/aidd:design-review sample"}'
 printf '%s' "$usage_input" | AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$usage_log"
