@@ -4,7 +4,8 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
 dispatcher="$repo_root/hooks/scripts/tool-reminder.sh"
 usage_log="$repo_root/hooks/scripts/usage-log.sh"
-tmp_dir=$(mktemp -d)
+# An explicit template keeps TMPDIR honored (macOS mktemp -d alone ignores it).
+tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/aidd-hook-test.XXXXXX")
 trap 'rm -rf "$tmp_dir"' EXIT
 
 [ -x "$dispatcher" ]
@@ -20,6 +21,78 @@ run_hook() {
 run_hook PreToolUse 'git commit -m test' | grep -F '/aidd:test-perspectives'
 run_hook PreToolUse 'gh issue create --title test' | grep -F 'タイトルと本文は日本語'
 run_hook PostToolUse 'git push origin main' | grep -F 'open PR'
+
+# --- Git-aware checks: fake hook input against throwaway repositories --------------------------
+export HOME="$tmp_dir/home"
+mkdir -p "$HOME"
+export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
+export GIT_CONFIG_NOSYSTEM=1
+
+# hook EVENT CWD COMMAND [SESSION]: runs the dispatcher on a well-formed payload.
+hook() {
+  python3 -c '
+import json, sys
+print(json.dumps({"hook_event_name": sys.argv[1], "cwd": sys.argv[2], "session_id": sys.argv[4],
+                  "tool_name": "Bash", "tool_input": {"command": sys.argv[3]}}))
+' "$1" "$2" "$3" "${4:-session-a}" | AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$dispatcher"
+}
+
+# Each call must produce at most one JSON document; decision_of prints its permissionDecision.
+json_count() { python3 -c 'import sys; print(sum(1 for l in sys.stdin if l.strip()))'; }
+decision_of() {
+  python3 -c '
+import json, sys
+text = sys.stdin.read().strip()
+print(json.loads(text)["hookSpecificOutput"].get("permissionDecision", "none") if text else "empty")
+'
+}
+
+repo="$tmp_dir/repo"
+git init -q --template= -b main "$repo"
+echo base > "$repo/app.sh"
+git -C "$repo" add app.sh
+git -C "$repo" commit -qm 'chore: base'
+git -C "$repo" switch -qc feat
+mkdir -p "$repo/src"
+echo code > "$repo/src/a.sh"
+echo code > "$repo/src/b.sh"
+git -C "$repo" add src
+git -C "$repo" commit -qm 'feat: code'
+git -C "$repo" switch -qc docs-only main
+mkdir -p "$repo/docs"
+echo doc > "$repo/docs/x.md"
+git -C "$repo" add docs
+git -C "$repo" commit -qm 'docs: x'
+git -C "$repo" switch -q main
+
+# #19: the PR's branch is --head, not the cwd's HEAD (cwd is on main, which has no diff).
+out=$(hook PreToolUse "$repo" 'gh pr create --base main --head feat --title t --body b')
+printf '%s\n' "$out" | grep -F '/aidd:autonomous-review --base main --head feat'
+printf '%s\n' "$out" | grep -F 'src/a.sh, src/b.sh'
+# It warns without denying, and shares one JSON reply with the Japanese-language nudge.
+[ "$(printf '%s\n' "$out" | json_count)" = 1 ]
+[ "$(printf '%s\n' "$out" | decision_of)" = none ]
+printf '%s\n' "$out" | grep -F 'タイトルと本文は日本語'
+# Without --head, the checked-out branch is the PR's branch; wrappers and cd are seen through.
+git -C "$repo" switch -q feat
+hook PreToolUse "$tmp_dir" "cd $repo && rtk gh pr create --title t" | grep -F -- '--head feat'
+git -C "$repo" switch -q main
+# Docs-only branches stay quiet apart from the language nudge.
+out=$(hook PreToolUse "$repo" 'gh pr create --head docs-only')
+if printf '%s\n' "$out" | grep -Fq 'autonomous-review'; then exit 1; fi
+# The file list is capped.
+AIDD_REVIEW_LIST_LIMIT=1 hook PreToolUse "$repo" 'gh pr create --head=feat' | grep -F 'src/a.sh ほか 1 件'
+# Opt-out.
+out=$(AIDD_DISABLE_REVIEW_BEFORE_PR=1 hook PreToolUse "$repo" 'gh pr create --head feat')
+if printf '%s\n' "$out" | grep -Fq 'autonomous-review'; then exit 1; fi
+# Evidence for the branch silences it.
+mkdir -p "$repo/.aidd/autonomous-review/run1"
+printf '{"head":"feat","head_sha":null}' > "$repo/.aidd/autonomous-review/run1/state.json"
+out=$(hook PreToolUse "$repo" 'gh pr create --head feat')
+if printf '%s\n' "$out" | grep -Fq 'autonomous-review'; then exit 1; fi
+rm -rf "$repo/.aidd"
+# A command that only mentions gh pr create in a quoted string is not an invocation.
+[ -z "$(hook PreToolUse "$repo" 'echo "gh pr create --head feat"')" ]
 
 usage_input='{"prompt":"/aidd:design-review sample"}'
 printf '%s' "$usage_input" | AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$usage_log"
