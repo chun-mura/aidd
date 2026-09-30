@@ -51,6 +51,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 | `docs/adr/` | `/aidd:adr` の出力先、adr-recall スキルの参照先 |
 | `docs/test-perspectives/` | `/aidd:test-perspectives` の出力先。hook が6時間以内の更新有無を見る |
 | `.aidd/design-perspectives.md` | `/aidd:design-review` のプロジェクト固有観点 (任意)。`cp templates/design-perspectives.md.template .aidd/design-perspectives.md` で可観測性・ドメイン固有の観点から始められる |
+| `.aidd/issue-priority.md` | issue-priority スキルの優先度ラベル名・段数 (並べた順で上位から下位)・追加の軸 (任意)。無ければ既定の `priority:P0`〜`P3` |
 
 ## インデックス
 
@@ -87,6 +88,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 |---------|------|
 | `adr-recall/` | アーキ変更・既存構造変更・設計判断の前 |
 | `model-selection/` | サブエージェント起動時・model 指定に迷ったとき |
+| `issue-priority/` | 優先度ラベルの付与や見直しを頼まれたとき・優先度ラベルを使うリポジトリで issue を起票するとき (`AIDD_REQUIRED_LABEL_PREFIX`・`.aidd/issue-priority.md`・`gh label list` の優先度ラベルがどれも無ければ何もしない。深刻さ×広さに放置コストを足して判定。最上位は根拠を示して確認、既存ラベルは黙って張り替えない、系列独自の運用があれば従う。ラベル名・段数・追加の軸は `.aidd/issue-priority.md` で上書き) |
 | `review-loop/` | レビュー→修正のラウンドを反復するとき・指摘が尽きないとき・重要度語彙が混在したとき (最大3ラウンド、終了条件、deferred mid と認める追跡先、棄却指摘の持ち越しを規定) |
 
 ### Hooks (強制力のある運用)
@@ -95,7 +97,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 |---------|------|
 | `session-start.sh` | SessionStart で aidd 資産の使いどころと「実装を左右する不明点は、このセッションが実際に持つ手段で確認する (対話なら AskUserQuestion、監督下なら親への返答)」を注入。superpowers 未導入を検知して警告 |
 | `usage-log.sh` | 起動を2経路で記録し、aidd コマンド使用数・最終利用時刻を `~/.claude/aidd/usage.json` に残す (`/aidd:retro` が読む): 行頭が `/aidd:<name>` のプロンプト (UserPromptSubmit) と、Skill ツール経由の起動 (PreToolUse、サブエージェント内の起動もここに入る)。文中で名前に触れただけのプロンプトは計上しない。実在するコマンド・skill 名だけを計上し、旧版が残した `prompt_log` は起動時に削除する |
-| `tool-reminder.sh` | `git commit` 前の test-perspectives 確認、`gh pr/issue create・edit` 前の日本語確認、`gh pr create` 前のレビュー証跡の確認、`git push` 後の PR 同期確認を1本で処理 (ここまでは非ブロック)。加えて、未コミットの作業を失う git 操作 (`stash`・`reset --hard`・パスを指定した `checkout` (`checkout -- <path>` / `checkout .` / `checkout <path>` / `checkout HEAD <path>`)・`checkout -f`・`switch -f` / `--discard-changes`・`--staged` だけでない `restore`・`-n` の無い `clean`) と指名しないステージ (`add -A` / `-u`、`.` / `./` / `..` / `:/` のように作業ディレクトリやルートを指すパス、`commit -a`) を拒否し、主ツリーを別のセッションが直近に使っているときは相手ごとに1回だけ worktree への移動を促し (拒否はしない。`session_id` は resume / compact の前後で同じと保証されていない)、`gh issue create` は同じセッションで直近に同じリポジトリ (`-R` / `--repo`、無ければ cwd の `origin`) に対して `gh issue list --search` を実行していなければ拒否する。コマンドは引用符・`&&` / `;` の連結・`#` のコメント・`if` / `then` / `do` などの制御構文・`cd`・`git -C`・前置のラッパー (`rtk` など) を見分けて判定し、1回の起動で当たった判定は JSON 1つにまとめて返す。コマンドに `git` / `gh` の語が無ければ python を起動せずに終わる。レビュー証跡の確認は、`--head` のブランチ (未指定なら cwd のブランチ) が基点ブランチに対してコードを変更しているのに、どの worktree の `.aidd/autonomous-review/` にもそのブランチの `state.json` が無いときだけ、変更ファイルの一覧つきで警告する (docs だけの変更では鳴らさない) |
+| `tool-reminder.sh` | `git commit` 前の test-perspectives 確認、`gh pr/issue create・edit` 前の日本語確認、`gh pr create` 前のレビュー証跡の確認、`git push` 後の PR 同期確認を1本で処理 (ここまでは非ブロック)。加えて、未コミットの作業を失う git 操作 (`stash`・`reset --hard`・パスを指定した `checkout` (`checkout -- <path>` / `checkout .` / `checkout <path>` / `checkout HEAD <path>`)・`checkout -f`・`switch -f` / `--discard-changes`・`--staged` だけでない `restore`・`-n` の無い `clean`) と指名しないステージ (`add -A` / `-u`、`.` / `./` / `..` / `:/` のように作業ディレクトリやルートを指すパス、`commit -a`) を拒否し、主ツリーを別のセッションが直近に使っているときは相手ごとに1回だけ worktree への移動を促し (拒否はしない。`session_id` は resume / compact の前後で同じと保証されていない)、`gh issue create` は同じセッションで直近に同じリポジトリ (`-R` / `--repo`、無ければ cwd の `origin`) に対して `gh issue list --search` を実行していなければ拒否する。`AIDD_REQUIRED_LABEL_PREFIX` を設定すると、その接頭辞のラベルが無い `gh issue create` も拒否する。コマンドは引用符・`&&` / `;` の連結・`#` のコメント・`if` / `then` / `do` などの制御構文・`cd`・`git -C`・前置のラッパー (`rtk` など) を見分けて判定し、1回の起動で当たった判定は JSON 1つにまとめて返す。コマンドに `git` / `gh` の語が無ければ python を起動せずに終わる。レビュー証跡の確認は、`--head` のブランチ (未指定なら cwd のブランチ) が基点ブランチに対してコードを変更しているのに、どの worktree の `.aidd/autonomous-review/` にもそのブランチの `state.json` が無いときだけ、変更ファイルの一覧つきで警告する (docs だけの変更では鳴らさない) |
 
 #### Hooks の書き込み先と無効化
 
@@ -125,6 +127,7 @@ hooks は上記スクリプトをセッション中に自動実行する。フ�
 | `AIDD_WORKTREE_DIR=<path>` | 主ツリーの共用の警告で案内する worktree の作成先 (既定 `.claude/worktrees`。相対パスは主ツリーから) |
 | `AIDD_DISABLE_ISSUE_SEARCH_GATE=1` | `gh issue create` 前の重複検索の要求を止める |
 | `AIDD_ISSUE_SEARCH_TTL_MINUTES=<分>` | `gh issue list --search` の結果を有効とみなす時間 (既定 30) |
+| `AIDD_REQUIRED_LABEL_PREFIX=<接頭辞>` | 設定すると、`gh issue create` にこの接頭辞 (例 `priority:`) で始まる `--label` が無ければ拒否する。未設定なら判定しない (そのラベルを持たないリポジトリで起票できなくなるため既定は無効)。ラベルの選び方は `issue-priority` skill |
 
 非対話・監督下のセッション (print モード、スケジュール実行、親エージェントが指示を出すサブエージェント) では、注入文の指示どおり「このセッションが持つ確認手段」を使う。人間に届く手段が無い場合は前提を最終報告に明記させる形になるため、確認そのものを止めたい場合は `AIDD_DISABLE_CLARIFY_NUDGE=1` を設定する。
 

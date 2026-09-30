@@ -580,6 +580,18 @@ def parse_gh(argv):
     return argv[i], argv[i + 1], args, (repos[-1] if repos else repo)
 
 
+def require_label(args):
+    # Opt-in: a repository without such labels could not file issues at all.
+    prefix = env.get("AIDD_REQUIRED_LABEL_PREFIX")
+    if not prefix:
+        return
+    labels = [l.strip() for v in option_values(args, "--label", "-l") for l in v.split(",")]
+    if not any(l.startswith(prefix) for l in labels):
+        add(denials,
+            f"aidd: gh issue create に {prefix} で始まるラベルが無い。issue-priority skill の基準で判定し、"
+            f"--label {prefix}... を付けて起票すること (最上位はユーザーに確認してから付ける)。")
+
+
 JAPANESE_NUDGE = "aidd: GitHub issue/PR のタイトルと本文は日本語で書くこと (コード識別子・コマンド・コミットメッセージは英語のまま)。既に日本語なら変更不要。"
 PUSH_NUDGE = "aidd: push したブランチに open PR がある場合 (gh pr view で確認)、追加コミットが PR の範囲・内容を変えたなら gh pr edit でタイトルと概要を最新化すること (日本語)。変えていなければ何もしない。"
 
@@ -611,6 +623,7 @@ for argv, directory in simple_commands(command):
             warn_review_before_pr(args, directory)
         if group == "issue" and action == "create":
             require_issue_search(target_repo(repo_flag, directory))
+            require_label(args)
 
 if denials or contexts:
     output = {"hookEventName": hook_event}
