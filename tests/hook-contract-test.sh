@@ -298,6 +298,24 @@ hook PostToolUse "$repo_b" 'gh --repo=owner/a issue list -S dup' session-r3
 [ "$(hook PreToolUse "$repo_a" 'gh --repo o/r issue create -t x' session-r4 | decision_of)" = deny ]
 hook PreToolUse "$repo_a" 'gh -R o/r pr create -t x' session-r4 | grep -F 'タイトルと本文は日本語'
 
+# #27: with AIDD_REQUIRED_LABEL_PREFIX set, gh issue create needs a label with that prefix.
+# session-s3 searched above, so only the label check decides here.
+label_hook() { AIDD_REQUIRED_LABEL_PREFIX=priority: hook PreToolUse "$repo" "$1" session-s3; }
+out=$(label_hook 'gh issue create --title t')
+[ "$(printf '%s\n' "$out" | decision_of)" = deny ]
+printf '%s\n' "$out" | grep -F 'priority: で始まるラベルが無い'
+[ "$(label_hook 'gh issue create --label bug' | decision_of)" = deny ]
+[ "$(label_hook 'gh issue create --label priority:P2' | decision_of)" = none ]
+[ "$(label_hook 'gh issue create --label=priority:P3' | decision_of)" = none ]
+[ "$(label_hook 'gh issue create -l bug,priority:P1' | decision_of)" = none ]
+[ "$(label_hook 'gh issue create -l bug -l priority:P1' | decision_of)" = none ]
+# Unset means off, so repositories without such labels can still file issues.
+[ "$(hook PreToolUse "$repo" 'gh issue create --title t' session-s3 | decision_of)" = none ]
+# Missing search and missing label: both reasons in one denial.
+out=$(AIDD_REQUIRED_LABEL_PREFIX=priority: hook PreToolUse "$repo" 'gh issue create' session-s8)
+[ "$(printf '%s\n' "$out" | json_count)" = 1 ]
+printf '%s\n' "$out" | grep -F 'gh issue list --search' | grep -F 'priority: で始まるラベル'
+
 usage_input='{"prompt":"/aidd:design-review sample"}'
 printf '%s' "$usage_input" | AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$usage_log"
 python3 - "$tmp_dir/aidd/usage.json" <<'PYEOF'
