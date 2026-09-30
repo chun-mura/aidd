@@ -53,6 +53,16 @@
     },
     {
       "kind": "command",
+      "name": "issue-implement",
+      "description": "issue 1本を着手判断から完了報告まで進める入口。実装の中身は superpowers と aidd の既存資産に委ねる"
+    },
+    {
+      "kind": "command",
+      "name": "issue-select",
+      "description": "open issue から今着手できる分を選び、提案で止める"
+    },
+    {
+      "kind": "command",
       "name": "issue-split",
       "description": "設計を独立マージ可能なPR単位に分割し、GitHub issue 化する"
     },
