@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.37.0 (2026-09-30)
+
+- `asset-audit.md` (新規): 利用側プロジェクトの `.claude/` と `CLAUDE.md` を棚卸しし、削除・改訂・修正・統合・見直しの候補を根拠つきで出す。基準は、一定期間発火しない hook、`error` 行を持つ hook (削除ではなく修正候補)、参照先が消えた・状態を述べる記述が食い違う、前提が変わった、上流に吸収された、2箇所に同じ基準がある、観測1件からの一般化。候補が0件なら「問題なし」で終えず、基準と根拠の不足を疑う。規約と hook は事故のたびに足されて単調に増えるのに、削る入口が無かったため。`/aidd:retro` と同じ型だが、retro は aidd 自身の資産、こちらは利用側の資産と境界を分けた
+- `incident-retro.md` (新規): セッションの事故を棚卸しし、再発防止の置き場をコード → hook → `CLAUDE.md` / memory (リポジトリを移っても効くか) → コマンド → ADR → issue の順で決める。一般則にする前にその規則で壊れるものを1件挙げさせ、足す前に既存の記述との重複を確かめる。置き場を決めずに書くと同じことが2箇所に書かれるため。ADR・issue は `/aidd:adr`・`/aidd:issue-split` に委ね、中身を複製しない
+- 両コマンドは `disable-model-invocation: true` にした。正典から記述を削る・足す判断を、モデルが自分の判断の続きとして始めないため (プラグインの commands も skills と同じ frontmatter を受けることを Claude Code のドキュメントで確認)
+- `templates/aidd-hook-log.sh` (新規): 利用側の `.claude/settings.json` に書いた hook を包み、発火ごとに時刻・イベント名・`ok` / `block` / `error`・終了コードを `~/.claude/aidd/projects/<キー>/hook-log/` に記録するラッパー。包んだ hook の stdin・stdout・stderr・終了コードはそのまま通し、振る舞いを変えない。hook の入出力の中身は記録せず、外部送信もしない。「発火しない hook」を判定する記録がどこにも無かったため。無効化は `AIDD_DISABLE_HOOK_LOG=1`。CI の shellcheck の対象に `templates/*.sh` を加えた
+- `session-start.sh`: `/aidd:asset-audit` の最終実施日 (未実施ならラッパーの記録開始日) から `AIDD_AUDIT_INTERVAL_DAYS` (既定30日) が過ぎたプロジェクトでだけ、棚卸しを促す1文を出す。どちらの記録も無いプロジェクトでは出さない (常時注入を増やさないため)。無効化は `AIDD_DISABLE_AUDIT_NUDGE=1`。`retro.md` にも対象の境界を1行追記した (#26)
+
 ## 0.29.0 (2026-09-09)
 
 - `CLAUDE.md.template`: コメントの置き場所の規約を同梱。「コードには How、テストコードには What、コミットログには Why、コードコメントには Why not」を原則とし、コメントは Why not だけを書く (排他) ことと、実況型・変更履歴・タスクID参照の違反例を各1行で添える。参考記事の実測では抽象原則だけの版は効果が半分で、具体的な違反例の列挙が効いたため両方を入れる。skill / hook 化はしない (実装フェーズのほぼ全タスクで発火し、常時注入と hook 起動を増やすため) (#6)
