@@ -88,7 +88,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 |---------|------|
 | `adr-recall/` | アーキ変更・既存構造変更・設計判断の前 |
 | `model-selection/` | サブエージェント起動時・model 指定に迷ったとき |
-| `four-kinds-check/` | コミット直前に、staged diff の追加行にコメントやテスト名があるとき・コミット本文を書くとき (CLAUDE.md の「コメントの置き場所」を採るプロジェクトだけ。コメントは Why not 以外を置き場所へ移し、テスト名は What、本文は Why を言っているかを見る) |
+| `four-kinds-check/` | コミット直前に、staged diff の追加行にコメントやテスト名があるとき・コミット本文を書くとき (CLAUDE.md の「コメントの置き場所」を採るか `AIDD_COMMIT_WHY_CANON` を設定したプロジェクトだけ。コメントは Why not 以外を置き場所へ移し、テスト名は What、本文は Why を言っているかを見る) |
 | `issue-priority/` | 優先度ラベルの付与や見直しを頼まれたとき・優先度ラベルを使うリポジトリで issue を起票するとき (`AIDD_REQUIRED_LABEL_PREFIX`・`.aidd/issue-priority.md`・`gh label list` の優先度ラベルがどれも無ければ何もしない。深刻さ×広さに放置コストを足して判定。最上位は根拠を示して確認、既存ラベルは黙って張り替えない、系列独自の運用があれば従う。ラベル名・段数・追加の軸は `.aidd/issue-priority.md` で上書き) |
 | `review-loop/` | レビュー→修正のラウンドを反復するとき・指摘が尽きないとき・重要度語彙が混在したとき (最大3ラウンド、終了条件、deferred mid と認める追跡先、棄却指摘の持ち越しを規定) |
 
@@ -98,7 +98,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 |---------|------|
 | `session-start.sh` | SessionStart で aidd 資産の使いどころと「実装を左右する不明点は、このセッションが実際に持つ手段で確認する (対話なら AskUserQuestion、監督下なら親への返答)」を注入。superpowers 未導入を検知して警告 |
 | `usage-log.sh` | 起動を2経路で記録し、aidd コマンド使用数・最終利用時刻を `~/.claude/aidd/usage.json` に残す (`/aidd:retro` が読む): 行頭が `/aidd:<name>` のプロンプト (UserPromptSubmit) と、Skill ツール経由の起動 (PreToolUse、サブエージェント内の起動もここに入る)。文中で名前に触れただけのプロンプトは計上しない。実在するコマンド・skill 名だけを計上し、旧版が残した `prompt_log` は起動時に削除する |
-| `tool-reminder.sh` | `git commit` 前の test-perspectives 確認、`gh pr/issue create・edit` 前の日本語確認、`gh pr create` 前のレビュー証跡の確認、`git push` 後の PR 同期確認、`git commit` 後の HEAD の件名 (Conventional Commits 形式) と本文の有無の検査を1本で処理 (ここまでは非ブロック。コミットの検査はコマンド文字列でなく確定後の HEAD を SHA ごとに1回だけ読む)。加えて、未コミットの作業を失う git 操作 (`stash`・`reset --hard`・パスを指定した `checkout` (`checkout -- <path>` / `checkout .` / `checkout <path>` / `checkout HEAD <path>`)・`checkout -f`・`switch -f` / `--discard-changes`・`--staged` だけでない `restore`・`-n` の無い `clean`) と指名しないステージ (`add -A` / `-u`、`.` / `./` / `..` / `:/` のように作業ディレクトリやルートを指すパス、`commit -a`) を拒否し、主ツリーを別のセッションが直近に使っているときは相手ごとに1回だけ worktree への移動を促し (拒否はしない。`session_id` は resume / compact の前後で同じと保証されていない)、`gh issue create` は同じセッションで直近に同じリポジトリ (`-R` / `--repo`、無ければ cwd の `origin`) に対して `gh issue list --search` を実行していなければ拒否する。`AIDD_REQUIRED_LABEL_PREFIX` を設定すると、その接頭辞のラベルが無い `gh issue create` も拒否する。コマンドは引用符・`&&` / `;` の連結・`#` のコメント・`if` / `then` / `do` などの制御構文・`cd`・`git -C`・前置のラッパー (`rtk` など) を見分けて判定し、1回の起動で当たった判定は JSON 1つにまとめて返す。コマンドに `git` / `gh` の語が無ければ python を起動せずに終わる。レビュー証跡の確認は、`--head` のブランチ (未指定なら cwd のブランチ) が基点ブランチに対してコードを変更しているのに、どの worktree の `.aidd/autonomous-review/` にもそのブランチの `state.json` が無いときだけ、変更ファイルの一覧つきで警告する (docs だけの変更では鳴らさない) |
+| `tool-reminder.sh` | `git commit` 前の test-perspectives 確認、`gh pr/issue create・edit` 前の日本語確認、`gh pr create` 前のレビュー証跡の確認、`git push` 後の PR 同期確認、`git commit` 後の HEAD の件名 (Conventional Commits 形式) と本文の有無の検査を1本で処理 (ここまでは非ブロック。コミットの検査はコマンド文字列でなく確定後の HEAD を SHA ごとに1回だけ読み、規約を採るリポジトリだけで行う。後続のコマンドが失敗した場合 (PostToolUseFailure) もコミットは検査する)。加えて、未コミットの作業を失う git 操作 (`stash`・`reset --hard`・パスを指定した `checkout` (`checkout -- <path>` / `checkout .` / `checkout <path>` / `checkout HEAD <path>`)・`checkout -f`・`switch -f` / `--discard-changes`・`--staged` だけでない `restore`・`-n` の無い `clean`) と指名しないステージ (`add -A` / `-u`、`.` / `./` / `..` / `:/` のように作業ディレクトリやルートを指すパス、`commit -a`) を拒否し、主ツリーを別のセッションが直近に使っているときは相手ごとに1回だけ worktree への移動を促し (拒否はしない。`session_id` は resume / compact の前後で同じと保証されていない)、`gh issue create` は同じセッションで直近に同じリポジトリ (`-R` / `--repo`、無ければ cwd の `origin`) に対して `gh issue list --search` を実行していなければ拒否する。`AIDD_REQUIRED_LABEL_PREFIX` を設定すると、その接頭辞のラベルが無い `gh issue create` も拒否する。コマンドは引用符・`&&` / `;` の連結・`#` のコメント・`if` / `then` / `do` などの制御構文・`cd`・`git -C`・前置のラッパー (`rtk` など) を見分けて判定し、1回の起動で当たった判定は JSON 1つにまとめて返す。コマンドに `git` / `gh` の語が無ければ python を起動せずに終わる。レビュー証跡の確認は、`--head` のブランチ (未指定なら cwd のブランチ) が基点ブランチに対してコードを変更しているのに、どの worktree の `.aidd/autonomous-review/` にもそのブランチの `state.json` が無いときだけ、変更ファイルの一覧つきで警告する (docs だけの変更では鳴らさない) |
 
 #### Hooks の書き込み先と無効化
 
@@ -131,10 +131,10 @@ hooks は上記スクリプトをセッション中に自動実行する。フ�
 | `AIDD_ISSUE_SEARCH_TTL_MINUTES=<分>` | `gh issue list --search` の結果を有効とみなす時間 (既定 30) |
 | `AIDD_REQUIRED_LABEL_PREFIX=<接頭辞>` | 設定すると、`gh issue create` にこの接頭辞 (例 `priority:`) で始まる `--label` が無ければ拒否する。未設定なら判定しない (そのラベルを持たないリポジトリで起票できなくなるため既定は無効)。ラベルの選び方は `issue-priority` skill |
 | `AIDD_DISABLE_COMMIT_WHY_CHECK=1` | `git commit` 後の HEAD の検査を止める |
-| `AIDD_COMMIT_TYPES=<a,b>` | コミットの件名で受理する type (既定 `feat,fix,docs,style,refactor,perf,test,build,ci,chore,revert`) |
+| `AIDD_COMMIT_TYPES=<a,b>` | 設定すると、コミットの件名が Conventional Commits 形式でこの type か (英数字と `-`) を検査する。未設定でもリポジトリのルートに commitlint の設定 (`commitlint.config.*`・`.commitlintrc*`・`package.json` の `commitlint`) があれば既定の `feat,fix,docs,style,refactor,perf,test,build,ci,chore,revert` で検査し、どちらも無ければ件名は検査しない (件名の規約が違うリポジトリで書き換えを促さないため)。`Revert "..."` は検査しない |
 | `AIDD_COMMIT_BODY_EXEMPT_TYPES=<a,b>` | 本文が無くてもよい type (既定 `docs,style,chore`) |
-| `AIDD_COMMIT_IGNORED_TRAILERS=<a,b>` | 本文の有無を数えるときに除くトレーラー (既定 `Co-Authored-By,Signed-off-by,Refs,Closes,Fixes,Resolves,Reviewed-by,Change-Id`。`:` の有無は問わない) |
-| `AIDD_COMMIT_WHY_CANON=<文書と節>` | コミットの検査と `four-kinds-check` skill が参照する正典 (既定は `CLAUDE.md` の「コメントの置き場所」) |
+| `AIDD_COMMIT_IGNORED_TRAILERS=<a,b>` | 本文の有無を数えるときに除くトレーラー (既定 `Co-Authored-By,Signed-off-by,Refs,Closes,Fixes,Resolves,Reviewed-by,Change-Id`)。除くのは最後の段落だけで、その段落が `Key: value` の行と、`:` の無い issue 参照 (`Closes #19` のように `Closes` / `Fixes` / `Resolves` / `Refs` の後ろに `#番号`・`owner/repo#番号`・URL) の行だけでできているときに限る (`Fixes the crash ...` のような本文は除かない) |
+| `AIDD_COMMIT_WHY_CANON=<文書と節>` | コミットの検査と `four-kinds-check` skill が参照する正典。設定するか、リポジトリの `CLAUDE.md` (または `.claude/CLAUDE.md`) に「コメントの置き場所」の節があるときだけ、コミット本文の有無を検査する |
 
 非対話・監督下のセッション (print モード、スケジュール実行、親エージェントが指示を出すサブエージェント) では、注入文の指示どおり「このセッションが持つ確認手段」を使う。人間に届く手段が無い場合は前提を最終報告に明記させる形になるため、確認そのものを止めたい場合は `AIDD_DISABLE_CLARIFY_NUDGE=1` を設定する。
 

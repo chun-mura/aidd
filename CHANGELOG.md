@@ -2,8 +2,8 @@
 
 ## 0.34.0 (2026-09-30)
 
-- `four-kinds-check` skill を追加。`CLAUDE.md.template` の4分類 (コードには How、テストコードには What、コミットログには Why、コードコメントには Why not) を、staged diff の追加行のコメント・テスト名と、これから書くコミット本文に当てて確かめる。テンプレートは規約を持つが、守られているかを見る手段が無かったため。0.29.0 では「ほぼ全タスクで発火する」として skill 化を見送ったが、発火条件を「追加行にコメントかテスト名がある、またはコミット本文を書くとき」かつ規約を採るプロジェクトに限った
-- `tool-reminder.sh`: `git commit` の PostToolUse で、HEAD の件名が Conventional Commits 形式か、本文 (除外するトレーラーを除く) があるかを検査し、足りなければ注入する。PreToolUse でコマンド文字列からメッセージを切り出すと `-m "$(cat <<'EOF' ...)"` で偽陽性になるため、確定後の HEAD を読む。判定済みの SHA は `~/.claude/aidd/commit-why.json` に置き、同じコミットでは1回だけ鳴らす。失敗したコミットの後に古い HEAD (他人のものかもしれない) を検査しないよう、10分より前のコミットとマージコミットは見ない。受理する type・本文を免除する type・除外するトレーラー・正典は `AIDD_COMMIT_TYPES` / `AIDD_COMMIT_BODY_EXEMPT_TYPES` / `AIDD_COMMIT_IGNORED_TRAILERS` / `AIDD_COMMIT_WHY_CANON` で設定する (#20)
+- `four-kinds-check` skill を追加。`CLAUDE.md.template` の4分類 (コードには How、テストコードには What、コミットログには Why、コードコメントには Why not) を、staged diff の追加行のコメント・テスト名と、これから書くコミット本文に当てて確かめる。テンプレートは規約を持つが、守られているかを見る手段が無かったため。0.29.0 では「ほぼ全タスクで発火する」として skill 化を見送った。発火の条件にした「追加行にコメントかテスト名がある、またはコミット本文を書くとき」はほぼ毎回のコミットに当たるため、実際に絞っているのは、規約を採るプロジェクト (`CLAUDE.md` に「コメントの置き場所」の節がある、または `AIDD_COMMIT_WHY_CANON` を設定した) に限ったことである
+- `tool-reminder.sh`: `git commit` の後に HEAD を検査し、足りなければ注入する。本文 (最後の段落にある除外するトレーラーを除く) の有無は、`AIDD_COMMIT_WHY_CANON` を設定したか、リポジトリの `CLAUDE.md` に「コメントの置き場所」の節があるときだけ見る。件名の Conventional Commits 形式は、`AIDD_COMMIT_TYPES` を設定したか、commitlint の設定があるときだけ見る (`Revert "..."` は除く)。規約の違うリポジトリ (日本語の件名など) で `git commit --amend` を促さないため。PreToolUse でコマンド文字列からメッセージを切り出すと `-m "$(cat <<'EOF' ...)"` で偽陽性になるため、確定後の HEAD を読む。判定済みの SHA は `~/.claude/aidd/commit-why.json` に置き、同じコミットでは1回だけ鳴らす (`--amend` は新しい SHA なので改めて見る)。`git commit ... && git push` の push が拒否されたときのように、コミットの後のコマンドが失敗すると PostToolUse ではなく PostToolUseFailure が届くため、PostToolUseFailure にも登録し、そこではコミットの検査だけを行う。コミット自体が失敗した場合は HEAD が古いまま (他人のものかもしれない) なので、10分より前のコミットは見ない。マージコミットと `fixup!` / `squash!` / `amend!` も見ない。受理する type・本文を免除する type・除外するトレーラー・正典は `AIDD_COMMIT_TYPES` / `AIDD_COMMIT_BODY_EXEMPT_TYPES` / `AIDD_COMMIT_IGNORED_TRAILERS` / `AIDD_COMMIT_WHY_CANON` で設定する (#20)
 
 ## 0.33.0 (2026-09-30)
 

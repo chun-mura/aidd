@@ -1,6 +1,6 @@
 ---
 name: four-kinds-check
-description: Use right before git commit when the staged diff adds code comments or test names, or when drafting the commit message, in a project whose CLAUDE.md has the How / What / Why / Why-not comment placement rule. Not for reviewing someone else's existing code.
+description: Use right before git commit when the staged diff adds code comments or test names, or when drafting the commit message, in a project whose CLAUDE.md has the How / What / Why / Why-not comment placement rule or where AIDD_COMMIT_WHY_CANON is set. Not for reviewing someone else's existing code.
 ---
 
 # 4分類 (How / What / Why / Why not) の確認
@@ -29,4 +29,4 @@ description: Use right before git commit when the staged diff adds code comments
 
 - 自分がこのセッションで書いた変更なら、直してからコミットする。移した先 (コミット本文・テスト名) も同じコミットで整える。
 - 判断に迷うコメント (Why と Why not の境目など) は、そのまま残して理由を1行で報告する。消しすぎより残しすぎの側に倒す。
-- コミット後は `tool-reminder.sh` が HEAD の本文の有無と Conventional Commits 形式を検査する。この skill はその前段で、本文の中身 (Why かどうか) とコメント・テスト名を見る。
+- コミット後は `tool-reminder.sh` が HEAD を検査する。本文の有無は正典があるときだけ、件名の Conventional Commits 形式は `AIDD_COMMIT_TYPES` か commitlint の設定があるときだけ見る。この skill はその前段で、本文の中身 (Why かどうか) とコメント・テスト名を見る。
