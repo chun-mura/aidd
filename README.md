@@ -51,6 +51,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 | `docs/adr/` | `/aidd:adr` の出力先、adr-recall スキルの参照先 |
 | `docs/test-perspectives/` | `/aidd:test-perspectives` の出力先。hook が6時間以内の更新有無を見る |
 | `.aidd/design-perspectives.md` | `/aidd:design-review` のプロジェクト固有観点 (任意)。`cp templates/design-perspectives.md.template .aidd/design-perspectives.md` で可観測性・ドメイン固有の観点から始められる |
+| `.aidd/issue-priority.md` | issue-priority スキルの優先度ラベル名・段数 (並べた順で上位から下位)・追加の軸 (任意)。無ければ既定の `priority:P0`〜`P3` |
 
 ## インデックス
 
@@ -64,7 +65,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 | `design-doc.md` | 要件から設計書を生成し docs/design/ に保存。構成は design-review の6観点と1対1対応 |
 | `adr.md` | アーキテクチャ決定記録を docs/adr/NNNN-<slug>.md に作成。1 ADR = 1 決定。採番はローカルに加えローカル／リモートの全ブランチを見て衝突を避ける |
 | `design-review.md` | 設計や実装方針を多観点レビュー。既定の `--depth=standard` は必要時だけ refuter / arbiter を起動し、反証済み指摘を直接報告する。`--depth=deep` は品質重視の完全経路。再レビューでは `--review-delta=<変更範囲>` で差分と周辺文脈に絞る。`--verify-sources` で外部情報源検証を追加。信頼境界を跨ぐ設計では security-reviewer (STRIDE) を条件起動 (`--security` / `--no-security` で強制・抑止) |
-| `issue-split.md` | 設計を独立マージ可能なPR単位 (縦切り・5ファイル以内目安) に分割し、承認後に GitHub issue 化。design-doc が規模超過を検知すると提案 |
+| `issue-split.md` | 設計を独立マージ可能なPR単位 (縦切り・5ファイル以内目安) に分割し、承認後に GitHub issue 化 (作成前に `gh issue list --search` で重複を確認)。design-doc が規模超過を検知すると提案 |
 | `design-sync.md` | 設計書と実装の乖離を検知し、status を最新化する |
 | `test-perspectives.md` | 実装対象・変更差分からテスト観点 (6分類 + 信頼境界に触れる変更のみセキュリティ分類) を洗い出し、BVA/ECP 適用フラグを付ける (手法の導出は stdd の担当) |
 | `autonomous-review.md` | ローカル差分または `--base` / `--head` で指定した2ブランチ間の差分を、既定の Codex read-only 異種AIレビュー（`--reviewer claude` で同一モデル自己レビュー）、差分の性質に応じた観点別レビュー (エラーハンドリング / セキュリティ) の条件付き追加、現物反証、品質ゲート、リスク判定で最大3ラウンド検査し、`deferred` は追跡先 (issue 番号 or `review-dismissed.md`) の確定を終了条件にし、自動マージ可否だけを判定する。未指定の `--base` / `--head` / `--reviewer` は AskUserQuestion で決める。`--reviewer claude` 時は最終判定が常に `human_required`。push・PR作成・マージは行わない |
@@ -89,6 +90,8 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 |---------|------|
 | `adr-recall/` | アーキ変更・既存構造変更・設計判断の前 |
 | `model-selection/` | サブエージェント起動時・model 指定に迷ったとき |
+| `four-kinds-check/` | コミット直前に、staged diff の追加行にコメントやテスト名があるとき・コミット本文を書くとき (CLAUDE.md の「コメントの置き場所」を採るか `AIDD_COMMIT_WHY_CANON` を設定したプロジェクトだけ。コメントは Why not 以外を置き場所へ移し、テスト名は What、本文は Why を言っているかを見る) |
+| `issue-priority/` | 優先度ラベルの付与や見直しを頼まれたとき・優先度ラベルを使うリポジトリで issue を起票するとき (`AIDD_REQUIRED_LABEL_PREFIX`・`.aidd/issue-priority.md`・`gh label list` の優先度ラベルがどれも無ければ何もしない。深刻さ×広さに放置コストを足して判定。最上位は根拠を示して確認、既存ラベルは黙って張り替えない、系列独自の運用があれば従う。ラベル名・段数・追加の軸は `.aidd/issue-priority.md` で上書き) |
 | `review-loop/` | レビュー→修正のラウンドを反復するとき・指摘が尽きないとき・重要度語彙が混在したとき (最大3ラウンド、終了条件、deferred mid と認める追跡先、棄却指摘の持ち越しを規定) |
 
 ### Hooks (強制力のある運用)
@@ -97,7 +100,9 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 |---------|------|
 | `session-start.sh` | SessionStart で aidd 資産の使いどころと「実装を左右する不明点は、このセッションが実際に持つ手段で確認する (対話なら AskUserQuestion、監督下なら親への返答)」を注入。`/aidd:asset-audit` の最終実施日 (未実施なら `aidd-hook-log.sh` が最初の hook の記録を始めた日) から一定期間 (既定30日) が過ぎたプロジェクトでだけ、棚卸しを促す1文を足す。superpowers 未導入を検知して警告 |
 | `usage-log.sh` | 起動を2経路で記録し、aidd コマンド使用数・最終利用時刻を `~/.claude/aidd/usage.json` に残す (`/aidd:retro` が読む): 行頭が `/aidd:<name>` のプロンプト (UserPromptSubmit) と、Skill ツール経由の起動 (PreToolUse、サブエージェント内の起動もここに入る)。文中で名前に触れただけのプロンプトは計上しない。実在するコマンド・skill 名だけを計上し、旧版が残した `prompt_log` は起動時に削除する |
+| `tool-reminder.sh` | `git commit` 前の test-perspectives 確認、`gh pr/issue create・edit` 前の日本語確認、`gh pr create` 前のレビュー証跡の確認、`git push` 後の PR 同期確認、`git commit` 後の HEAD の件名 (Conventional Commits 形式) と本文の有無の検査を1本で処理 (ここまでは非ブロック。コミットの検査はコマンド文字列でなく確定後の HEAD を SHA ごとに1回だけ読み、規約を採るリポジトリだけで行う。後続のコマンドが失敗した場合 (PostToolUseFailure) もコミットは検査する)。加えて、未コミットの作業を失う git 操作 (`stash`・`reset --hard`・パスを指定した `checkout` (`checkout -- <path>` / `checkout .` / `checkout <path>` / `checkout HEAD <path>`)・`checkout -f`・`switch -f` / `--discard-changes`・`--staged` だけでない `restore`・`-n` の無い `clean`) と指名しないステージ (`add -A` / `-u`、`.` / `./` / `..` / `:/` のように作業ディレクトリやルートを指すパス、`commit -a`) を拒否し、主ツリーを別のセッションが直近に使っているときは相手ごとに1回だけ worktree への移動を促し (拒否はしない。`session_id` は resume / compact の前後で同じと保証されていない)、`gh issue create` は同じセッションで直近に同じリポジトリ (`-R` / `--repo`、無ければ cwd の `origin`) に対して `gh issue list --search` を実行していなければ拒否する。`AIDD_REQUIRED_LABEL_PREFIX` を設定すると、その接頭辞のラベルが無い `gh issue create` も拒否する。コマンドは引用符・`&&` / `;` の連結・`#` のコメント・`if` / `then` / `do` などの制御構文・`cd`・`git -C`・前置のラッパー (`rtk` など) を見分けて判定し、1回の起動で当たった判定は JSON 1つにまとめて返す。コマンドに `git` / `gh` の語が無ければ python を起動せずに終わる。レビュー証跡の確認は、`--head` のブランチ (未指定なら cwd のブランチ) が基点ブランチに対してコードを変更しているのに、どの worktree の `.aidd/autonomous-review/` にもそのブランチの `state.json` が無いときだけ、変更ファイルの一覧つきで警告する (docs だけの変更では鳴らさない) |
 | `tool-reminder.sh` | `git commit` 前の test-perspectives 確認、`gh pr/issue create・edit` 前の日本語確認、`git push` 後の PR 同期確認を1本で処理 (非ブロック) |
+| `write-guard.sh` | Write・Edit・NotebookEdit の PreToolUse を1本で処理する。対象はまだ存在しないファイルだけで、既存ファイルと対象外のパスでは何も出さずに終わる。サンドボックスの読み取り拒否によく入る名前 (`.env*`・`*.pem`・`*secret*`・`*credential*` など) のファイルを新しく作ろうとしたら拒否する (作った後に git・テスト・シェルから読めなくなるため)。Claude Code には読み取り拒否の既定リストが無いので、パターンは `AIDD_UNREADABLE_NAME_PATTERNS` で利用側の設定に合わせて差し替える。あわせて、`.claude/{hooks,skills,commands,rules,agents}/` (プロジェクト側・`~/.claude/` 側の両方) に新しい資産を作ろうとしたら、同梱の `hooks/asset-index.json` から aidd の資産一覧 (名前と description) を additionalContext で渡し、役割が重なるならそれを使うか aidd への要望として起票するよう促す。重なりの判断はモデルに任せ、aidd の command・skill・agent と同名のときだけ拒否する (command・agent は種類のディレクトリ直下のファイルだけ比べる。`commands/adr/new.md` は `/adr:new` になり、agent の名前は frontmatter で決まるため)。既存の資産と既存 skill 内のファイルは対象外 |
 
 #### Hooks の書き込み先と無効化
 
@@ -106,6 +111,10 @@ hooks は上記スクリプトをセッション中に自動実行する。フ�
 | 書き込み先 | 内容 | 書き込み元 |
 |-----------|------|-----------|
 | `~/.claude/aidd/usage.json` | `/aidd:*` コマンドの使用数・最終使用時刻 | `usage-log.sh` |
+| `~/.claude/aidd/main-tree.json` | 主ツリーごとの、git を実行したセッション ID と最終時刻 (失効時間を過ぎたものは削除)、警告済みの組 (相手の占有が失効したら削除) | `tool-reminder.sh` |
+| `~/.claude/aidd/issue-search.json` | セッション ID とリポジトリの組ごとの、最後に `gh issue list --search` を実行した時刻 (1日を過ぎたものは削除) | `tool-reminder.sh` |
+| `~/.claude/aidd/commit-why.json` | コミットの検査で判定済みの SHA と判定時刻 (新しい 200 件まで) | `tool-reminder.sh` |
+| `~/.claude/aidd/*.json.lock`、`*.json.tmp` | 上の状態ファイルを更新するときの排他ロック (空ファイル、残る) と書き込み途中の一時ファイル (置き換えで消える) | `usage-log.sh`、`tool-reminder.sh` |
 | `~/.claude/aidd/projects/<プロジェクトキー>/hook-log/<hook-id>.jsonl` | 利用側の hook の発火1回ごとに、実行前の `start` 行と、終了後の時刻・イベント名・`ok` / `block` / `error` / `killed`・終了コードの行 (hook の入出力の中身は記録しない。1 hook あたり 256KB を超えたら直近1000行に切り詰める)。同じディレクトリの `<hook-id>.since` はその hook の記録開始の目印 (ラッパーの初回実行か、`/aidd:asset-audit` が置く) | 利用側に導入した `aidd-hook-log.sh` |
 | `~/.claude/aidd/projects/<プロジェクトキー>/asset-audit.last` | 棚卸しの最終実施日 (session-start の nudge が読む。書けなかったときはコマンドが報告し、実行するコマンドを示す) | `/aidd:asset-audit` |
 
@@ -118,6 +127,28 @@ hooks は上記スクリプトをセッション中に自動実行する。フ�
 | `AIDD_DISABLE_AUDIT_NUDGE=1` | `session-start.sh` の棚卸しの nudge を止める |
 | `AIDD_AUDIT_INTERVAL_DAYS=<日数>` | 棚卸しの nudge を出すまでの期間と、`/aidd:asset-audit` が「一定期間発火しない」とみなす期間 (既定30。10進で読み、1〜5桁の数字以外は既定値) |
 | `AIDD_DISABLE_CLARIFY_NUDGE=1` | `session-start.sh` の不明点確認指示の注入を止める。注入文は確認手段を1つに固定しないため非対話セッションでも矛盾しないが、確認自体を求めたくない自動実行では設定する |
+| `AIDD_DISABLE_REVIEW_BEFORE_PR=1` | `tool-reminder.sh` の `gh pr create` 前のレビュー証跡の警告を止める |
+| `AIDD_REVIEW_BASE=<branch>` | レビュー証跡の警告で使う基点ブランチ。コマンドの `--base` を優先し、どちらも無ければ `origin/HEAD`、それも無ければ `main`、次に `master`。どれも解決できなければ、確認しなかったことを1行で伝える |
+| `AIDD_REVIEW_SKIP_PATHS=<正規表現>` | レビュー証跡の警告で「コードの変更」に数えないパス (既定 `(^docs/`、`\.md$`、`\.txt$` の OR)。変更がすべてこれに当たれば警告しない |
+| `AIDD_REVIEW_LIST_LIMIT=<件数>` | レビュー証跡の警告に並べる変更ファイルの上限 (既定 20)。超えた分は件数だけ出す |
+| `AIDD_COMMAND_WRAPPERS=<a,b c>` | `tool-reminder.sh` がコマンドの前置として読み飛ばすラッパーを追加する (カンマ区切り、1つが複数語でもよい。例 `chronic,sudo -E`)。既定は `rtk proxy`・`rtk`・`command`・`env`・`time`・`nohup`・`exec` と、行頭の `VAR=value`。一覧に無い前置の後ろのコマンドは判定されない |
+| `AIDD_DISABLE_GIT_SAFETY=1` | 未コミットの作業を失う git 操作と指名しないステージの拒否を止める |
+| `AIDD_DISABLE_MAIN_TREE_WARNING=1` | 主ツリーの共用の警告を止める |
+| `AIDD_MAIN_TREE_TTL_MINUTES=<分>` | 主ツリーの占有を有効とみなす時間 (既定 30)。これより前に git を実行したセッションは占有していないものとする |
+| `AIDD_WORKTREE_DIR=<path>` | 主ツリーの共用の警告で案内する worktree の作成先 (既定 `.claude/worktrees`。相対パスは主ツリーから) |
+| `AIDD_DISABLE_ISSUE_SEARCH_GATE=1` | `gh issue create` 前の重複検索の要求を止める |
+| `AIDD_ISSUE_SEARCH_TTL_MINUTES=<分>` | `gh issue list --search` の結果を有効とみなす時間 (既定 30) |
+| `AIDD_REQUIRED_LABEL_PREFIX=<接頭辞>` | 設定すると、`gh issue create` にこの接頭辞 (例 `priority:`) で始まる `--label` が無ければ拒否する。未設定なら判定しない (そのラベルを持たないリポジトリで起票できなくなるため既定は無効)。ラベルの選び方は `issue-priority` skill |
+| `AIDD_DISABLE_COMMIT_WHY_CHECK=1` | `git commit` 後の HEAD の検査を止める |
+| `AIDD_COMMIT_TYPES=<a,b>` | 設定すると、コミットの件名が Conventional Commits 形式でこの type か (英数字と `-`) を検査する。未設定でもリポジトリのルートに commitlint の設定 (`commitlint.config.*`・`.commitlintrc*`・`package.json` の `commitlint`) があれば既定の `feat,fix,docs,style,refactor,perf,test,build,ci,chore,revert` で検査し、どちらも無ければ件名は検査しない (件名の規約が違うリポジトリで書き換えを促さないため)。`Revert "..."` は検査しない |
+| `AIDD_COMMIT_BODY_EXEMPT_TYPES=<a,b>` | 本文が無くてもよい type (既定 `docs,style,chore`) |
+| `AIDD_COMMIT_IGNORED_TRAILERS=<a,b>` | 本文の有無を数えるときに除くトレーラー (既定 `Co-Authored-By,Signed-off-by,Refs,Closes,Fixes,Resolves,Reviewed-by,Change-Id`)。除くのは最後の段落だけで、その段落が `Key: value` の行と、`:` の無い issue 参照 (`Closes #19` のように `Closes` / `Fixes` / `Resolves` / `Refs` の後ろに `#番号`・`owner/repo#番号`・URL) の行だけでできているときに限る (`Fixes the crash ...` のような本文は除かない) |
+| `AIDD_COMMIT_WHY_CANON=<文書と節>` | コミットの検査と `four-kinds-check` skill が参照する正典。設定するか、リポジトリの `CLAUDE.md` (または `.claude/CLAUDE.md`) に「コメントの置き場所」の節があるときだけ、コミット本文の有無を検査する |
+| `AIDD_DISABLE_UNREADABLE_NAME_GUARD=1` | `write-guard.sh` の読み取り拒否名の検査を止める |
+| `AIDD_UNREADABLE_NAME_PATTERNS=<p1>:<p2>` | `write-guard.sh` が拒否するパターンを既定から差し替える (コロン区切りの glob)。利用側の `sandbox.filesystem.denyRead`・`sandbox.credentials.files` の値はそのまま書ける: `~/` はホーム、`/` と `//` は絶対パス、`./` と接頭辞なしで `/` を含むものは hook 入力の cwd (通常はプロジェクトルート) からの相対で、パスはそのディレクトリの下すべてにも当たる (末尾の `/`・`/**` は有っても無くても同じ。ユーザー設定の `./`・接頭辞なしの値は `~/.claude` 基準なので `~/.claude/...` と書く)。`/` を含まない名前はどの深さのファイル名とも照合し、`secrets/`・`secrets/**` のようにディレクトリと示した名前は cwd 以下のどの深さの同名ディレクトリの中にも当たる。`Read(...)` の deny ルールは `/` の意味が違うので書き換える: `Read(//abs/**)` → `/abs/**`、プロジェクト設定の `Read(/path)` → `./path`、ユーザー設定の `Read(/path)` → `~/.claude/path` (`Read(~/x)`・`Read(.env)`・`Read(secrets/**)` はそのまま) |
+| `AIDD_DISABLE_ASSET_OVERLAP=1` | `write-guard.sh` の資産重複の案内と同名拒否を止める |
+| `AIDD_ASSET_OVERLAP_DIRS=<k1>:<k2>` | 資産重複の検査対象にする `.claude/` 直下のディレクトリ (既定 `hooks:skills:commands:rules:agents`) |
+| `AIDD_ASSET_OVERLAP_DENY_SAME_NAME=0` | 同名の資産も拒否せず、一覧の案内だけにする |
 
 <プロジェクトキー> は git の共通ディレクトリ (`git rev-parse --git-common-dir`) の親のパスの英数字以外を `-` に置き換えたもの。worktree を含めて1リポジトリ1キーになる (hook が見る `CLAUDE_PROJECT_DIR` はセッション開始時のルートのまま、モデルのシェルの cwd は worktree や `cd` 先に移るため)。git の外では `CLAUDE_PROJECT_DIR` (無ければ cwd) から作る。
 
@@ -131,6 +162,7 @@ hooks は上記スクリプトをセッション中に自動実行する。フ�
 | `settings.json.template` | Claude Code 権限設定の基本構成テンプレート |
 | `team-settings.json.template` | チーム導入用。利用プロジェクトの `.claude/settings.json` にマージすると aidd が自動提案される |
 | `design-perspectives.md.template` | `.aidd/design-perspectives.md` の出発点。可観測性・プロジェクト固有観点 (design-review の Agent 4 が読む) |
+| `asset-overlap-prompt-hook.json.template` | 資産の重複を厳格に止めたい利用側向けの prompt 型 PreToolUse hook (既定では無効。`.claude/settings.json` の `hooks` にマージして有効化)。`.claude/{hooks,skills,commands,rules,agents}/` への Write をモデルが aidd の資産一覧と照らし、役割が重なれば拒否する。`scripts/generate-asset-index.py` が生成する |
 | `aidd-hook-log.sh` | 利用側の `.claude/settings.json` に書いた hook を包み、発火と失敗 (`error` 行) を `~/.claude/aidd/` 配下に記録するラッパー。包んだ hook の stdin・stdout・stderr・終了コードはそのまま通す。`/aidd:asset-audit` の「一定期間発火しない hook」「記録が壊れている hook」の判定に使う |
 
 #### `aidd-hook-log.sh` の導入 (利用側プロジェクト)
@@ -168,7 +200,7 @@ cp <aidd>/templates/aidd-hook-log.sh .claude/hooks/   # 実行ビットごとコ
 
 1. **1ファイル1関心事**: 各ファイルは単一トピックに集中。docs は冒頭に「いつ使うか」を明記
 2. **2回ルール**: 同じプロンプトを2回以上使ったものだけ commands/skills に昇格
-3. **README更新**: 資産追加時は本インデックスを更新し、plugin.json の version を上げて CHANGELOG に記録
+3. **README更新**: 資産追加時は本インデックスを更新し、plugin.json の version を上げて CHANGELOG に記録。command・skill・agent・hook を追加・削除・改名したら `python3 scripts/generate-asset-index.py` で資産一覧を再生成する (CI の `python3 scripts/generate-asset-index.py --check` と `tests/hook-contract-test.sh` が不一致で落ちる)
 4. **重複禁止**: superpowers・reqd・estimate・uidd・stdd・aidd-autopilot・グローバル資産と被る機能は作らず、ポインタのみ記載
 5. **受動ドキュメント禁止**: セッション中に効かせたい知見は docs でなく skills (自動トリガ) か hooks (強制) にする
 6. **パイプライン変更時の評価**: `design-review.md`・`refuter.md`・`design-arbiter.md`・`security-reviewer.md`・`reviewer.md` のプロンプトを変更するリリースは、リリース前に `/aidd:eval` を実行し結果を `tests/eval/results/` に残す (退行の検知はこの記録の比較でのみ可能)

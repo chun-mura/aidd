@@ -14,6 +14,9 @@ jobs:
       - name: Shellcheck hook scripts
         run: shellcheck hooks/scripts/*.sh templates/*.sh
 
+      - name: Check the bundled asset index is up to date
+        run: python3 scripts/generate-asset-index.py --check
+
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code
 
