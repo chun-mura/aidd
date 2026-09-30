@@ -40,8 +40,18 @@ printf '%s\n\n' "$input" | run_wrapped format "$fake_hook" 0 > "$tmp_dir/out" 2>
 printf '%s\n\n' "$input" > "$tmp_dir/expected"
 cmp "$tmp_dir/out" "$tmp_dir/expected"
 [ "$(cat "$tmp_dir/err")" = "hook-stderr" ]
-[ -e "$log_dir/.since" ]
+[ -e "$log_dir/format.since" ]
+# A start line is written before the hook runs, and the end line after it.
+[ "$(wc -l < "$log_dir/format.jsonl" | tr -d ' ')" -eq 2 ]
+head -n 1 "$log_dir/format.jsonl" | grep -F '"event":"PostToolUse","status":"start"}'
 tail -n 1 "$log_dir/format.jsonl" | grep -F '"event":"PostToolUse","status":"ok","exit":0'
+
+# Recording start is per hook: a hook wrapped later gets its own marker, and an existing
+# marker is never refreshed by later firings.
+touch -t 202001010000 "$log_dir/format.since"
+printf '%s' "$input" | run_wrapped format "$fake_hook" 0 > /dev/null 2>&1
+[ -n "$(find "$log_dir/format.since" -mmin +1440)" ]
+[ ! -e "$log_dir/guard.since" ]
 
 # Exit 2 (a deliberate block) is returned as-is and is not an error.
 set +e
@@ -50,6 +60,7 @@ rc=$?
 set -e
 [ "$rc" -eq 2 ]
 tail -n 1 "$log_dir/guard.jsonl" | grep -F '"status":"block","exit":2'
+[ -e "$log_dir/guard.since" ]
 
 # Any other non-zero exit is returned as-is and recorded as an error line.
 set +e
@@ -68,11 +79,98 @@ set -e
 grep -F '"status":"error","exit":127' "$log_dir/gone.jsonl"
 
 # A hook that exits without reading stdin must not gain a broken-pipe message from the wrapper.
+# With SIGPIPE at its default the writer just dies silently, so the case is only meaningful
+# where SIGPIPE is ignored and the write fails with EPIPE instead.
 big_input=$(python3 -c 'import json; print(json.dumps({"hook_event_name":"PreToolUse","x":"y"*300000}))')
-printf '%s' "$big_input" | run_wrapped quiet true > "$tmp_dir/out" 2> "$tmp_dir/err"
+( trap '' PIPE; printf '%s' "$big_input" | run_wrapped quiet true > "$tmp_dir/out" 2> "$tmp_dir/err" )
 [ ! -s "$tmp_dir/out" ]
 [ ! -s "$tmp_dir/err" ]
 tail -n 1 "$log_dir/quiet.jsonl" | grep -F '"event":"PreToolUse","status":"ok"'
+
+# Terminating the wrapper (a hook timeout) stops the wrapped hook too, records a killed line,
+# and the wrapper dies of the same signal, as the unwrapped hook would. The wrapper is started
+# from python with default signal dispositions, as Claude Code starts hooks: a background job
+# of this script would inherit INT ignored, which no trap can undo.
+run_killed() {
+  CLAUDE_PROJECT_DIR="$project_dir" AIDD_TEST_STATE_DIR="$state_dir" python3 - "$1" "$wrapper" "$2" "$tmp_dir/marker-$2" "$input" <<'EOF'
+import os, signal, subprocess, sys, time
+sig, wrapper, hook_id, marker, data = sys.argv[1:]
+signal.signal(signal.SIGINT, signal.SIG_DFL)
+p = subprocess.Popen(["bash", wrapper, hook_id, "bash", "-c", "sleep 2; touch '%s'" % marker],
+                     stdin=subprocess.PIPE)
+p.stdin.write(data.encode())
+p.stdin.close()
+time.sleep(0.5)
+p.send_signal(getattr(signal, "SIG" + sig))
+rc = p.wait()
+time.sleep(2.5)
+sys.exit(0 if rc == -getattr(signal, "SIG" + sig) and not os.path.exists(marker) else 1)
+EOF
+}
+run_killed TERM slow
+head -n 1 "$log_dir/slow.jsonl" | grep -F '"status":"start"}'
+tail -n 1 "$log_dir/slow.jsonl" | grep -F '"status":"killed","exit":143'
+# bash starts background commands with INT ignored, so INT must still stop the hook.
+run_killed INT interrupted
+tail -n 1 "$log_dir/interrupted.jsonl" | grep -F '"status":"killed","exit":130'
+run_killed HUP hangup
+tail -n 1 "$log_dir/hangup.jsonl" | grep -F '"status":"killed","exit":129'
+
+# SIGKILL can't be trapped: only the start line remains, so the audit still sees the firing.
+printf '%s' "$input" | CLAUDE_PROJECT_DIR="$project_dir" AIDD_TEST_STATE_DIR="$state_dir" \
+  bash "$wrapper" hard bash -c 'sleep 2' &
+pid=$!
+sleep 0.5
+kill -KILL "$pid"
+wait "$pid" 2>/dev/null || true
+[ "$(wc -l < "$log_dir/hard.jsonl" | tr -d ' ')" -eq 1 ]
+grep -F '"status":"start"}' "$log_dir/hard.jsonl"
+
+# Concurrent firings that trim the same oversized log must not clobber each other's copy.
+python3 -c 'import sys; open(sys.argv[1], "w").write(("{\"ts\":\"2020-01-01T00:00:00Z\",\"event\":\"E\",\"status\":\"error\",\"exit\":1,\"pad\":\"" + "p" * 300 + "\"}\n") * 1000)' "$log_dir/busy.jsonl"
+for _ in $(seq 30); do
+  printf '%s' "$input" | run_wrapped busy true > /dev/null 2>&1 &
+done
+wait
+[ "$(wc -l < "$log_dir/busy.jsonl" | tr -d ' ')" -ge 1000 ]
+[ -z "$(find "$log_dir" -name 'busy.jsonl.*')" ]
+
+# One key per repository: a hook run from a worktree session, one from the main checkout,
+# and /aidd:asset-audit's own snippet (no CLAUDE_PROJECT_DIR, cwd in the worktree) agree.
+git_env=(env -u CLAUDE_PROJECT_DIR GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1)
+repo="$tmp_dir/repo"
+mkdir -p "$repo"
+"${git_env[@]}" git -C "$repo" init -q
+"${git_env[@]}" git -C "$repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
+"${git_env[@]}" git -C "$repo" worktree add -q "$tmp_dir/wt"
+wt_state="$tmp_dir/wt-state"
+printf '%s' "$input" | CLAUDE_PROJECT_DIR="$repo" AIDD_TEST_STATE_DIR="$wt_state" bash "$wrapper" a true
+printf '%s' "$input" | CLAUDE_PROJECT_DIR="$tmp_dir/wt" AIDD_TEST_STATE_DIR="$wt_state" bash "$wrapper" b true
+(cd "$tmp_dir/wt/" && printf '%s' "$input" | env -u CLAUDE_PROJECT_DIR AIDD_TEST_STATE_DIR="$wt_state" bash "$wrapper" c true)
+[ "$(find "$wt_state/projects" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')" -eq 1 ]
+wt_key=$(basename "$(find "$wt_state/projects" -mindepth 1 -maxdepth 1)")
+audit_md="$repo_root/commands/asset-audit.md"
+[ "$(grep -cF 'rev-parse --path-format=absolute --git-common-dir' "$audit_md")" -eq 2 ]
+audit_key=$(cd "$tmp_dir/wt" && env -u CLAUDE_PROJECT_DIR bash -c "$(awk '/^project_root=/{p=1} p{print} /^project_key=/{exit}' "$audit_md"); printf '%s' \"\$project_key\"")
+[ "$audit_key" = "$wt_key" ]
+
+# The audit's step 2 counts only failures within the interval (an old error no longer keeps
+# the hook a fix candidate) and reports start lines that no end line follows.
+fake_home="$tmp_dir/home"
+audit_log_dir="$fake_home/.claude/aidd/projects/$wt_key/hook-log"
+mkdir -p "$audit_log_dir"
+now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+cat > "$audit_log_dir/lint.jsonl" <<EOF
+{"ts":"2020-01-01T00:00:00Z","event":"PostToolUse","status":"error","exit":1}
+{"ts":"$now","event":"PostToolUse","status":"start"}
+{"ts":"$now","event":"PostToolUse","status":"error","exit":1}
+{"ts":"$now","event":"PostToolUse","status":"start"}
+{"ts":"$now","event":"PostToolUse","status":"start"}
+{"ts":"$now","event":"PostToolUse","status":"killed","exit":143}
+EOF
+step2=$(awk '/^\*\*2\./{p=1} p && /^```bash/{q=1; next} q && /^```/{exit} q{print}' "$audit_md")
+(cd "$tmp_dir/wt" && env -u CLAUDE_PROJECT_DIR HOME="$fake_home" AIDD_AUDIT_INTERVAL_DAYS=08 bash -c "$step2") |
+  grep -Fx 'lint.jsonl error=1 killed=1 unpaired_start=1'
 
 # The hook id becomes a file name, so path characters are neutralized.
 printf '%s' "$input" | run_wrapped '../escape' "$fake_hook" 0 > /dev/null 2>&1

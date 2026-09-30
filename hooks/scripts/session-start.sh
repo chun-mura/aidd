@@ -19,17 +19,26 @@ fi
 
 # Periodic nudge for /aidd:asset-audit, only once the project's audit is overdue: counted from
 # the last audit (written by that command), or, before the first one, from when
-# aidd-hook-log.sh began recording here. Neither present means the project never opted in.
-# File mtimes via find -mmin keep this portable between BSD and GNU without date parsing.
-# Opt-out: set AIDD_DISABLE_AUDIT_NUDGE=1. Interval: AIDD_AUDIT_INTERVAL_DAYS (default 30).
+# aidd-hook-log.sh began recording its first hook here. Neither present means the project
+# never opted in. File mtimes via find -mmin keep this portable between BSD and GNU without
+# date parsing. The key is derived as in aidd-hook-log.sh (one per repository, worktrees
+# included). Opt-out: set AIDD_DISABLE_AUDIT_NUDGE=1. Interval: AIDD_AUDIT_INTERVAL_DAYS
+# (default 30; forced to base 10 and capped at 5 digits so "08" or a huge value can't break it).
 if [ "$AIDD_DISABLE_AUDIT_NUDGE" != "1" ]; then
   interval_days=${AIDD_AUDIT_INTERVAL_DAYS:-30}
-  case "$interval_days" in '' | *[!0-9]*) interval_days=30 ;; esac
-  project_key=$(printf '%s' "${CLAUDE_PROJECT_DIR:-$PWD}" | tr -c 'A-Za-z0-9' '-')
+  case "$interval_days" in '' | *[!0-9]* | ??????*) interval_days=30 ;; esac
+  interval_days=$((10#$interval_days))
+  project_root=${CLAUDE_PROJECT_DIR:-$PWD}
+  common_dir=$(git -C "$project_root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) &&
+    project_root=$(dirname "$common_dir")
+  project_key=$(printf '%s' "$project_root" | tr -c 'A-Za-z0-9' '-')
   project_state="${AIDD_TEST_STATE_DIR:-$HOME/.claude/aidd}/projects/$project_key"
-  since_file="$project_state/asset-audit.last"
-  [ -e "$since_file" ] || since_file="$project_state/hook-log/.since"
-  if [ -e "$since_file" ] && [ -n "$(find "$since_file" -mmin +$((interval_days * 1440)) 2>/dev/null)" ]; then
+  if [ -e "$project_state/asset-audit.last" ]; then
+    overdue=$(find "$project_state/asset-audit.last" -mmin +$((interval_days * 1440)) 2>/dev/null)
+  else
+    overdue=$(find "$project_state/hook-log" -maxdepth 1 -name '*.since' -mmin +$((interval_days * 1440)) 2>/dev/null | head -n 1)
+  fi
+  if [ -n "$overdue" ]; then
     echo "aidd: このプロジェクトの .claude/ と CLAUDE.md の棚卸しが${interval_days}日以上行われていないため、/aidd:asset-audit の実行を検討してください。"
   fi
 fi

@@ -60,7 +60,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 |---------|------|
 | `retro.md` | aidd 資産の棚卸し。利用実績・hooks/skills の摩擦・陳腐化を洗い出す (対象は aidd 自身の資産のみ) |
 | `asset-audit.md` | 利用側プロジェクトの `.claude/` と `CLAUDE.md` の棚卸し。retro と同じ型を利用側の資産に当て、一定期間発火しない hook・参照先の消えた記述・上流に吸収された規則・2箇所にある同じ基準・観測1件からの一般化を削除・改訂候補に、`error` 行を持つ hook を修正候補にする。候補が0件なら基準を疑う。人だけが起動する (`disable-model-invocation`) |
-| `incident-retro.md` | セッションの事故の棚卸し。再発防止の置き場をコード → hook → `CLAUDE.md` / memory (リポジトリを移っても効くか) → コマンド → ADR → issue の順に決め、一般則にする前にその規則で壊れるものを1件挙げさせる。ADR・issue は `/aidd:adr`・`/aidd:issue-split` に委ねる。人だけが起動する (`disable-model-invocation`) |
+| `incident-retro.md` | セッションの事故の棚卸し。再発防止の置き場をコード (今直さないなら issue) → hook → ADR (決定とその理由) → `CLAUDE.md` / memory (リポジトリを移っても効くか) → コマンドの順に決め、一般則にする前にその規則で壊れるものを1件挙げさせる。ADR・issue は `/aidd:adr`・`/aidd:issue-split` に委ねる。人だけが起動する (`disable-model-invocation`) |
 | `design-doc.md` | 要件から設計書を生成し docs/design/ に保存。構成は design-review の6観点と1対1対応 |
 | `adr.md` | アーキテクチャ決定記録を docs/adr/NNNN-<slug>.md に作成。1 ADR = 1 決定。採番はローカルに加えローカル／リモートの全ブランチを見て衝突を避ける |
 | `design-review.md` | 設計や実装方針を多観点レビュー。既定の `--depth=standard` は必要時だけ refuter / arbiter を起動し、反証済み指摘を直接報告する。`--depth=deep` は品質重視の完全経路。再レビューでは `--review-delta=<変更範囲>` で差分と周辺文脈に絞る。`--verify-sources` で外部情報源検証を追加。信頼境界を跨ぐ設計では security-reviewer (STRIDE) を条件起動 (`--security` / `--no-security` で強制・抑止) |
@@ -95,7 +95,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 
 | スクリプト | 動作 |
 |---------|------|
-| `session-start.sh` | SessionStart で aidd 資産の使いどころと「実装を左右する不明点は、このセッションが実際に持つ手段で確認する (対話なら AskUserQuestion、監督下なら親への返答)」を注入。`/aidd:asset-audit` の最終実施日 (未実施なら `aidd-hook-log.sh` の記録開始日) から一定期間 (既定30日) が過ぎたプロジェクトでだけ、棚卸しを促す1文を足す。superpowers 未導入を検知して警告 |
+| `session-start.sh` | SessionStart で aidd 資産の使いどころと「実装を左右する不明点は、このセッションが実際に持つ手段で確認する (対話なら AskUserQuestion、監督下なら親への返答)」を注入。`/aidd:asset-audit` の最終実施日 (未実施なら `aidd-hook-log.sh` が最初の hook の記録を始めた日) から一定期間 (既定30日) が過ぎたプロジェクトでだけ、棚卸しを促す1文を足す。superpowers 未導入を検知して警告 |
 | `usage-log.sh` | 起動を2経路で記録し、aidd コマンド使用数・最終利用時刻を `~/.claude/aidd/usage.json` に残す (`/aidd:retro` が読む): 行頭が `/aidd:<name>` のプロンプト (UserPromptSubmit) と、Skill ツール経由の起動 (PreToolUse、サブエージェント内の起動もここに入る)。文中で名前に触れただけのプロンプトは計上しない。実在するコマンド・skill 名だけを計上し、旧版が残した `prompt_log` は起動時に削除する |
 | `tool-reminder.sh` | `git commit` 前の test-perspectives 確認、`gh pr/issue create・edit` 前の日本語確認、`git push` 後の PR 同期確認を1本で処理 (非ブロック) |
 
@@ -106,8 +106,8 @@ hooks は上記スクリプトをセッション中に自動実行する。フ�
 | 書き込み先 | 内容 | 書き込み元 |
 |-----------|------|-----------|
 | `~/.claude/aidd/usage.json` | `/aidd:*` コマンドの使用数・最終使用時刻 | `usage-log.sh` |
-| `~/.claude/aidd/projects/<プロジェクトキー>/hook-log/<hook-id>.jsonl` | 利用側の hook の発火1回ごとの時刻・イベント名・`ok` / `block` / `error`・終了コード (hook の入出力の中身は記録しない。1 hook あたり 256KB を超えたら直近1000行に切り詰める)。同じディレクトリの `.since` は記録開始の目印 | 利用側に導入した `aidd-hook-log.sh` |
-| `~/.claude/aidd/projects/<プロジェクトキー>/asset-audit.last` | 棚卸しの最終実施日 (session-start の nudge が読む) | `/aidd:asset-audit` |
+| `~/.claude/aidd/projects/<プロジェクトキー>/hook-log/<hook-id>.jsonl` | 利用側の hook の発火1回ごとに、実行前の `start` 行と、終了後の時刻・イベント名・`ok` / `block` / `error` / `killed`・終了コードの行 (hook の入出力の中身は記録しない。1 hook あたり 256KB を超えたら直近1000行に切り詰める)。同じディレクトリの `<hook-id>.since` はその hook の記録開始の目印 (ラッパーの初回実行か、`/aidd:asset-audit` が置く) | 利用側に導入した `aidd-hook-log.sh` |
+| `~/.claude/aidd/projects/<プロジェクトキー>/asset-audit.last` | 棚卸しの最終実施日 (session-start の nudge が読む。書けなかったときはコマンドが報告し、実行するコマンドを示す) | `/aidd:asset-audit` |
 
 プロンプト本文は記録しない (0.25.0 で廃止。旧版が書いた `prompt_log` は次回の hook 実行時に削除される)。記録したくない場合や注入がノイズな場合は、環境変数で個別に無効化できる (シェル環境、または settings.json の `env` で設定):
 
@@ -116,10 +116,10 @@ hooks は上記スクリプトをセッション中に自動実行する。フ�
 | `AIDD_DISABLE_USAGE_LOG=1` | `usage-log.sh` の利用統計の記録をすべて止める (`prompt_log` の削除も行われなくなる) |
 | `AIDD_DISABLE_HOOK_LOG=1` | `aidd-hook-log.sh` の記録を止める (包んだ hook はそのまま実行される) |
 | `AIDD_DISABLE_AUDIT_NUDGE=1` | `session-start.sh` の棚卸しの nudge を止める |
-| `AIDD_AUDIT_INTERVAL_DAYS=<日数>` | 棚卸しの nudge を出すまでの期間と、`/aidd:asset-audit` が「一定期間発火しない」とみなす期間 (既定30) |
+| `AIDD_AUDIT_INTERVAL_DAYS=<日数>` | 棚卸しの nudge を出すまでの期間と、`/aidd:asset-audit` が「一定期間発火しない」とみなす期間 (既定30。10進で読み、1〜5桁の数字以外は既定値) |
 | `AIDD_DISABLE_CLARIFY_NUDGE=1` | `session-start.sh` の不明点確認指示の注入を止める。注入文は確認手段を1つに固定しないため非対話セッションでも矛盾しないが、確認自体を求めたくない自動実行では設定する |
 
-<プロジェクトキー> は `CLAUDE_PROJECT_DIR` (無ければ cwd) の英数字以外を `-` に置き換えたもの。
+<プロジェクトキー> は git の共通ディレクトリ (`git rev-parse --git-common-dir`) の親のパスの英数字以外を `-` に置き換えたもの。worktree を含めて1リポジトリ1キーになる (hook が見る `CLAUDE_PROJECT_DIR` はセッション開始時のルートのまま、モデルのシェルの cwd は worktree や `cd` 先に移るため)。git の外では `CLAUDE_PROJECT_DIR` (無ければ cwd) から作る。
 
 非対話・監督下のセッション (print モード、スケジュール実行、親エージェントが指示を出すサブエージェント) では、注入文の指示どおり「このセッションが持つ確認手段」を使う。人間に届く手段が無い場合は前提を最終報告に明記させる形になるため、確認そのものを止めたい場合は `AIDD_DISABLE_CLARIFY_NUDGE=1` を設定する。
 
@@ -151,7 +151,7 @@ cp <aidd>/templates/aidd-hook-log.sh .claude/hooks/   # 実行ビットごとコ
 "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/aidd-hook-log.sh lint bash -c 'npm run lint --silent && echo ok'"
 ```
 
-ラッパーは包んだ hook の終了コード (2 の阻止も含む) と stdout / stderr をそのまま返すので、hook の振る舞いは変わらない。終了コードが 0 と 2 以外なら `error` 行になる。ラッパーで包んでいない hook は発火を判定できないため、`/aidd:asset-audit` は削除候補にせず「判定不能」とする。
+ラッパーは包んだ hook の終了コード (2 の阻止も含む) と stdout / stderr をそのまま返すので、hook の振る舞いは変わらない。終了コードが 0 と 2 以外なら `error` 行になる。timeout などでラッパーが TERM / HUP / INT を受けたときは、包んだ hook も止め (INT は TERM として渡す。bash がバックグラウンドの子に INT を無視させるため)、`killed` 行を書いてから同じシグナルで終わる。trap の効かない SIGKILL では、実行前に書いた `start` 行だけが残る。ラッパーで包んでいない hook は発火を判定できないため、`/aidd:asset-audit` は削除候補にせず「判定不能」とする。
 
 ### Tips (方法論の知見)
 

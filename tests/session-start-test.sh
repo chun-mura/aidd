@@ -49,9 +49,15 @@ if run_start | grep -Fq '/aidd:asset-audit'; then
   exit 1
 fi
 
-# Recording began 40 days ago and no audit since: nudge.
+# Only a hook wrapped recently: recording has not run for the interval yet, so no nudge.
 mkdir -p "$project_state/hook-log"
-touch -t "$old_stamp" "$project_state/hook-log/.since"
+: > "$project_state/hook-log/lint.since"
+if run_start | grep -Fq '/aidd:asset-audit'; then
+  exit 1
+fi
+
+# Recording of the first hook began 40 days ago and no audit since: nudge.
+touch -t "$old_stamp" "$project_state/hook-log/format.since"
 run_start | grep -F '/aidd:asset-audit'
 
 # A recent audit takes precedence over the old recording start: no nudge.
@@ -70,8 +76,41 @@ if AIDD_AUDIT_INTERVAL_DAYS=60 run_start | grep -Fq '/aidd:asset-audit'; then
   exit 1
 fi
 
+# The interval is read in base 10: "08" is 8 days (overdue at 40), not a shell error.
+AIDD_AUDIT_INTERVAL_DAYS=08 run_start 2> "$audit_tmp/err" | grep -F '8日以上'
+[ ! -s "$audit_tmp/err" ]
+
+# A value too long to be a day count falls back to the default instead of overflowing:
+# a fresh audit must still suppress the nudge.
+date +%F > "$project_state/asset-audit.last"
+if AIDD_AUDIT_INTERVAL_DAYS=9999999999999999999 run_start | grep -Fq '/aidd:asset-audit'; then
+  exit 1
+fi
+touch -t "$old_stamp" "$project_state/asset-audit.last"
+
 # Opt-out removes it.
 if AIDD_DISABLE_AUDIT_NUDGE=1 run_start | grep -Fq '/aidd:asset-audit'; then
+  exit 1
+fi
+
+# One key per repository: a session started in a worktree reads the audit recorded for the
+# main checkout (a fresh one suppresses the nudge, an old one shows it).
+repo="$audit_tmp/repo"
+mkdir -p "$repo"
+git_env=(env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1)
+"${git_env[@]}" git -C "$repo" init -q
+"${git_env[@]}" git -C "$repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
+"${git_env[@]}" git -C "$repo" worktree add -q "$audit_tmp/wt"
+repo_key=$(printf '%s' "$(dirname "$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)")" | tr -c 'A-Za-z0-9' '-')
+mkdir -p "$audit_tmp/aidd/projects/$repo_key"
+touch -t "$old_stamp" "$audit_tmp/aidd/projects/$repo_key/asset-audit.last"
+run_in_worktree() {
+  CLAUDE_PROJECT_DIR="$audit_tmp/wt" AIDD_TEST_STATE_DIR="$audit_tmp/aidd" AIDD_DISABLE_CLARIFY_NUDGE=1 \
+    bash "$repo_root/hooks/scripts/session-start.sh"
+}
+run_in_worktree | grep -F '/aidd:asset-audit'
+date +%F > "$audit_tmp/aidd/projects/$repo_key/asset-audit.last"
+if run_in_worktree | grep -Fq '/aidd:asset-audit'; then
   exit 1
 fi
 
