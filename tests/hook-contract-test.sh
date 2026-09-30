@@ -501,3 +501,78 @@ hooks = json.load(open(sys.argv[1]))["hooks"]["PreToolUse"]
 matchers = [entry["matcher"] for entry in hooks]
 assert "^Skill$" in matchers, matchers
 PYEOF
+
+# write-guard.sh: Write/Edit/NotebookEdit dispatcher. Only files that do not exist yet are checked.
+write_guard="$repo_root/hooks/scripts/write-guard.sh"
+[ -x "$write_guard" ]
+project="$tmp_dir/project"
+mkdir -p "$project/src"
+
+run_write_guard() {
+  local tool=$1 key=$2 path=$3
+  printf '{"hook_event_name":"PreToolUse","tool_name":"%s","cwd":"%s","tool_input":{"%s":"%s"}}' \
+    "$tool" "$project" "$key" "$path" | bash "$write_guard"
+}
+
+# A new file whose name sandboxed commands are commonly denied reading is refused.
+out=$(run_write_guard Write file_path "$project/.env.local")
+printf '%s' "$out" | python3 -c 'import json,sys; o=json.load(sys.stdin)["hookSpecificOutput"]; assert o["permissionDecision"]=="deny", o; assert ".env.local" in o["permissionDecisionReason"]'
+run_write_guard NotebookEdit notebook_path "$project/secret-analysis.ipynb" | grep -F '"deny"'
+# Patterns containing "/" match the whole path, not just the file name.
+run_write_guard Write file_path "$tmp_dir/home/.ssh/config" | grep -F '"deny"'
+
+# An existing file is left alone: the name already exists, so refusing gains nothing.
+# The relative form also checks that a relative file path is resolved against the hook input's cwd.
+touch "$project/src/existing.key"
+[ -z "$(run_write_guard Edit file_path "$project/src/existing.key")" ]
+[ -z "$(run_write_guard Edit file_path "src/existing.key")" ]
+# An absolute pattern matches a relative file path only once the path is resolved against cwd.
+AIDD_UNREADABLE_NAME_PATTERNS="$project/config/*.draft" run_write_guard Write file_path "config/prod.draft" | grep -F '"deny"'
+
+# Patterns follow the sandbox path syntax of denyRead / credentials.files: "~/" is home, "/" and
+# "//" are absolute, "./" or no prefix is relative to cwd, and a directory entry (with or without a
+# trailing "/" or "/**") covers everything under it.
+guard_home="$tmp_dir/home"
+# `! cmd` is exempt from `set -e`, so the negative cases assert empty output instead.
+guard_with() {
+  HOME="$guard_home" AIDD_UNREADABLE_NAME_PATTERNS=$1 run_write_guard Write file_path "$2"
+}
+denied_with() {
+  guard_with "$1" "$2" | grep -qF '"deny"'
+}
+denied_with '~/.aws/*' "$guard_home/.aws/config"
+denied_with '~/.aws' "$guard_home/.aws/config"
+[ -z "$(guard_with '~/.aws' "$guard_home/.awsx/config")" ]
+denied_with '//**/.env' "$project/.env"
+denied_with '~/**/.env' "$guard_home/.env"
+denied_with "$guard_home/.aws" "$guard_home/.aws/config"
+denied_with "$guard_home/.aws/" "$guard_home/.aws/nested/config"
+denied_with "$guard_home/.aws/**" "$guard_home/.aws/config"
+# A single directory name matches that directory at any depth under cwd.
+denied_with 'secrets/**' "$project/secrets/a.txt"
+denied_with 'secrets/' "$project/pkg/secrets/a.txt"
+[ -z "$(guard_with 'secrets/**' "$tmp_dir/elsewhere/secrets/a.txt")" ]
+# A relative pattern with "/" is anchored at cwd.
+denied_with './config/*.draft' "$project/config/a.draft"
+denied_with 'config/*.draft' "$project/config/a.draft"
+[ -z "$(guard_with 'config/*.draft' "$project/pkg/config/a.draft")" ]
+
+# Paths that match nothing produce no output.
+[ -z "$(run_write_guard Write file_path "$project/src/main.py")" ]
+[ -z "$(printf '{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{}}' | bash "$write_guard")" ]
+
+# The pattern list is replaceable, and the guard can be turned off.
+[ -z "$(AIDD_UNREADABLE_NAME_PATTERNS='*.draft' run_write_guard Write file_path "$project/.env")" ]
+AIDD_UNREADABLE_NAME_PATTERNS='*.draft:*.tmp' run_write_guard Write file_path "$project/notes.tmp" | grep -F "'*.tmp'"
+[ -z "$(AIDD_DISABLE_UNREADABLE_NAME_GUARD=1 run_write_guard Write file_path "$project/.env")" ]
+
+# Wired as one handler for all three tools, filtered in the script rather than by `if`
+# (the checks match names at any location, which one permission rule cannot express).
+python3 - "$repo_root/hooks/hooks.json" <<'PYEOF'
+import json, sys
+hooks = json.load(open(sys.argv[1]))["hooks"]["PreToolUse"]
+entries = [e for e in hooks if any("write-guard.sh" in h.get("command", "") for h in e["hooks"])]
+assert len(entries) == 1, entries
+assert entries[0]["matcher"] == "Write|Edit|NotebookEdit", entries[0]
+assert all("if" not in h for h in entries[0]["hooks"]), entries[0]
+PYEOF
