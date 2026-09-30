@@ -13,22 +13,32 @@ index of every asset; when you add or remove a command/agent/skill/hook, update 
 
 ## Commands (verified against `.github/workflows/validate.yml`)
 
-CI (`validate` job) runs exactly three steps, in order:
+CI (`validate` job) runs exactly four steps, in order:
 
 ```bash
-shellcheck hooks/scripts/*.sh                 # lint the 3 hook scripts
+shellcheck hooks/scripts/*.sh templates/*.sh   # lint the hook scripts and the consumer-side wrapper template
+python3 scripts/generate-asset-index.py --check # fail if hooks/asset-index.json / the prompt-hook template are stale
 npm install -g @anthropic-ai/claude-code       # install the claude CLI
 claude plugin validate . --strict              # validates .claude-plugin/marketplace.json + plugin.json
 ```
 
+Adding, removing or renaming a command/agent/skill, or changing a hook script's line-2 description, changes the
+asset index shipped for `write-guard.sh`: run `python3 scripts/generate-asset-index.py` in the same commit or CI
+fails.
+
 There is no `package.json`/Makefile/test runner. The contract tests are plain bash scripts run directly:
 
 ```bash
-bash tests/command-contract-test.sh      # grep-asserts exact phrases exist in commands/design-review.md, agents/reviewer.md, agents/refuter.md, commands/eval.md
+bash tests/autonomous-review-contract-test.sh  # grep-asserts required phrases in commands/autonomous-review.md
+bash tests/command-contract-test.sh      # grep-asserts exact phrases exist in commands/design-review.md, agents/reviewer.md, agents/refuter.md, commands/eval.md, commands/incident-retro.md, commands/asset-audit.md
 bash tests/hook-contract-test.sh         # feeds fake hook-event JSON into hooks/scripts/*.sh via stdin, asserts output
+bash tests/hook-log-test.sh              # exercises templates/aidd-hook-log.sh (pass-through, signals, per-hook markers)
 bash tests/redundancy-contract-test.sh   # asserts removed assets stay removed and de-duplication boundaries hold
-bash tests/session-start-test.sh         # asserts session-start.sh injects the short nudge, not the old verbose one
+bash tests/session-start-test.sh         # asserts session-start.sh injects the short nudges only when due
 ```
+
+On macOS inside the Claude Code sandbox, `mktemp -d` may ignore `$TMPDIR` and fail under `/var/folders`; run the
+tests outside the sandbox (or with a writable temp dir) rather than treating that as a test failure.
 
 These are **not** a general-purpose test framework — each script greps for literal strings that must appear in
 specific prompt files. If you edit `commands/design-review.md`, `agents/reviewer.md`, `agents/refuter.md`,
@@ -50,14 +60,22 @@ if missing) and validates both `.claude-plugin/marketplace.json` and `.claude-pl
   `model-selection` fires when choosing a subagent model). They hold *reusable* judgment logic that would
   otherwise be duplicated across commands.
 - **Hooks** (`hooks/hooks.json` + `hooks/scripts/*.sh`) are the only assets with actual enforcement power —
-  everything else is advisory text a model can ignore. `hooks.json` wires 4 lifecycle events to 3 scripts:
-  - `session-start.sh` (SessionStart): injects a one-time short nudge + detects missing `superpowers` plugin
-  - `usage-log.sh` (UserPromptSubmit): counts `/aidd:*` command usage into `~/.claude/aidd/usage.json` (read by
-    `/aidd:retro`); never logs prompt text unless `AIDD_PROMPT_LOG=1`
-  - `tool-reminder.sh` (PreToolUse+PostToolUse, matcher `Bash`): single dispatcher script handling 3 unrelated
-    nudges (pre-commit test-perspectives check, pre `gh issue/pr create·edit` Japanese-language check, post
-    `git push` PR-sync check) — it was consolidated from 3 separate scripts specifically to cut redundant Bash
-    hook invocations; don't split it back out without checking `docs/superpowers/specs/2026-07-18-token-optimization-design.md`
+  everything else is advisory text a model can ignore. `hooks.json` wires 6 lifecycle entries to 4 scripts:
+  - `session-start.sh` (SessionStart): injects a one-time short nudge, an `/aidd:asset-audit` nudge only when the
+    consumer's audit is overdue, and detects missing `superpowers` plugin
+  - `usage-log.sh` (UserPromptSubmit + PreToolUse `^Skill$`): counts `/aidd:*` usage into `~/.claude/aidd/usage.json`
+    (read by `/aidd:retro`); never logs prompt text
+  - `tool-reminder.sh` (PreToolUse + PostToolUse + PostToolUseFailure, matcher `Bash`): the single Bash dispatcher.
+    It splits the command (quotes, `&&`/`;`, comments, control keywords, `cd`, `git -C`, wrappers), collects every
+    matching check, and emits one JSON: the original nudges (test-perspectives, Japanese PR/issue text, post-push
+    PR sync), review-evidence warning before `gh pr create`, denial of work-losing git operations and unnamed
+    staging, main-tree sharing warning, search-before-`gh issue create` gate, optional required-label gate, and the
+    post-commit subject/Why check (only in repos that adopt the convention). Commands without a `git`/`gh` word exit
+    before python starts. Don't split it back out without checking `docs/superpowers/specs/2026-07-18-token-optimization-design.md`
+  - `write-guard.sh` (PreToolUse, matcher `Write|Edit|NotebookEdit`): acts only on files that don't exist yet —
+    denies names the sandbox usually can't read back, and points new consumer `.claude/{hooks,skills,commands,rules,agents}`
+    assets at the aidd assets they duplicate (denying same-name commands/skills/agents)
+  Git checks use the hook input's `cwd`, not `CLAUDE_PROJECT_DIR` (which stays on the main checkout inside a worktree).
   All hook writes are confined to `~/.claude/aidd/` — no network calls, no writes elsewhere.
 - **Templates** (`templates/*.template`) are copied into a *consumer* project (e.g.
   `.aidd/design-perspectives.md.template` → consumer's `.aidd/design-perspectives.md`), not used in this repo
