@@ -2,7 +2,7 @@
 
 ## 0.38.0 (2026-09-30)
 
-- `skills/parallel-coordinator/`: 複数の issue・タスクを worker に並行実装させるコーディネーターの規律を追加。並列化の一般的な進め方は `superpowers:dispatching-parallel-agents` / `subagent-driven-development` / `using-git-worktrees` を指すだけにし、それらに無い差分だけを置く: 組み込みサブエージェント (`isolation: "worktree"`、バックグラウンド実行、完了通知、`SendMessage`) を既定とする実行環境、worker の model の明示 (`aidd:model-selection` 参照)、検証環境の割り当て、worktree 内の `CLAUDE_PROJECT_DIR` と hook の `cwd`、外部実行環境の手順を写さないこと、spec に書く事実の確かめ方、共有ファイルの衝突、マージ順と rebase、worker への指示、報告の検証 (#25)
+- `skills/parallel-coordinator/`: 複数の issue・タスクを worker に並行実装させるコーディネーターの規律を追加。並列化の一般的な進め方は `superpowers:dispatching-parallel-agents` / `subagent-driven-development` / `using-git-worktrees` を指すだけにし、それらに無い差分だけを置く: 組み込みサブエージェント (`isolation: "worktree"`、バックグラウンド実行、完了通知、`SendMessage`) を既定とする実行環境、worktree が既定ブランチから切られること、`subagent-driven-development` の並列禁止が worktree で分けた worker には当たらないこと、`model` 省略時の決まり方と fork (`aidd:model-selection` 参照)、検証環境の割り当て、worktree 内の hook・スクリプトは `CLAUDE_PROJECT_DIR` ではなく入力の `cwd` を使うこと、外部実行環境の手順を写さないこと、spec に書く事実の確かめ方、共有ファイルの衝突、マージ順と rebase、worker への指示、報告の検証。複数 issue の並行実装で、古い issue 本文から書いた spec、新しく作るテストファイルの衝突、新しいテストが1度も CI で走らないまま後発がマージされること、数え直されない worker の報告が繰り返し起きたため (#25)
 
 ## 0.29.0 (2026-09-09)
 

@@ -7,12 +7,15 @@ description: Use when acting as the coordinator that has multiple workers implem
 
 並列化の一般的な進め方 (独立性の判断、焦点を絞った指示、戻った結果の統合) は `superpowers:dispatching-parallel-agents`、タスクごとの実装とレビューは `superpowers:subagent-driven-development`、隔離は `superpowers:using-git-worktrees` に従う。ここには、それらに無い、複数 issue を並行させるときの規律だけを置く。
 
+`subagent-driven-development` が実装 subagent の並列起動を禁じるのは同じ作業ツリーでの衝突のためで、§2 の突き合わせを済ませ `isolation: "worktree"` で分けた worker 同士には当たらない。各 worker の中では同 skill の順序に従う。
+
 ## 実行環境
 
 - 既定は Claude Code 組み込みのサブエージェント: Agent ツールの `isolation: "worktree"` で worker ごとに worktree を分け、バックグラウンドで走らせ、結果は完了通知で受ける。worker の質問は報告として返させ、答えは `SendMessage` で送る (完了した worker はそのまま再開する)。
-- worker の `model` は必ず明示する。省略すると定義側 frontmatter の model (弱いモデルのことがある) で走る。選び方は `aidd:model-selection`。
+- この worktree は既定で親セッションの `HEAD` ではなく既定ブランチから切られる (`worktree.baseRef` が `"head"` のときを除く)。コーディネーター側にしか無いもの (未コミットの spec、既定以外のブランチに積んだ変更) は worker から見えないので、起動時の指示で渡すか、先に既定ブランチへ入れる。
+- worker の `model` を省略すると、定義の frontmatter → `CLAUDE_CODE_SUBAGENT_MODEL` → メインの順で決まり、定義や環境変数で弱いモデルに落ちることがある。fork には `model` 指定が効かない (メインと同じモデル)。選び方は `aidd:model-selection`。
 - 検証の環境 (dev サーバーのポート・DB・ブラウザのプロファイル) の分離は利用側のプロジェクトが持つ。コーディネーターは worker ごとの割り当てを起動時の指示で渡す。
-- worktree の中では `CLAUDE_PROJECT_DIR` がメインのチェックアウトを指したままになる。aidd の hook は入力 JSON の `cwd` を基準にする。
+- worktree 内で動く hook やスクリプトは `CLAUDE_PROJECT_DIR` ではなく入力 JSON の `cwd` を使う (`CLAUDE_PROJECT_DIR` はメインのチェックアウトを指したまま)。
 - 外部の実行環境を選んだときは、その環境の操作手順を aidd や指示に写さない。環境自身が配る、その版に合った手順を実行時に読ませる (写すと環境の版が上がったとき黙って古くなる)。
 
 ## 1. spec に書く事実の確かめ方
@@ -29,6 +32,8 @@ description: Use when acting as the coordinator that has multiple workers implem
 
 - 別々の worker が新しく作るテストファイル (同名、または同じテスト一覧・索引への追加)
 - 同じ設定キーを別の理由で入れること (値が片方の目的にしか合わない)
+
+選定の段階で衝突する組み合わせを外すのは `/aidd:issue-select` (別 PR で追加予定)。ここでは起動時に割り当てを確かめる。
 
 ## 3. マージ順と rebase
 
