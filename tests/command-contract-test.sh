@@ -30,3 +30,19 @@ grep -F -- '全ソースの最大番号 +1' "$adr_command"
 grep -F -- 'git symbolic-ref --quiet refs/remotes/origin/HEAD' "$adr_command"
 grep -F -- 'refs/remotes/origin/' "$adr_command"
 grep -F -- '検討した代替案' "$adr_command"
+
+# incident-retro picks the first matching tier, so the ADR tier must come before the rule
+# tier (a design decision also reads as a rule with judgment), and deferred work is folded
+# into the code tier instead of being a trailing tier that the code tier already shadows.
+incident_retro="$repo_root/commands/incident-retro.md"
+adr_line=$(grep -n '^[0-9]\. \*\*決定とその理由を残すもの\*\*' "$incident_retro" | cut -d: -f1)
+rule_line=$(grep -n '^[0-9]\. \*\*判断を伴う規則\*\*' "$incident_retro" | cut -d: -f1)
+[ -n "$adr_line" ] && [ -n "$rule_line" ] && [ "$adr_line" -lt "$rule_line" ]
+grep -F -- '今すぐ直せない・直さないなら、その作業は `/aidd:issue-split` か issue に委ねる' "$incident_retro"
+if grep -Fq -- '**今すぐ直せない作業**' "$incident_retro"; then
+  exit 1
+fi
+
+# asset-audit must not silently continue when its state write fails (e.g. under the sandbox),
+# or the SessionStart nudge never stops.
+grep -F -- '書き込みに失敗したら黙って続けない' "$repo_root/commands/asset-audit.md"

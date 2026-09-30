@@ -4,6 +4,8 @@ description: aidd 資産の棚卸し。利用実績と陳腐化した資産を�
 
 aidd プラグインの運用を振り返り、資産の追加・削除・見直しを検討してください。判断は提示のみ。ユーザーの承認なしにファイルを変更しない。
 
+**対象の境界**: このコマンドは aidd 自身の資産だけを扱う。利用側プロジェクトの `.claude/` と `CLAUDE.md` の棚卸しは `/aidd:asset-audit`、セッションの事故からの定着は `/aidd:incident-retro` の担当。
+
 **1. 利用実績の確認**
 
 `~/.claude/aidd/usage.json` の `command_counts` と `last_seen` を読み、コマンドごとの利用回数と最終利用日を一覧にする。
