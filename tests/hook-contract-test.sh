@@ -309,6 +309,10 @@ printf '%s\n' "$out" | grep -F 'priority: で始まるラベルが無い'
 [ "$(label_hook 'gh issue create --label=priority:P3' | decision_of)" = none ]
 [ "$(label_hook 'gh issue create -l bug,priority:P1' | decision_of)" = none ]
 [ "$(label_hook 'gh issue create -l bug -l priority:P1' | decision_of)" = none ]
+# A global -R / --repo before the group does not skip the label check.
+AIDD_DISABLE_ISSUE_SEARCH_GATE=1 label_hook 'gh -R o/r issue create -t x' | grep -F 'priority: で始まるラベルが無い'
+AIDD_DISABLE_ISSUE_SEARCH_GATE=1 label_hook 'gh --repo o/r issue create -t x' | grep -F 'priority: で始まるラベルが無い'
+[ "$(AIDD_DISABLE_ISSUE_SEARCH_GATE=1 label_hook 'gh -R o/r issue create -l priority:P2' | decision_of)" = none ]
 # Unset means off, so repositories without such labels can still file issues.
 [ "$(hook PreToolUse "$repo" 'gh issue create --title t' session-s3 | decision_of)" = none ]
 # Missing search and missing label: both reasons in one denial.

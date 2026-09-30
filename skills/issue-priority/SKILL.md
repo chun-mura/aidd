@@ -1,11 +1,19 @@
 ---
 name: issue-priority
-description: Use when about to file a GitHub issue (gh issue create) or when asked to set, review, or triage the priority label of GitHub issues. Not for ordering implementation tasks inside a plan.
+description: Use when asked to set, review, or triage the priority label of GitHub issues, or when about to file a GitHub issue (gh issue create) in a repository that uses priority labels (AIDD_REQUIRED_LABEL_PREFIX is set, .aidd/issue-priority.md exists, or gh label list shows priority labels). Not for ordering implementation tasks inside a plan.
 ---
 
 # issue の優先度の判定
 
 issue を読んで優先度ラベルを判定し、付ける。基準は「重要だから上げる」ではなく「**待たせられないから上げる**」。重要でも待てるものは上げない。
+
+## 何もしない条件
+
+優先度の付与や見直しを明示的に頼まれていない起票では、次の3つがすべて当てはまれば何もしない (判定もラベル作成の提案もせず、そのまま起票する)。優先度ラベルを使っていないリポジトリで、起票のたびに判定と確認を挟まないため。
+
+1. `AIDD_REQUIRED_LABEL_PREFIX` が未設定
+2. 利用側リポジトリに `.aidd/issue-priority.md` が無い
+3. `gh label list --search priority` に優先度ラベルが無い
 
 ## 先に確かめること
 
@@ -22,12 +30,15 @@ issue を読んで優先度ラベルを判定し、付ける。基準は「重�
 | `priority:P2` | 通常の順番で扱う。待っても損害が増えない |
 | `priority:P3` | 余裕があれば扱う |
 
+段の順序は `P0` が最上位で、数字が大きいほど下位 (`P0` > `P1` > `P2` > `P3`)。`.aidd/issue-priority.md` で段を定義した場合は、そこに並べた順で上位から下位とする。
+
 ## 判定
 
-深刻さと広さの2軸で出発点を決め、放置コストで上下させる。
+深刻さと広さの2軸で出発点を決め、放置コストで上げる。
 
 - **深刻さ**: データ消失・セキュリティ・機能停止 > 回避策のない不具合 > 回避策のある不具合・不便 > 見た目・文言
 - **広さ**: 全利用者・全セッション > 一部の利用者・特定の設定 > 特定の条件でだけ起きる > 報告者だけ
+- 各軸の4段のうち、先頭の2段を上位、残りの2段を下位とする (例: 広さの「一部の利用者・特定の設定」は上位、「特定の条件でだけ起きる」は下位)。
 - 両方が上位なら P1、片方だけなら P2、両方とも下位なら P3 を出発点にする。
 - **放置コスト**: 待つと増えるもの (損害の拡大、期限、他の issue や作業のブロック、回避の手間の累積) があれば1段上げる。無ければ、深刻でも上げない。
 
@@ -37,5 +48,5 @@ issue を読んで優先度ラベルを判定し、付ける。基準は「重�
 
 - **最上位 (`P0`、または系列の最上位) は自分だけで付けない**。根拠を示してユーザーに確認し、了承を得てから付ける。
 - 新規の起票は `gh issue create --label <ラベル>` で付ける。既存の issue は `gh issue edit <番号> --add-label <ラベル>` (張り替えは確認後に `--remove-label` と併用)。
-- リポジトリにそのラベルが無ければ、勝手に作らない。作るかどうかを確認する。
+- リポジトリにそのラベルが無ければ、勝手に作らない。作るかどうかの確認は、優先度の付与や見直しを明示的に頼まれたときだけ行う (起票のついでには提案しない)。
 - `AIDD_REQUIRED_LABEL_PREFIX` が設定されていると、`tool-reminder.sh` はその接頭辞のラベルが無い `gh issue create` を拒否する。拒否されたら、この判定をしてからラベルを付けて起票し直す。
