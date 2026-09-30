@@ -9,7 +9,7 @@ description: Use when dispatching a subagent, choosing a model parameter (haiku/
 
 - **検証可能性で選ぶ**: 出力を機械的に検証できるほど下位モデルで足りる
 - **判断コストで選ぶ**: 曖昧さ処理や折衝判断が必要なら上位モデルを使う
-- **デフォルトは継承**: model 未指定ならメインループのモデルが引き継がれる
+- **決まる順序**: `model` 引数 → agent 定義の `model` (`inherit` はメインループのモデル) → 環境変数 `CLAUDE_CODE_SUBAGENT_MODEL` → メインループのモデル。aidd の agent は定義で固定しているので、引数を省略してもメインループのモデルにはならない。fork は `model` 引数を無視し、親のモデルで走る
 
 ## 使い分け表
 
@@ -42,3 +42,7 @@ description: Use when dispatching a subagent, choosing a model parameter (haiku/
 ## 補足
 
 コスト削減が目的では決定しない。応答品質が落ちる判断ミスの方が大きなコストになる。
+
+## 報告の検証
+
+報告に「X を <モデル> で走らせた」と書く前に、実際に渡した `model` 引数を見る。省略時は「原則」の順序で決まる。弱いモデルのレビューは「指摘なし」で返るので、意図したモデルで走らなかったことは出力に現れない。
