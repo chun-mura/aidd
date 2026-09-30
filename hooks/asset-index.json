@@ -63,6 +63,16 @@
     },
     {
       "kind": "skill",
+      "name": "four-kinds-check",
+      "description": "Use right before git commit when the staged diff adds code comments or test names, or when drafting the commit message, in a project whose CLAUDE.md has the How / What / Why / Why-not comment placement rule or where AIDD_COMMIT_WHY_CANON is set. Not for reviewing someone else's existing code."
+    },
+    {
+      "kind": "skill",
+      "name": "issue-priority",
+      "description": "Use when asked to set, review, or triage the priority label of GitHub issues, or when about to file a GitHub issue (gh issue create) in a repository that uses priority labels (AIDD_REQUIRED_LABEL_PREFIX is set, .aidd/issue-priority.md exists, or gh label list shows priority labels). Not for ordering implementation tasks inside a plan."
+    },
+    {
+      "kind": "skill",
       "name": "model-selection",
       "description": "Use when dispatching a subagent, choosing a model parameter (haiku/sonnet/opus/fable), or unsure whether a task is cheap enough for a smaller model."
     },
@@ -109,7 +119,7 @@
     {
       "kind": "hook",
       "name": "tool-reminder",
-      "description": "[PostToolUse, PreToolUse] Event-aware Bash hook dispatcher. Non-matching commands produce no context."
+      "description": "[PostToolUse, PostToolUseFailure, PreToolUse] Event-aware Bash hook dispatcher (PreToolUse + PostToolUse). Every check runs in this one"
     },
     {
       "kind": "hook",
