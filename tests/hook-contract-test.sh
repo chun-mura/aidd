@@ -320,6 +320,47 @@ out=$(AIDD_REQUIRED_LABEL_PREFIX=priority: hook PreToolUse "$repo" 'gh issue cre
 [ "$(printf '%s\n' "$out" | json_count)" = 1 ]
 printf '%s\n' "$out" | grep -F 'gh issue list --search' | grep -F 'priority: で始まるラベル'
 
+# #20: after git commit, HEAD's subject form and body presence are checked once per SHA.
+log_repo="$tmp_dir/log-repo"
+git init -q --template= -b main "$log_repo"
+commit_then_hook() {  # MESSAGE [HOOK COMMAND]: commit in log_repo, then run PostToolUse
+  git -C "$log_repo" commit -q --allow-empty -m "$1"
+  hook PostToolUse "$log_repo" "${2:-git commit -m msg}" session-c
+}
+[ -z "$(commit_then_hook "$(printf 'feat: add x\n\nCallers needed x.\n\nCo-Authored-By: a <a@example.com>')")" ]
+out=$(commit_then_hook 'update stuff')
+printf '%s\n' "$out" | grep -F '件名が Conventional Commits 形式'
+printf '%s\n' "$out" | grep -F '本文 (変更の Why) が無い'
+[ "$(printf '%s\n' "$out" | json_count)" = 1 ]
+# The same SHA is judged once.
+[ -z "$(hook PostToolUse "$log_repo" 'git commit -m msg' session-c)" ]
+# Listed trailers are not a body.
+out=$(commit_then_hook "$(printf 'fix: y\n\nCo-Authored-By: a <a@example.com>\nRefs #1')")
+printf '%s\n' "$out" | grep -F '本文 (変更の Why) が無い'
+if printf '%s\n' "$out" | grep -Fq 'Conventional Commits'; then exit 1; fi
+# Body-exempt types, and configured types.
+[ -z "$(commit_then_hook 'docs: typo')" ]
+[ -z "$(AIDD_COMMIT_TYPES=feat,wip commit_then_hook "$(printf 'wip(core)!: z\n\nWhy.')")" ]
+[ -z "$(AIDD_COMMIT_BODY_EXEMPT_TYPES=fix commit_then_hook 'fix: w')" ]
+AIDD_COMMIT_WHY_CANON='docs/rules.md#why' commit_then_hook 'feat: v' | grep -F '正典: docs/rules.md#why'
+[ -z "$(AIDD_DISABLE_COMMIT_WHY_CHECK=1 commit_then_hook 'bad subject')" ]
+# The commit is located through -C and cd, and shares one reply with the push nudge.
+git -C "$log_repo" commit -q --allow-empty -m 'no form'
+out=$(hook PostToolUse "$tmp_dir" "git -C $log_repo commit -m x && git push" session-c)
+[ "$(printf '%s\n' "$out" | json_count)" = 1 ]
+printf '%s\n' "$out" | grep -F 'Conventional Commits' | grep -F 'open PR'
+# A HEAD that was not just made (e.g. the commit failed) is left alone, as are merges.
+GIT_COMMITTER_DATE='2000-01-01T00:00:00' git -C "$log_repo" commit -q --allow-empty -m 'old one'
+[ -z "$(hook PostToolUse "$log_repo" 'git commit -m msg' session-c)" ]
+git -C "$log_repo" switch -qc side
+git -C "$log_repo" commit -q --allow-empty -m 'feat: side'
+git -C "$log_repo" switch -q main
+git -C "$log_repo" merge -q --no-ff --no-edit side
+[ -z "$(hook PostToolUse "$log_repo" 'git merge side' session-c)" ]
+[ -z "$(hook PostToolUse "$log_repo" 'git commit -m msg' session-c)" ]
+# The check is PostToolUse only; PreToolUse on a commit keeps its own reminder.
+if hook PreToolUse "$log_repo" 'git commit -m "bad"' session-c | grep -Fq 'Conventional Commits'; then exit 1; fi
+
 usage_input='{"prompt":"/aidd:design-review sample"}'
 printf '%s' "$usage_input" | AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$usage_log"
 python3 - "$tmp_dir/aidd/usage.json" <<'PYEOF'

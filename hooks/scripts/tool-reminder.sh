@@ -592,6 +592,61 @@ def require_label(args):
             f"--label {prefix}... を付けて起票すること (最上位はユーザーに確認してから付ける)。")
 
 
+def env_list(name, default):
+    return [v.strip() for v in (env.get(name) or default).split(",") if v.strip()]
+
+
+def check_commit_why(directory):
+    # Reads the recorded HEAD instead of the command line: a message given as
+    # -m "$(cat <<'EOF' ...)" cannot be cut out of the command string reliably.
+    if env.get("AIDD_DISABLE_COMMIT_WHY_CHECK") == "1":
+        return
+    out = git(directory, "log", "-1", "--format=%H%x00%P%x00%ct%x00%B", "HEAD")
+    if not out or out.count("\0") < 3:
+        return
+    sha, parents, committed, message = out.split("\0", 3)
+    # A failed commit leaves an older HEAD in place, possibly someone else's.
+    if len(parents.split()) > 1 or time.time() - int(committed or 0) > 600:
+        return
+    subject = message.split("\n", 1)[0].strip()
+    if subject.startswith(("fixup!", "squash!", "amend!")):
+        return
+    if not update_state("commit-why.json", lambda data: _mark_judged(data, sha)):
+        return
+    types = env_list("AIDD_COMMIT_TYPES", "feat,fix,docs,style,refactor,perf,test,build,ci,chore,revert")
+    exempt = env_list("AIDD_COMMIT_BODY_EXEMPT_TYPES", "docs,style,chore")
+    trailers = {t.lower() for t in env_list(
+        "AIDD_COMMIT_IGNORED_TRAILERS",
+        "Co-Authored-By,Signed-off-by,Refs,Closes,Fixes,Resolves,Reviewed-by,Change-Id")}
+    match = re.match(r"^([a-z]+)(\([^)]*\))?!?: \S", subject)
+    commit_type = match.group(1) if match else None
+    problems = []
+    if commit_type not in types:
+        problems.append(f"件名が Conventional Commits 形式 (<type>: <要約>、type は {'/'.join(types)}) でない")
+    # "Closes #19" is as much a trailer as "Co-Authored-By: ...", so the colon is optional.
+    body = [
+        line for line in message.split("\n")[1:]
+        if line.strip() and line.split(None, 1)[0].rstrip(":").lower() not in trailers
+    ]
+    if not body and commit_type not in exempt:
+        problems.append("本文 (変更の Why) が無い")
+    if problems:
+        canon = env.get("AIDD_COMMIT_WHY_CANON") or "CLAUDE.md の「コメントの置き場所」"
+        add(contexts,
+            f"aidd: 直前のコミット {sha[:7]} は、{'、'.join(problems)}。コミットログには Why を書く (正典: {canon})。"
+            "push 前なら git commit --amend で直し、push 済みなら書き換えずに次のコミットから守ること。")
+
+
+def _mark_judged(data, sha):
+    judged = data.setdefault("judged", {})
+    if sha in judged:
+        return False
+    judged[sha] = time.time()
+    for old in sorted(judged, key=judged.get)[:-200]:
+        del judged[old]
+    return True
+
+
 JAPANESE_NUDGE = "aidd: GitHub issue/PR のタイトルと本文は日本語で書くこと (コード識別子・コマンド・コミットメッセージは英語のまま)。既に日本語なら変更不要。"
 PUSH_NUDGE = "aidd: push したブランチに open PR がある場合 (gh pr view で確認)、追加コミットが PR の範囲・内容を変えたなら gh pr edit でタイトルと概要を最新化すること (日本語)。変えていなければ何もしない。"
 
@@ -608,6 +663,8 @@ for argv, directory in simple_commands(command):
                 remind_test_perspectives(parsed["dir"])
         elif hook_event == "PostToolUse" and parsed["sub"] == "push":
             add(contexts, PUSH_NUDGE)
+        elif hook_event == "PostToolUse" and parsed["sub"] == "commit":
+            check_commit_why(parsed["dir"])
     elif program == "gh":
         parsed = parse_gh(argv)
         if not parsed:
