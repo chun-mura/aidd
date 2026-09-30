@@ -93,6 +93,67 @@ if printf '%s\n' "$out" | grep -Fq 'autonomous-review'; then exit 1; fi
 rm -rf "$repo/.aidd"
 # A command that only mentions gh pr create in a quoted string is not an invocation.
 [ -z "$(hook PreToolUse "$repo" 'echo "gh pr create --head feat"')" ]
+# Evidence also matches by head_sha / head_sha_after_fixes (the branch may have been renamed).
+feat_sha=$(git -C "$repo" rev-parse feat)
+mkdir -p "$repo/.aidd/autonomous-review/run1"
+printf '{"head":"renamed","head_sha":"%s"}' "$feat_sha" > "$repo/.aidd/autonomous-review/run1/state.json"
+out=$(hook PreToolUse "$repo" 'gh pr create --head feat')
+if printf '%s\n' "$out" | grep -Fq 'autonomous-review'; then exit 1; fi
+printf '{"head":"renamed","head_sha":"0000000","head_sha_after_fixes":"%s"}' "$feat_sha" > "$repo/.aidd/autonomous-review/run1/state.json"
+out=$(hook PreToolUse "$repo" 'gh pr create --head feat')
+if printf '%s\n' "$out" | grep -Fq 'autonomous-review'; then exit 1; fi
+rm -rf "$repo/.aidd"
+# Evidence written in any worktree counts, whichever worktree (or the main tree) opens the PR.
+git -C "$repo" worktree add -q "$tmp_dir/wt-a" feat
+git -C "$repo" worktree add -q --detach "$tmp_dir/wt-b" main
+mkdir -p "$tmp_dir/wt-a/.aidd/autonomous-review/run1"
+printf '{"head":"feat","head_sha":"%s"}' "$feat_sha" > "$tmp_dir/wt-a/.aidd/autonomous-review/run1/state.json"
+for cwd in "$repo" "$tmp_dir/wt-a" "$tmp_dir/wt-b"; do
+  out=$(hook PreToolUse "$cwd" 'gh pr create --head feat --base main')
+  if printf '%s\n' "$out" | grep -Fq 'autonomous-review'; then exit 1; fi
+done
+git -C "$repo" worktree remove --force "$tmp_dir/wt-a"
+git -C "$repo" worktree remove --force "$tmp_dir/wt-b"
+# Without --base, origin/HEAD or AIDD_REVIEW_BASE, main then master is the base.
+master_repo="$tmp_dir/master-repo"
+git init -q --template= -b master "$master_repo"
+echo base > "$master_repo/app.sh"
+git -C "$master_repo" add app.sh
+git -C "$master_repo" commit -qm 'chore: base'
+git -C "$master_repo" switch -qc feat
+echo code > "$master_repo/app.sh"
+git -C "$master_repo" commit -qam 'feat: code'
+hook PreToolUse "$master_repo" 'gh pr create --head feat' | grep -F -- '--base master --head feat'
+# When no base resolves, it says so instead of staying silent.
+git -C "$master_repo" branch -qm master trunk
+hook PreToolUse "$master_repo" 'gh pr create --head feat' | grep -F '基点ブランチ (main / master) を解決できない'
+
+# Comments and compound statements: a word-initial # starts a comment that ends at the newline
+# (the next line is still a command); a # inside a word or quotes does not; commands after
+# then/do/{/! are still seen.
+hook PreToolUse "$repo" 'cd /x#y && git commit -m x' | grep -F '/aidd:test-perspectives'
+hook PreToolUse "$repo" 'if true; then git commit -m x; fi' | grep -F '/aidd:test-perspectives'
+hook PreToolUse "$repo" $'git status # check\ngit commit -m x' | grep -F '/aidd:test-perspectives'
+hook PreToolUse "$repo" $'npm test # run\ngh pr create --head docs-only' | grep -F 'タイトルと本文は日本語'
+hook PreToolUse "$repo" 'echo "#x"; gh issue create -t t' | grep -F 'タイトルと本文は日本語'
+[ -z "$(hook PreToolUse "$repo" 'echo x # git commit -m x')" ]
+
+# Commands that are not git or gh never start python, even when cwd or transcript_path
+# contains "git" / "gh"; a git on a later line of the command still does.
+fake_bin="$tmp_dir/fake-bin"
+mkdir -p "$fake_bin"
+real_python=$(command -v python3)
+printf '#!/bin/bash\ntouch "%s/python-started"\nexec "%s" "$@"\n' "$tmp_dir" "$real_python" > "$fake_bin/python3"
+chmod +x "$fake_bin/python3"
+fast_path() {
+  printf '{"hook_event_name":"PreToolUse","cwd":"/work/git/light-door","transcript_path":"/home/.claude/gh/t.jsonl","tool_name":"Bash","tool_input":{"command":"%s"}}' "$1" | \
+    PATH="$fake_bin:$PATH" AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$dispatcher"
+}
+rm -f "$tmp_dir/python-started"
+[ -z "$(fast_path 'ls -la light-door')" ]
+[ ! -e "$tmp_dir/python-started" ]
+fast_path 'npm test\ngit commit -m x' | grep -F '/aidd:test-perspectives'
+[ -e "$tmp_dir/python-started" ]
 
 usage_input='{"prompt":"/aidd:design-review sample"}'
 printf '%s' "$usage_input" | AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$usage_log"

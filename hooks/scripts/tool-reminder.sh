@@ -4,11 +4,16 @@
 # reply per hook run. Non-matching commands produce no output.
 input=$(cat)
 
-# Every check targets a git or gh invocation; anything else exits before python starts.
-case "$input" in
-  *git*|*gh*) ;;
-  *) exit 0 ;;
-esac
+# Every check targets a git or gh invocation; anything else exits before python starts. Only
+# the command is scanned (cwd and transcript_path often contain "git" or "gh"); a JSON escape
+# such as "\n" before the word counts as a boundary. If the command cannot be cut out, python
+# decides: a false match costs only time, a missed one loses the checks. (No ${var//...}
+# here: bash 3.2 substitution is quadratic and stalls on long commands.)
+command_pattern='"command"[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)"'
+word_pattern='(^|[^[:alnum:]_-]|\\[a-z])(git|gh)([^[:alnum:]_-]|$)'
+if [[ $input =~ $command_pattern ]]; then
+  [[ ${BASH_REMATCH[1]} =~ $word_pattern ]] || exit 0
+fi
 
 # The payload stays on stdin (a command can exceed ARG_MAX, see usage-log.sh).
 PY_CODE=$(cat <<'PYEOF'
@@ -61,10 +66,44 @@ def strip_heredocs(text):
     return "\n".join(kept)
 
 
+def strip_comments(text):
+    # shlex's own comment handling starts a comment at any '#' (cd /x#y) and swallows the
+    # newline that ends it, gluing the next line's command onto the comment. The shell only
+    # starts one at an unquoted word-initial '#', and the newline still separates commands.
+    out = []
+    quote = None
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if quote:
+            if c == "\\" and quote == '"':
+                out.append(text[i:i + 2])
+                i += 2
+                continue
+            if c == quote:
+                quote = None
+        elif c == "\\":
+            out.append(text[i:i + 2])
+            i += 2
+            continue
+        elif c in "'\"":
+            quote = c
+        elif c == "#" and (i == 0 or text[i - 1] in " \t\r\n;&|()<>"):
+            end = text.find("\n", i)
+            if end < 0:
+                break
+            i = end
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
 def tokenize(text):
     lexer = shlex.shlex(text, posix=True, punctuation_chars=";&|()<>\n")
     lexer.whitespace = " \t\r"
     lexer.whitespace_split = True
+    lexer.commenters = ""
     try:
         return list(lexer)
     except ValueError:
@@ -72,11 +111,15 @@ def tokenize(text):
         return re.findall(r"&&|\|\||[;&|()\n]|[^\s;&|()]+", text)
 
 
+# Words that can precede a command in a compound statement (if/then/do bodies, groups, !).
+KEYWORDS = {"if", "then", "else", "elif", "while", "until", "do", "{", "!"}
+
+
 def unwrap(argv):
     changed = True
     while argv and changed:
         changed = False
-        while argv and ASSIGNMENT.match(argv[0]):
+        while argv and (ASSIGNMENT.match(argv[0]) or argv[0] in KEYWORDS):
             argv = argv[1:]
             changed = True
         for wrapper in WRAPPERS:
@@ -92,7 +135,7 @@ def unwrap(argv):
 def simple_commands(text):
     """Yield (argv, directory) for each simple command, following `cd` between them."""
     current = [[]]
-    for token in tokenize(strip_heredocs(text)):
+    for token in tokenize(strip_comments(strip_heredocs(text))):
         if token and set(token) <= SEPARATOR_CHARS:
             current.append([])
         else:
@@ -201,13 +244,12 @@ def resolve_commit(directory, names):
 
 
 def has_review_evidence(directory, head, head_sha):
-    roots = []
+    # autonomous-review writes under the worktree it ran in, which need not be this one.
+    listing = git(directory, "worktree", "list", "--porcelain") or ""
+    roots = [line[len("worktree "):] for line in listing.splitlines() if line.startswith("worktree ")]
     top = git(directory, "rev-parse", "--show-toplevel")
     if top:
-        roots.append(top)
-    common = git(directory, "rev-parse", "--path-format=absolute", "--git-common-dir")
-    if common and os.path.basename(common) == ".git":
-        roots.append(os.path.dirname(common))
+        roots.insert(0, top)
     for root in dict.fromkeys(roots):
         for state_file in glob.glob(os.path.join(root, ".aidd", "autonomous-review", "*", "state.json")):
             try:
@@ -233,10 +275,21 @@ def warn_review_before_pr(args, directory):
     base = bases[-1] if bases else env.get("AIDD_REVIEW_BASE")
     if not base:
         origin_head = git(directory, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
-        base = origin_head.split("/", 1)[-1] if origin_head else "main"
-    base_ref, _ = resolve_commit(directory, ["origin/" + base, base])
+        base = origin_head.split("/", 1)[-1] if origin_head else None
+    candidates = [base] if base else ["main", "master"]
+    base_ref = None
+    for candidate in candidates:
+        base_ref, _ = resolve_commit(directory, ["origin/" + candidate, candidate])
+        if base_ref:
+            base = candidate
+            break
+    if not base_ref:
+        add(contexts,
+            f"aidd: 基点ブランチ ({' / '.join(candidates)}) を解決できないため、PR 前のレビュー証跡を確認していない。"
+            "確認するには --base か AIDD_REVIEW_BASE で基点ブランチを指定すること。")
+        return
     head_ref, head_sha = resolve_commit(directory, [head, "origin/" + head])
-    if not base_ref or not head_ref:
+    if not head_ref:
         return
     changed = git(directory, "diff", "--name-only", base_ref + "..." + head_ref)
     if not changed:
