@@ -592,6 +592,107 @@ def require_label(args):
             f"--label {prefix}... を付けて起票すること (最上位はユーザーに確認してから付ける)。")
 
 
+def env_list(name, default):
+    return [v.strip() for v in (env.get(name) or default).split(",") if v.strip()]
+
+
+def check_commit_why(directory):
+    # Reads the recorded HEAD instead of the command line: a message given as
+    # -m "$(cat <<'EOF' ...)" cannot be cut out of the command string reliably.
+    if env.get("AIDD_DISABLE_COMMIT_WHY_CHECK") == "1":
+        return
+    top = git(directory, "rev-parse", "--show-toplevel")
+    if not top:
+        return
+    # Each check runs only where the repository adopts its convention; elsewhere (e.g. a repo
+    # that writes Japanese subjects) telling the model to amend would fight the local rule.
+    check_body = bool(env.get("AIDD_COMMIT_WHY_CANON")) or has_why_canon(top)
+    check_subject = bool(env.get("AIDD_COMMIT_TYPES")) or has_commitlint(top)
+    if not check_body and not check_subject:
+        return
+    out = git(directory, "log", "-1", "--format=%H%x00%P%x00%ct%x00%B", "HEAD")
+    if not out or out.count("\0") < 3:
+        return
+    sha, parents, committed, message = out.split("\0", 3)
+    # A failed commit leaves an older HEAD in place, possibly someone else's.
+    if len(parents.split()) > 1 or time.time() - int(committed or 0) > 600:
+        return
+    subject = message.split("\n", 1)[0].strip()
+    if subject.startswith(("fixup!", "squash!", "amend!")):
+        return
+    if not update_state("commit-why.json", lambda data: _mark_judged(data, sha)):
+        return
+    types = env_list("AIDD_COMMIT_TYPES", "feat,fix,docs,style,refactor,perf,test,build,ci,chore,revert")
+    exempt = env_list("AIDD_COMMIT_BODY_EXEMPT_TYPES", "docs,style,chore")
+    trailers = {t.lower() for t in env_list(
+        "AIDD_COMMIT_IGNORED_TRAILERS",
+        "Co-Authored-By,Signed-off-by,Refs,Closes,Fixes,Resolves,Reviewed-by,Change-Id")}
+    match = re.match(r"^([A-Za-z0-9-]+)(\([^)]*\))?!?: \S", subject)
+    commit_type = match.group(1) if match else None
+    problems = []
+    # git revert writes Revert "<subject>"; commitlint accepts it too.
+    if check_subject and commit_type not in types and not subject.startswith('Revert "'):
+        problems.append(f"件名が Conventional Commits 形式 (<type>: <要約>、type は {'/'.join(types)}) でない")
+    if check_body and not commit_body(message, trailers) and commit_type not in exempt:
+        problems.append("本文 (変更の Why) が無い")
+    if problems:
+        text = f"aidd: 直前のコミット {sha[:7]} は、{'、'.join(problems)}。"
+        if check_body:
+            canon = env.get("AIDD_COMMIT_WHY_CANON") or "CLAUDE.md の「コメントの置き場所」"
+            text += f"コミットログには Why を書く (正典: {canon})。"
+        add(contexts, text + "push 前なら git commit --amend で直し、push 済みなら書き換えずに次のコミットから守ること。")
+
+
+def has_why_canon(top):
+    for name in ("CLAUDE.md", os.path.join(".claude", "CLAUDE.md")):
+        try:
+            with open(os.path.join(top, name), encoding="utf-8", errors="replace") as f:
+                if re.search(r"^#+[ \t]*コメントの置き場所", f.read(), re.M):
+                    return True
+        except OSError:
+            pass
+    return False
+
+
+def has_commitlint(top):
+    if glob.glob(os.path.join(top, "commitlint.config.*")) or glob.glob(os.path.join(top, ".commitlintrc*")):
+        return True
+    try:
+        with open(os.path.join(top, "package.json")) as f:
+            return "commitlint" in json.load(f)
+    except Exception:
+        return False
+
+
+TRAILER = re.compile(r"^[A-Za-z0-9-]+:\s")
+# Issue references are trailers without a colon too ("Closes #19"), but only in this form, so
+# body prose such as "Fixes the crash ..." stays body.
+ISSUE_TRAILER = re.compile(r"^(Closes|Fixes|Resolves|Refs)\s+(#\d+|\S+#\d+|https?://)", re.I)
+
+
+def commit_body(message, trailers):
+    """Body lines, without the listed trailers of the final paragraph (trailers live only there)."""
+    paragraphs = [p for p in re.split(r"\n[ \t]*\n", message.split("\n", 1)[1] if "\n" in message else "") if p.strip()]
+    lines = [line for p in paragraphs for line in p.split("\n") if line.strip()]
+    if not paragraphs:
+        return lines
+    last = [line for line in paragraphs[-1].split("\n") if line.strip()]
+    if not all(TRAILER.match(line) or ISSUE_TRAILER.match(line) for line in last):
+        return lines
+    kept = [line for line in last if line.split(None, 1)[0].rstrip(":").lower() not in trailers]
+    return [line for p in paragraphs[:-1] for line in p.split("\n") if line.strip()] + kept
+
+
+def _mark_judged(data, sha):
+    judged = data.setdefault("judged", {})
+    if sha in judged:
+        return False
+    judged[sha] = time.time()
+    for old in sorted(judged, key=judged.get)[:-200]:
+        del judged[old]
+    return True
+
+
 JAPANESE_NUDGE = "aidd: GitHub issue/PR のタイトルと本文は日本語で書くこと (コード識別子・コマンド・コミットメッセージは英語のまま)。既に日本語なら変更不要。"
 PUSH_NUDGE = "aidd: push したブランチに open PR がある場合 (gh pr view で確認)、追加コミットが PR の範囲・内容を変えたなら gh pr edit でタイトルと概要を最新化すること (日本語)。変えていなければ何もしない。"
 
@@ -608,13 +709,17 @@ for argv, directory in simple_commands(command):
                 remind_test_perspectives(parsed["dir"])
         elif hook_event == "PostToolUse" and parsed["sub"] == "push":
             add(contexts, PUSH_NUDGE)
+        elif hook_event in ("PostToolUse", "PostToolUseFailure") and parsed["sub"] == "commit":
+            # A command that exits non-zero (git commit && git push, push rejected) arrives as
+            # PostToolUseFailure even though its commit landed.
+            check_commit_why(parsed["dir"])
     elif program == "gh":
         parsed = parse_gh(argv)
         if not parsed:
             continue
         group, action, args, repo_flag = parsed
-        if hook_event == "PostToolUse":
-            if group == "issue" and action == "list":
+        if hook_event != "PreToolUse":
+            if hook_event == "PostToolUse" and group == "issue" and action == "list":
                 record_issue_search(args, target_repo(repo_flag, directory))
             continue
         if group in ("pr", "issue") and action in ("create", "edit"):

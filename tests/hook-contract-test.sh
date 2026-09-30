@@ -320,6 +320,96 @@ out=$(AIDD_REQUIRED_LABEL_PREFIX=priority: hook PreToolUse "$repo" 'gh issue cre
 [ "$(printf '%s\n' "$out" | json_count)" = 1 ]
 printf '%s\n' "$out" | grep -F 'gh issue list --search' | grep -F 'priority: で始まるラベル'
 
+# #20: after git commit, HEAD's subject form and body presence are checked once per SHA.
+log_repo="$tmp_dir/log-repo"
+git init -q --template= -b main "$log_repo"
+commit_then_hook() {  # MESSAGE [HOOK COMMAND]: commit in log_repo, then run PostToolUse
+  git -C "$log_repo" commit -q --allow-empty -m "$1"
+  hook PostToolUse "$log_repo" "${2:-git commit -m msg}" session-c
+}
+# Each check needs its convention to be adopted: without the canon (CLAUDE.md section or
+# AIDD_COMMIT_WHY_CANON) and without AIDD_COMMIT_TYPES or a commitlint config, nothing is said.
+[ -z "$(commit_then_hook '機能: 追加')" ]
+[ -z "$(commit_then_hook 'Revert "feat: a"')" ]
+# The canon alone checks the body, not the subject form.
+printf '# P\n\n### コメントの置き場所\n\nコミットログには Why。\n' > "$log_repo/CLAUDE.md"
+out=$(commit_then_hook '機能: 本文なし')
+printf '%s\n' "$out" | grep -F '本文 (変更の Why) が無い'
+if printf '%s\n' "$out" | grep -Fq 'Conventional Commits'; then exit 1; fi
+[ -z "$(commit_then_hook "$(printf '機能: 追加\n\n利用者が必要とした。')")" ]
+# A commitlint config (or AIDD_COMMIT_TYPES) turns the subject check on.
+rm "$log_repo/CLAUDE.md"
+printf '{}' > "$log_repo/.commitlintrc.json"
+out=$(commit_then_hook "$(printf '機能: 追加\n\nWhy.')")
+printf '%s\n' "$out" | grep -F '件名が Conventional Commits 形式'
+if printf '%s\n' "$out" | grep -Fq '本文 (変更の Why)'; then exit 1; fi
+if printf '%s\n' "$out" | grep -Fq '正典'; then exit 1; fi
+[ -z "$(commit_then_hook 'Revert "feat: a"')" ]
+printf '# P\n\n## コメントの置き場所\n' > "$log_repo/CLAUDE.md"
+[ -z "$(commit_then_hook "$(printf 'feat: add x\n\nCallers needed x.\n\nCo-Authored-By: a <a@example.com>')")" ]
+out=$(commit_then_hook 'update stuff')
+printf '%s\n' "$out" | grep -F '件名が Conventional Commits 形式'
+printf '%s\n' "$out" | grep -F '本文 (変更の Why) が無い'
+[ "$(printf '%s\n' "$out" | json_count)" = 1 ]
+# The same SHA is judged once.
+[ -z "$(hook PostToolUse "$log_repo" 'git commit -m msg' session-c)" ]
+# Listed trailers are not a body.
+out=$(commit_then_hook "$(printf 'fix: y\n\nCo-Authored-By: a <a@example.com>\nRefs #1')")
+printf '%s\n' "$out" | grep -F '本文 (変更の Why) が無い'
+if printf '%s\n' "$out" | grep -Fq 'Conventional Commits'; then exit 1; fi
+commit_then_hook "$(printf 'fix: y2\n\nCloses #19\nFixes owner/repo#3')" | grep -F '本文 (変更の Why) が無い'
+# Trailers live only in the final paragraph; prose that starts with Fixes/Closes is body.
+[ -z "$(commit_then_hook "$(printf 'fix: u\n\nFixes the crash that users hit when the list is empty.')")" ]
+[ -z "$(commit_then_hook "$(printf 'fix: t\n\nCloses the gap where retries were lost.\n\nRefs #2')")" ]
+[ -z "$(commit_then_hook "$(printf 'fix: s\n\nRefs: #1\n\nCo-Authored-By: a <a@example.com>')")" ]
+# Body-exempt types, and configured types (which may contain digits and dashes).
+[ -z "$(commit_then_hook 'docs: typo')" ]
+[ -z "$(AIDD_COMMIT_TYPES=feat,wip commit_then_hook "$(printf 'wip(core)!: z\n\nWhy.')")" ]
+[ -z "$(AIDD_COMMIT_TYPES=deps-dev,feat commit_then_hook "$(printf 'deps-dev: bump\n\nWhy.')")" ]
+[ -z "$(AIDD_COMMIT_BODY_EXEMPT_TYPES=fix commit_then_hook 'fix: w')" ]
+AIDD_COMMIT_WHY_CANON='docs/rules.md#why' commit_then_hook 'feat: v' | grep -F '正典: docs/rules.md#why'
+[ -z "$(AIDD_DISABLE_COMMIT_WHY_CHECK=1 commit_then_hook 'bad subject')" ]
+# The commit is located through -C and cd, and shares one reply with the push nudge.
+git -C "$log_repo" commit -q --allow-empty -m 'no form'
+out=$(hook PostToolUse "$tmp_dir" "git -C $log_repo commit -m x && git push" session-c)
+[ "$(printf '%s\n' "$out" | json_count)" = 1 ]
+printf '%s\n' "$out" | grep -F 'Conventional Commits' | grep -F 'open PR'
+git -C "$log_repo" commit -q --allow-empty -m 'no form via cd'
+hook PostToolUse "$tmp_dir" "cd $log_repo && git commit -m x" session-c | grep -F 'Conventional Commits'
+# A command that fails after its commit landed (push rejected) arrives as PostToolUseFailure:
+# the commit is still checked, and nothing else (no push nudge) is said there.
+git -C "$log_repo" commit -q --allow-empty -m 'no form, push failed'
+out=$(hook PostToolUseFailure "$log_repo" 'git commit -m x && git push' session-c)
+[ "$(printf '%s\n' "$out" | json_count)" = 1 ]
+printf '%s\n' "$out" | grep -F '"hookEventName": "PostToolUseFailure"' | grep -F 'Conventional Commits'
+if printf '%s\n' "$out" | grep -Fq 'open PR'; then exit 1; fi
+[ -z "$(hook PostToolUseFailure "$log_repo" 'git push' session-c)" ]
+[ -z "$(hook PostToolUseFailure "$repo" 'gh issue create -t t' session-c)" ]
+python3 - "$repo_root/hooks/hooks.json" <<'PYEOF'
+import json, sys
+entries = json.load(open(sys.argv[1]))["hooks"]["PostToolUseFailure"]
+assert any(e["matcher"] == "Bash" and "tool-reminder.sh" in e["hooks"][0]["command"] for e in entries), entries
+PYEOF
+# fixup! / squash! commits are left for the squash; an amend makes a new SHA, judged again.
+[ -z "$(commit_then_hook 'fixup! feat: add x')" ]
+git -C "$log_repo" commit -q --allow-empty -m 'feat: amended'
+[ -n "$(hook PostToolUse "$log_repo" 'git commit -m x' session-c)" ]
+git -C "$log_repo" commit -q --amend --allow-empty -m "$(printf 'feat: amended\n\nNow with a Why.')"
+[ -z "$(hook PostToolUse "$log_repo" 'git commit --amend' session-c)" ]
+git -C "$log_repo" commit -q --amend --allow-empty -m 'amended again without a body'
+hook PostToolUse "$log_repo" 'git commit --amend' session-c | grep -F '本文 (変更の Why) が無い'
+# A HEAD that was not just made (e.g. the commit failed) is left alone, as are merge commits.
+GIT_COMMITTER_DATE='2000-01-01T00:00:00' git -C "$log_repo" commit -q --allow-empty -m 'old one'
+[ -z "$(hook PostToolUse "$log_repo" 'git commit -m msg' session-c)" ]
+git -C "$log_repo" switch -qc side
+git -C "$log_repo" commit -q --allow-empty -m 'feat: side'
+git -C "$log_repo" switch -q main
+git -C "$log_repo" merge -q --no-ff --no-commit side
+git -C "$log_repo" commit -q -m 'merge without form or body'
+[ -z "$(hook PostToolUse "$log_repo" 'git commit -m msg' session-c)" ]
+# The check is PostToolUse only; PreToolUse on a commit keeps its own reminder.
+if hook PreToolUse "$log_repo" 'git commit -m "bad"' session-c | grep -Fq 'Conventional Commits'; then exit 1; fi
+
 usage_input='{"prompt":"/aidd:design-review sample"}'
 printf '%s' "$usage_input" | AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$usage_log"
 python3 - "$tmp_dir/aidd/usage.json" <<'PYEOF'
