@@ -2,7 +2,7 @@
 
 ## 0.29.1 (2026-09-30)
 
-- `autonomous-review.md`: 異種レビューを失ったまま進む経路を塞いだ。(1) codex はサンドボックス内で起動に失敗しても exit 0 で空の応答を返すため、終了コードではなく出力の中身 (空・JSON なし・起動失敗の出力) で判定し `human_required` にする。(2) 引数でプロンプトを渡しても stdin が開いていると入力待ちでタイムアウトまで止まるため、`< /dev/null` で起動する。事前に `codex --version` の即答をタイムアウト付きで確かめる。(3) cwd にコミット済みの `.aidd/` があると過去の run の結論を読めるため、`.aidd/` を除いた専用の一時 worktree で codex を起動する。証跡の拡張子は `.txt` にした (`*.log` は一般的な `.gitignore` に当たり `git add <dir>` から無言で落ちる)。どの経路でも、同一モデルの自己レビューへ落ちたまま `approved` が出うるため (#22)
+- `autonomous-review.md`: 異種レビューを失ったまま進む経路を塞いだ。(1) codex はサンドボックス内で起動に失敗しても exit 0 で空の応答を返すため、終了コードや stderr の有無ではなく、`-o` (`--output-last-message`) で書かせた最終メッセージが JSON 契約どおりにパースできたかで成否を決め、できなければ `human_required` にする。成功時にも stderr に出る `WARNING: proceeding, ...` は失敗扱いしない。(2) 引数でプロンプトを渡しても stdin が開いていると入力待ちで止まるため、codex の呼び出しはすべて `< /dev/null` で起動し、Bash ツールの `timeout` パラメータで上限を付ける (macOS に `timeout` コマンドは無い)。起動前に `codex --version` で版を、`codex login status` でログイン状態を確かめる。(3) cwd から過去の run の `.aidd/` を読めると前回の結論をなぞるため、codex はラウンドごとに `git archive <対象のコミット> -- . ':(exclude).aidd'` でリポジトリ外に展開した `.git` の無いスナップショットで `--skip-git-repo-check -C` 付きで起動する (worktree は `.aidd/` を消しても共有オブジェクトから読めるため使わない)。ローカル差分は `git apply` でスナップショットに当て、ファイル・行の存在確認は変更後の内容で行う。スナップショットはそのラウンドの現物検証後に削除する。`state.json` は `schema_version` を `2` にし、スナップショットの記録を `rounds[].snapshot` に置いた (`worktree` は品質ゲート用だけ)。証跡の拡張子は `.txt` にした (`*.log` は一般的な `.gitignore` に当たり `git add <dir>` から無言で落ちる)。どの経路でも、同一モデルの自己レビューへ落ちたまま `approved` が出うるため (#22)
 
 ## 0.29.0 (2026-09-09)
 
