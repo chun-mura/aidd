@@ -4,7 +4,9 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
 dispatcher="$repo_root/hooks/scripts/tool-reminder.sh"
 usage_log="$repo_root/hooks/scripts/usage-log.sh"
-tmp_dir=$(mktemp -d)
+# An explicit template keeps TMPDIR honored (macOS mktemp -d alone ignores it).
+tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/aidd-hook-test.XXXXXX")
+tmp_dir=$(cd "$tmp_dir" && pwd -P)  # git reports physical paths (/tmp is a symlink on macOS)
 trap 'rm -rf "$tmp_dir"' EXIT
 
 [ -x "$dispatcher" ]
@@ -20,6 +22,393 @@ run_hook() {
 run_hook PreToolUse 'git commit -m test' | grep -F '/aidd:test-perspectives'
 run_hook PreToolUse 'gh issue create --title test' | grep -F 'タイトルと本文は日本語'
 run_hook PostToolUse 'git push origin main' | grep -F 'open PR'
+
+# --- Git-aware checks: fake hook input against throwaway repositories --------------------------
+export HOME="$tmp_dir/home"
+mkdir -p "$HOME"
+export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
+export GIT_CONFIG_NOSYSTEM=1
+
+# hook EVENT CWD COMMAND [SESSION]: runs the dispatcher on a well-formed payload.
+hook() {
+  python3 -c '
+import json, sys
+print(json.dumps({"hook_event_name": sys.argv[1], "cwd": sys.argv[2], "session_id": sys.argv[4],
+                  "tool_name": "Bash", "tool_input": {"command": sys.argv[3]}}))
+' "$1" "$2" "$3" "${4-session-a}" | AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$dispatcher"
+}
+
+# Each call must produce at most one JSON document; decision_of prints its permissionDecision.
+json_count() { python3 -c 'import sys; print(sum(1 for l in sys.stdin if l.strip()))'; }
+decision_of() {
+  python3 -c '
+import json, sys
+text = sys.stdin.read().strip()
+print(json.loads(text)["hookSpecificOutput"].get("permissionDecision", "none") if text else "empty")
+'
+}
+
+repo="$tmp_dir/repo"
+git init -q --template= -b main "$repo"
+echo base > "$repo/app.sh"
+git -C "$repo" add app.sh
+git -C "$repo" commit -qm 'chore: base'
+git -C "$repo" switch -qc feat
+mkdir -p "$repo/src"
+echo code > "$repo/src/a.sh"
+echo code > "$repo/src/b.sh"
+git -C "$repo" add src
+git -C "$repo" commit -qm 'feat: code'
+git -C "$repo" switch -qc docs-only main
+mkdir -p "$repo/docs"
+echo doc > "$repo/docs/x.md"
+git -C "$repo" add docs
+git -C "$repo" commit -qm 'docs: x'
+git -C "$repo" switch -q main
+
+# #19: the PR's branch is --head, not the cwd's HEAD (cwd is on main, which has no diff).
+out=$(hook PreToolUse "$repo" 'gh pr create --base main --head feat --title t --body b')
+printf '%s\n' "$out" | grep -F '/aidd:autonomous-review --base main --head feat'
+printf '%s\n' "$out" | grep -F 'src/a.sh, src/b.sh'
+# It warns without denying, and shares one JSON reply with the Japanese-language nudge.
+[ "$(printf '%s\n' "$out" | json_count)" = 1 ]
+[ "$(printf '%s\n' "$out" | decision_of)" = none ]
+printf '%s\n' "$out" | grep -F 'タイトルと本文は日本語'
+# Without --head, the checked-out branch is the PR's branch; wrappers and cd are seen through.
+git -C "$repo" switch -q feat
+hook PreToolUse "$tmp_dir" "cd $repo && rtk gh pr create --title t" | grep -F -- '--head feat'
+git -C "$repo" switch -q main
+# Docs-only branches stay quiet apart from the language nudge.
+out=$(hook PreToolUse "$repo" 'gh pr create --head docs-only')
+if printf '%s\n' "$out" | grep -Fq 'autonomous-review'; then exit 1; fi
+# The file list is capped.
+AIDD_REVIEW_LIST_LIMIT=1 hook PreToolUse "$repo" 'gh pr create --head=feat' | grep -F 'src/a.sh ほか 1 件'
+# Opt-out.
+out=$(AIDD_DISABLE_REVIEW_BEFORE_PR=1 hook PreToolUse "$repo" 'gh pr create --head feat')
+if printf '%s\n' "$out" | grep -Fq 'autonomous-review'; then exit 1; fi
+# Evidence for the branch silences it.
+mkdir -p "$repo/.aidd/autonomous-review/run1"
+printf '{"head":"feat","head_sha":null}' > "$repo/.aidd/autonomous-review/run1/state.json"
+out=$(hook PreToolUse "$repo" 'gh pr create --head feat')
+if printf '%s\n' "$out" | grep -Fq 'autonomous-review'; then exit 1; fi
+rm -rf "$repo/.aidd"
+# A command that only mentions gh pr create in a quoted string is not an invocation.
+[ -z "$(hook PreToolUse "$repo" 'echo "gh pr create --head feat"')" ]
+# Evidence also matches by head_sha / head_sha_after_fixes (the branch may have been renamed).
+feat_sha=$(git -C "$repo" rev-parse feat)
+mkdir -p "$repo/.aidd/autonomous-review/run1"
+printf '{"head":"renamed","head_sha":"%s"}' "$feat_sha" > "$repo/.aidd/autonomous-review/run1/state.json"
+out=$(hook PreToolUse "$repo" 'gh pr create --head feat')
+if printf '%s\n' "$out" | grep -Fq 'autonomous-review'; then exit 1; fi
+printf '{"head":"renamed","head_sha":"0000000","head_sha_after_fixes":"%s"}' "$feat_sha" > "$repo/.aidd/autonomous-review/run1/state.json"
+out=$(hook PreToolUse "$repo" 'gh pr create --head feat')
+if printf '%s\n' "$out" | grep -Fq 'autonomous-review'; then exit 1; fi
+rm -rf "$repo/.aidd"
+# Evidence written in any worktree counts, whichever worktree (or the main tree) opens the PR.
+git -C "$repo" worktree add -q "$tmp_dir/wt-a" feat
+git -C "$repo" worktree add -q --detach "$tmp_dir/wt-b" main
+mkdir -p "$tmp_dir/wt-a/.aidd/autonomous-review/run1"
+printf '{"head":"feat","head_sha":"%s"}' "$feat_sha" > "$tmp_dir/wt-a/.aidd/autonomous-review/run1/state.json"
+for cwd in "$repo" "$tmp_dir/wt-a" "$tmp_dir/wt-b"; do
+  out=$(hook PreToolUse "$cwd" 'gh pr create --head feat --base main')
+  if printf '%s\n' "$out" | grep -Fq 'autonomous-review'; then exit 1; fi
+done
+git -C "$repo" worktree remove --force "$tmp_dir/wt-a"
+git -C "$repo" worktree remove --force "$tmp_dir/wt-b"
+# Without --base, origin/HEAD or AIDD_REVIEW_BASE, main then master is the base.
+master_repo="$tmp_dir/master-repo"
+git init -q --template= -b master "$master_repo"
+echo base > "$master_repo/app.sh"
+git -C "$master_repo" add app.sh
+git -C "$master_repo" commit -qm 'chore: base'
+git -C "$master_repo" switch -qc feat
+echo code > "$master_repo/app.sh"
+git -C "$master_repo" commit -qam 'feat: code'
+hook PreToolUse "$master_repo" 'gh pr create --head feat' | grep -F -- '--base master --head feat'
+# When no base resolves, it says so instead of staying silent.
+git -C "$master_repo" branch -qm master trunk
+hook PreToolUse "$master_repo" 'gh pr create --head feat' | grep -F '基点ブランチ (main / master) を解決できない'
+
+# Comments and compound statements: a word-initial # starts a comment that ends at the newline
+# (the next line is still a command); a # inside a word or quotes does not; commands after
+# then/do/{/! are still seen.
+hook PreToolUse "$repo" 'cd /x#y && git commit -m x' | grep -F '/aidd:test-perspectives'
+hook PreToolUse "$repo" 'if true; then git commit -m x; fi' | grep -F '/aidd:test-perspectives'
+hook PreToolUse "$repo" $'git status # check\ngit commit -m x' | grep -F '/aidd:test-perspectives'
+hook PreToolUse "$repo" $'npm test # run\ngh pr create --head docs-only' | grep -F 'タイトルと本文は日本語'
+hook PreToolUse "$repo" 'echo "#x"; gh issue create -t t' | grep -F 'タイトルと本文は日本語'
+[ -z "$(hook PreToolUse "$repo" 'echo x # git commit -m x')" ]
+
+# Commands that are not git or gh never start python, even when cwd or transcript_path
+# contains "git" / "gh"; a git on a later line of the command still does.
+fake_bin="$tmp_dir/fake-bin"
+mkdir -p "$fake_bin"
+real_python=$(command -v python3)
+printf '#!/bin/bash\ntouch "%s/python-started"\nexec "%s" "$@"\n' "$tmp_dir" "$real_python" > "$fake_bin/python3"
+chmod +x "$fake_bin/python3"
+fast_path() {
+  printf '{"hook_event_name":"PreToolUse","cwd":"/work/git/light-door","transcript_path":"/home/.claude/gh/t.jsonl","tool_name":"Bash","tool_input":{"command":"%s"}}' "$1" | \
+    PATH="$fake_bin:$PATH" AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$dispatcher"
+}
+rm -f "$tmp_dir/python-started"
+[ -z "$(fast_path 'ls -la light-door')" ]
+[ ! -e "$tmp_dir/python-started" ]
+fast_path 'npm test\ngit commit -m x' | grep -F '/aidd:test-perspectives'
+[ -e "$tmp_dir/python-started" ]
+
+# #21 (1): git operations that lose uncommitted work, and staging that names nothing, are denied.
+# The lists pin the boundary: joined flags, git -C, wrappers, env prefixes, cd and joined
+# commands are seen through; quoted text, heredoc bodies and values of -m are not commands.
+expect_deny() {
+  local c
+  for c in "$@"; do
+    [ "$(hook PreToolUse "$repo" "$c" | decision_of)" = deny ] || { echo "not denied: $c" >&2; exit 1; }
+  done
+}
+expect_allow() {
+  local c
+  for c in "$@"; do
+    [ "$(hook PreToolUse "$repo" "$c" | decision_of)" != deny ] || { echo "denied: $c" >&2; exit 1; }
+  done
+}
+expect_deny 'git stash' 'git stash push -m wip' 'git stash pop' 'git stash -u' \
+  'rtk git stash' "git -C $repo stash" 'cd src && git stash' 'git status; git stash' \
+  "$(printf 'git status\ngit stash')" '(git stash)' \
+  'git reset --hard HEAD~1' 'git checkout -- app.sh' 'git checkout .' 'git checkout main -- app.sh' \
+  'git restore app.sh' 'git restore --staged --worktree app.sh' 'git restore -SW app.sh' \
+  'git clean -fd' 'git clean --force' \
+  'git add -A' 'git add .' 'git add -u' 'git add --all' 'git add -Av' 'git add -- .' "git -C $repo add ." \
+  'git commit -am msg' 'git commit -a -m msg' 'git commit --all -m msg' 'FOO=1 git commit -vam msg' \
+  'env GIT_EDITOR=true git commit -a' 'git -c core.editor=true commit -a' \
+  "$(printf 'git status # c\ngit stash')" 'curl http://x/#a && git stash' 'if true; then git reset --hard; fi' \
+  'git checkout app.sh' 'git checkout HEAD app.sh' 'git checkout -f main' 'git checkout --force main' \
+  'git switch -f main' 'git switch --discard-changes main' \
+  'git commit -S -a' 'git commit -u -a' 'git commit -Skey -a' \
+  'git add ./' 'git add :' 'git add :/' 'git add ":(top)"' 'git add ":/."' 'cd src && git add ..' 'cd src && git add ../..'
+expect_allow 'git stash list' 'git stash show -p' 'git reset --soft HEAD~1' 'git reset app.sh' \
+  'git checkout -b topic' 'git checkout main' 'git checkout -' 'git checkout -b topic main' \
+  'git switch feat' 'git switch -c topic' 'git restore --staged app.sh' 'git restore -S app.sh' \
+  'git clean -n' 'git clean -nd' 'git clean --dry-run -f' 'git add src/a.sh' 'git add -p' \
+  'git add ./app.sh' 'cd src && git add ../app.sh' 'git add ":(top)app.sh"' \
+  'git commit -m "fix -a flag"' 'git commit -ma' 'git commit -F msg.txt' 'git commit -m msg -- app.sh' \
+  'git commit -S -m msg' 'git commit -u -m msg' \
+  'echo "git stash"' 'grep -r "git reset --hard" docs' \
+  "$(printf 'git commit -F - <<EOF\ngit stash\nEOF')" \
+  "$(printf "git commit -m \"\$(cat <<'EOF'\nfeat: x\n\ndon't git add -A\nEOF\n)\"")"
+# Known misses (not a shell parser): a nested shell, and a wrapper not on the list.
+expect_allow "bash -c 'git stash'" 'chronic git stash'
+AIDD_COMMAND_WRAPPERS='chronic,sudo -E' expect_deny 'chronic git stash' 'sudo -E git stash'
+AIDD_DISABLE_GIT_SAFETY=1 expect_allow 'git stash' 'git commit -am msg'
+# Two denials and an injected reminder in one command come back as one JSON reply.
+out=$(hook PreToolUse "$repo" 'git stash && git add -A && git commit -m msg')
+[ "$(printf '%s\n' "$out" | json_count)" = 1 ]
+python3 - "$out" <<'PYEOF'
+import json, sys
+reply = json.loads(sys.argv[1])["hookSpecificOutput"]
+assert reply["permissionDecision"] == "deny", reply
+assert "git stash" in reply["permissionDecisionReason"], reply
+assert "git add -A" in reply["permissionDecisionReason"], reply
+assert "/aidd:test-perspectives" in reply["additionalContext"], reply
+PYEOF
+
+# #21 (2): a main tree used by another live session warns once per other session.
+shared="$tmp_dir/shared"
+git init -q --template= -b main "$shared"
+git -C "$shared" commit -q --allow-empty -m 'chore: base'
+[ -z "$(hook PreToolUse "$shared" 'git status' session-x)" ]
+out=$(hook PreToolUse "$shared" 'git status' session-y)
+printf '%s\n' "$out" | grep -F "主ツリー $shared"
+printf '%s\n' "$out" | grep -F "$shared/.claude/worktrees/<name>"
+[ "$(printf '%s\n' "$out" | decision_of)" = none ]
+[ -z "$(hook PreToolUse "$shared" 'git log' session-y)" ]
+hook PreToolUse "$shared" 'git log' session-x | grep -F '主ツリー'
+# Once per peer means once while the peer stays active, not once per TTL.
+python3 - "$tmp_dir/aidd/main-tree.json" <<'PYEOF'
+import json, sys, time
+data = json.load(open(sys.argv[1]))
+for key in data["warned"]:
+    data["warned"][key] = time.time() - 31 * 60
+json.dump(data, open(sys.argv[1], "w"))
+PYEOF
+[ -z "$(hook PreToolUse "$shared" 'git log' session-y)" ]
+[ -z "$(hook PreToolUse "$shared" 'git log' session-x)" ]
+# A linked worktree is not the main tree.
+git -C "$shared" worktree add -q "$tmp_dir/shared-wt" -b wt
+[ -z "$(hook PreToolUse "$tmp_dir/shared-wt" 'git status' session-z)" ]
+# Occupancy expires, and the warning can be switched off.
+python3 - "$tmp_dir/aidd/main-tree.json" <<'PYEOF'
+import json, sys
+data = json.load(open(sys.argv[1]))
+for sessions in data["trees"].values():
+    for s in sessions:
+        sessions[s] = 0
+json.dump(data, open(sys.argv[1], "w"))
+PYEOF
+[ -z "$(hook PreToolUse "$shared" 'git status' session-w)" ]
+[ -z "$(AIDD_DISABLE_MAIN_TREE_WARNING=1 hook PreToolUse "$shared" 'git status' session-v)" ]
+AIDD_WORKTREE_DIR=/elsewhere hook PreToolUse "$shared" 'git status' session-u | grep -F '/elsewhere/<name>'
+
+# #21 (3): gh issue create needs this session's gh issue list --search first.
+out=$(hook PreToolUse "$repo" 'gh issue create --title t' session-s1)
+[ "$(printf '%s\n' "$out" | json_count)" = 1 ]
+[ "$(printf '%s\n' "$out" | decision_of)" = deny ]
+printf '%s\n' "$out" | grep -F 'gh issue list --search'
+printf '%s\n' "$out" | grep -F 'タイトルと本文は日本語'
+[ -z "$(hook PostToolUse "$repo" 'gh issue list --search "hook dup"' session-s1)" ]
+[ "$(hook PreToolUse "$repo" 'gh issue create --title t' session-s1 | decision_of)" = none ]
+# Another session's search, or a list without --search, does not count.
+hook PostToolUse "$repo" 'gh issue list --label bug' session-s2
+[ "$(hook PreToolUse "$repo" 'gh issue create --title t' session-s2 | decision_of)" = deny ]
+hook PostToolUse "$repo" 'rtk gh issue list -S dup --state all' session-s3
+[ "$(hook PreToolUse "$repo" 'gh issue create --title t' session-s3 | decision_of)" = none ]
+# A search in the same command is recorded only after this check runs.
+[ "$(hook PreToolUse "$repo" 'gh issue list --search x && gh issue create' session-s4 | decision_of)" = deny ]
+# Searches expire.
+python3 - "$tmp_dir/aidd/issue-search.json" <<'PYEOF'
+import json, sys, time
+data = json.load(open(sys.argv[1]))
+data["session-s1\t"] = time.time() - 31 * 60
+json.dump(data, open(sys.argv[1], "w"))
+PYEOF
+[ "$(hook PreToolUse "$repo" 'gh issue create --title t' session-s1 | decision_of)" = deny ]
+[ "$(AIDD_ISSUE_SEARCH_TTL_MINUTES=60 hook PreToolUse "$repo" 'gh issue create' session-s1 | decision_of)" = none ]
+[ "$(AIDD_DISABLE_ISSUE_SEARCH_GATE=1 hook PreToolUse "$repo" 'gh issue create' session-s9 | decision_of)" = none ]
+# Without a session id there is nothing to match the search against, so it does not deny.
+[ "$(hook PreToolUse "$repo" 'gh issue create' '' | decision_of)" = none ]
+# The search counts only for the repository it searched: -R / --repo (also before the group,
+# where gh accepts it), else the cwd's origin remote.
+repo_a="$tmp_dir/repo-a"
+repo_b="$tmp_dir/repo-b"
+git init -q --template= -b main "$repo_a"
+git init -q --template= -b main "$repo_b"
+git -C "$repo_a" remote add origin git@github.com:Owner/A.git
+git -C "$repo_b" remote add origin https://github.com/owner/b
+hook PostToolUse "$repo_a" 'gh issue list --search dup' session-r1
+[ "$(hook PreToolUse "$repo_a" 'gh issue create -t t' session-r1 | decision_of)" = none ]
+[ "$(hook PreToolUse "$repo_b" 'gh issue create -t t' session-r1 | decision_of)" = deny ]
+[ "$(hook PreToolUse "$repo_b" 'gh issue create -R owner/a -t t' session-r1 | decision_of)" = none ]
+[ "$(hook PreToolUse "$repo_b" 'gh -R github.com/owner/a issue create -t t' session-r1 | decision_of)" = none ]
+hook PostToolUse "$repo_a" 'gh issue list -R owner/zzz --search dup' session-r2
+[ "$(hook PreToolUse "$repo_a" 'gh issue create -t t' session-r2 | decision_of)" = deny ]
+[ "$(hook PreToolUse "$repo_a" 'gh --repo owner/zzz issue create -t t' session-r2 | decision_of)" = none ]
+hook PostToolUse "$repo_b" 'gh --repo=owner/a issue list -S dup' session-r3
+[ "$(hook PreToolUse "$repo_a" 'gh issue create -t t' session-r3 | decision_of)" = none ]
+# A global -R / --repo before the group does not hide gh issue create from the checks.
+[ "$(hook PreToolUse "$repo_a" 'gh -R o/r issue create -t x' session-r4 | decision_of)" = deny ]
+[ "$(hook PreToolUse "$repo_a" 'gh --repo o/r issue create -t x' session-r4 | decision_of)" = deny ]
+hook PreToolUse "$repo_a" 'gh -R o/r pr create -t x' session-r4 | grep -F 'タイトルと本文は日本語'
+
+# #27: with AIDD_REQUIRED_LABEL_PREFIX set, gh issue create needs a label with that prefix.
+# session-s3 searched above, so only the label check decides here.
+label_hook() { AIDD_REQUIRED_LABEL_PREFIX=priority: hook PreToolUse "$repo" "$1" session-s3; }
+out=$(label_hook 'gh issue create --title t')
+[ "$(printf '%s\n' "$out" | decision_of)" = deny ]
+printf '%s\n' "$out" | grep -F 'priority: で始まるラベルが無い'
+[ "$(label_hook 'gh issue create --label bug' | decision_of)" = deny ]
+[ "$(label_hook 'gh issue create --label priority:P2' | decision_of)" = none ]
+[ "$(label_hook 'gh issue create --label=priority:P3' | decision_of)" = none ]
+[ "$(label_hook 'gh issue create -l bug,priority:P1' | decision_of)" = none ]
+[ "$(label_hook 'gh issue create -l bug -l priority:P1' | decision_of)" = none ]
+# A global -R / --repo before the group does not skip the label check.
+AIDD_DISABLE_ISSUE_SEARCH_GATE=1 label_hook 'gh -R o/r issue create -t x' | grep -F 'priority: で始まるラベルが無い'
+AIDD_DISABLE_ISSUE_SEARCH_GATE=1 label_hook 'gh --repo o/r issue create -t x' | grep -F 'priority: で始まるラベルが無い'
+[ "$(AIDD_DISABLE_ISSUE_SEARCH_GATE=1 label_hook 'gh -R o/r issue create -l priority:P2' | decision_of)" = none ]
+# Unset means off, so repositories without such labels can still file issues.
+[ "$(hook PreToolUse "$repo" 'gh issue create --title t' session-s3 | decision_of)" = none ]
+# Missing search and missing label: both reasons in one denial.
+out=$(AIDD_REQUIRED_LABEL_PREFIX=priority: hook PreToolUse "$repo" 'gh issue create' session-s8)
+[ "$(printf '%s\n' "$out" | json_count)" = 1 ]
+printf '%s\n' "$out" | grep -F 'gh issue list --search' | grep -F 'priority: で始まるラベル'
+
+# #20: after git commit, HEAD's subject form and body presence are checked once per SHA.
+log_repo="$tmp_dir/log-repo"
+git init -q --template= -b main "$log_repo"
+commit_then_hook() {  # MESSAGE [HOOK COMMAND]: commit in log_repo, then run PostToolUse
+  git -C "$log_repo" commit -q --allow-empty -m "$1"
+  hook PostToolUse "$log_repo" "${2:-git commit -m msg}" session-c
+}
+# Each check needs its convention to be adopted: without the canon (CLAUDE.md section or
+# AIDD_COMMIT_WHY_CANON) and without AIDD_COMMIT_TYPES or a commitlint config, nothing is said.
+[ -z "$(commit_then_hook '機能: 追加')" ]
+[ -z "$(commit_then_hook 'Revert "feat: a"')" ]
+# The canon alone checks the body, not the subject form.
+printf '# P\n\n### コメントの置き場所\n\nコミットログには Why。\n' > "$log_repo/CLAUDE.md"
+out=$(commit_then_hook '機能: 本文なし')
+printf '%s\n' "$out" | grep -F '本文 (変更の Why) が無い'
+if printf '%s\n' "$out" | grep -Fq 'Conventional Commits'; then exit 1; fi
+[ -z "$(commit_then_hook "$(printf '機能: 追加\n\n利用者が必要とした。')")" ]
+# A commitlint config (or AIDD_COMMIT_TYPES) turns the subject check on.
+rm "$log_repo/CLAUDE.md"
+printf '{}' > "$log_repo/.commitlintrc.json"
+out=$(commit_then_hook "$(printf '機能: 追加\n\nWhy.')")
+printf '%s\n' "$out" | grep -F '件名が Conventional Commits 形式'
+if printf '%s\n' "$out" | grep -Fq '本文 (変更の Why)'; then exit 1; fi
+if printf '%s\n' "$out" | grep -Fq '正典'; then exit 1; fi
+[ -z "$(commit_then_hook 'Revert "feat: a"')" ]
+printf '# P\n\n## コメントの置き場所\n' > "$log_repo/CLAUDE.md"
+[ -z "$(commit_then_hook "$(printf 'feat: add x\n\nCallers needed x.\n\nCo-Authored-By: a <a@example.com>')")" ]
+out=$(commit_then_hook 'update stuff')
+printf '%s\n' "$out" | grep -F '件名が Conventional Commits 形式'
+printf '%s\n' "$out" | grep -F '本文 (変更の Why) が無い'
+[ "$(printf '%s\n' "$out" | json_count)" = 1 ]
+# The same SHA is judged once.
+[ -z "$(hook PostToolUse "$log_repo" 'git commit -m msg' session-c)" ]
+# Listed trailers are not a body.
+out=$(commit_then_hook "$(printf 'fix: y\n\nCo-Authored-By: a <a@example.com>\nRefs #1')")
+printf '%s\n' "$out" | grep -F '本文 (変更の Why) が無い'
+if printf '%s\n' "$out" | grep -Fq 'Conventional Commits'; then exit 1; fi
+commit_then_hook "$(printf 'fix: y2\n\nCloses #19\nFixes owner/repo#3')" | grep -F '本文 (変更の Why) が無い'
+# Trailers live only in the final paragraph; prose that starts with Fixes/Closes is body.
+[ -z "$(commit_then_hook "$(printf 'fix: u\n\nFixes the crash that users hit when the list is empty.')")" ]
+[ -z "$(commit_then_hook "$(printf 'fix: t\n\nCloses the gap where retries were lost.\n\nRefs #2')")" ]
+[ -z "$(commit_then_hook "$(printf 'fix: s\n\nRefs: #1\n\nCo-Authored-By: a <a@example.com>')")" ]
+# Body-exempt types, and configured types (which may contain digits and dashes).
+[ -z "$(commit_then_hook 'docs: typo')" ]
+[ -z "$(AIDD_COMMIT_TYPES=feat,wip commit_then_hook "$(printf 'wip(core)!: z\n\nWhy.')")" ]
+[ -z "$(AIDD_COMMIT_TYPES=deps-dev,feat commit_then_hook "$(printf 'deps-dev: bump\n\nWhy.')")" ]
+[ -z "$(AIDD_COMMIT_BODY_EXEMPT_TYPES=fix commit_then_hook 'fix: w')" ]
+AIDD_COMMIT_WHY_CANON='docs/rules.md#why' commit_then_hook 'feat: v' | grep -F '正典: docs/rules.md#why'
+[ -z "$(AIDD_DISABLE_COMMIT_WHY_CHECK=1 commit_then_hook 'bad subject')" ]
+# The commit is located through -C and cd, and shares one reply with the push nudge.
+git -C "$log_repo" commit -q --allow-empty -m 'no form'
+out=$(hook PostToolUse "$tmp_dir" "git -C $log_repo commit -m x && git push" session-c)
+[ "$(printf '%s\n' "$out" | json_count)" = 1 ]
+printf '%s\n' "$out" | grep -F 'Conventional Commits' | grep -F 'open PR'
+git -C "$log_repo" commit -q --allow-empty -m 'no form via cd'
+hook PostToolUse "$tmp_dir" "cd $log_repo && git commit -m x" session-c | grep -F 'Conventional Commits'
+# A command that fails after its commit landed (push rejected) arrives as PostToolUseFailure:
+# the commit is still checked, and nothing else (no push nudge) is said there.
+git -C "$log_repo" commit -q --allow-empty -m 'no form, push failed'
+out=$(hook PostToolUseFailure "$log_repo" 'git commit -m x && git push' session-c)
+[ "$(printf '%s\n' "$out" | json_count)" = 1 ]
+printf '%s\n' "$out" | grep -F '"hookEventName": "PostToolUseFailure"' | grep -F 'Conventional Commits'
+if printf '%s\n' "$out" | grep -Fq 'open PR'; then exit 1; fi
+[ -z "$(hook PostToolUseFailure "$log_repo" 'git push' session-c)" ]
+[ -z "$(hook PostToolUseFailure "$repo" 'gh issue create -t t' session-c)" ]
+python3 - "$repo_root/hooks/hooks.json" <<'PYEOF'
+import json, sys
+entries = json.load(open(sys.argv[1]))["hooks"]["PostToolUseFailure"]
+assert any(e["matcher"] == "Bash" and "tool-reminder.sh" in e["hooks"][0]["command"] for e in entries), entries
+PYEOF
+# fixup! / squash! commits are left for the squash; an amend makes a new SHA, judged again.
+[ -z "$(commit_then_hook 'fixup! feat: add x')" ]
+git -C "$log_repo" commit -q --allow-empty -m 'feat: amended'
+[ -n "$(hook PostToolUse "$log_repo" 'git commit -m x' session-c)" ]
+git -C "$log_repo" commit -q --amend --allow-empty -m "$(printf 'feat: amended\n\nNow with a Why.')"
+[ -z "$(hook PostToolUse "$log_repo" 'git commit --amend' session-c)" ]
+git -C "$log_repo" commit -q --amend --allow-empty -m 'amended again without a body'
+hook PostToolUse "$log_repo" 'git commit --amend' session-c | grep -F '本文 (変更の Why) が無い'
+# A HEAD that was not just made (e.g. the commit failed) is left alone, as are merge commits.
+GIT_COMMITTER_DATE='2000-01-01T00:00:00' git -C "$log_repo" commit -q --allow-empty -m 'old one'
+[ -z "$(hook PostToolUse "$log_repo" 'git commit -m msg' session-c)" ]
+git -C "$log_repo" switch -qc side
+git -C "$log_repo" commit -q --allow-empty -m 'feat: side'
+git -C "$log_repo" switch -q main
+git -C "$log_repo" merge -q --no-ff --no-commit side
+git -C "$log_repo" commit -q -m 'merge without form or body'
+[ -z "$(hook PostToolUse "$log_repo" 'git commit -m msg' session-c)" ]
+# The check is PostToolUse only; PreToolUse on a commit keeps its own reminder.
+if hook PreToolUse "$log_repo" 'git commit -m "bad"' session-c | grep -Fq 'Conventional Commits'; then exit 1; fi
 
 usage_input='{"prompt":"/aidd:design-review sample"}'
 printf '%s' "$usage_input" | AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$usage_log"
