@@ -154,7 +154,7 @@
     {
       "kind": "hook",
       "name": "write-guard",
-      "description": "[PreToolUse] Write/Edit/NotebookEdit guard for new files: unreadable names, and assets aidd already has."
+      "description": "[PreToolUse] Write/Edit/NotebookEdit guard for new files: unreadable names, and assets aidd (or a listed plugin) already has."
     }
   ]
 }

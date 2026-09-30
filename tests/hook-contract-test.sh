@@ -627,6 +627,79 @@ printf '{"plugin":"fake","assets":[{"kind":"command","name":"only-here","descrip
 CLAUDE_PLUGIN_ROOT="$tmp_dir/fake-plugin" run_write_guard Write file_path "$project/.claude/commands/new-one.md" | context_of | grep -F 'fake:only-here'
 [ -z "$(CLAUDE_PLUGIN_ROOT="$tmp_dir/nowhere" run_write_guard Write file_path "$project/.claude/commands/new-one.md")" ]
 
+# AIDD_ASSET_OVERLAP_PLUGINS adds other plugins' assets, read at run time from each directory's
+# manifest by the same module as the bundled list. They are namespaced (<plugin>:<name>), so a
+# same name is only listed, never refused.
+plugins_dir="$tmp_dir/other-plugins"
+mkdir -p "$plugins_dir/alpha/.claude-plugin" "$plugins_dir/alpha/skills/brainstorm" \
+  "$plugins_dir/beta/.claude-plugin" "$plugins_dir/beta/commands" "$plugins_dir/beta/cmds" \
+  "$plugins_dir/beta/extra/extra-skill" "$plugins_dir/broken/.claude-plugin" "$plugins_dir/not-a-plugin"
+printf '{"name":"alpha"}' > "$plugins_dir/alpha/.claude-plugin/plugin.json"
+printf -- '---\nname: brainstorm\ndescription: alpha brainstorming\n---\n' > "$plugins_dir/alpha/skills/brainstorm/SKILL.md"
+# beta moves its commands (replacing the default scan) and adds a skills directory.
+printf '{"name":"beta","commands":["./cmds"],"skills":["./extra"]}' > "$plugins_dir/beta/.claude-plugin/plugin.json"
+printf -- '---\ndescription: default dir, not scanned\n---\n' > "$plugins_dir/beta/commands/ignored.md"
+printf -- '---\ndescription: beta declared command\n---\n' > "$plugins_dir/beta/cmds/ship.md"
+printf -- '---\nname: extra-skill\ndescription: beta added skill\n---\n' > "$plugins_dir/beta/extra/extra-skill/SKILL.md"
+printf '{"name": ' > "$plugins_dir/broken/.claude-plugin/plugin.json"
+overlap_with() {
+  AIDD_ASSET_OVERLAP_PLUGINS=$1 run_write_guard Write file_path "$project/.claude/${2:-commands/new-one.md}"
+}
+# Not set: aidd's list only, worded as before.
+out=$(run_write_guard Write file_path "$project/.claude/commands/new-one.md" | context_of)
+printf '%s' "$out" | grep -F 'If one of these aidd assets covers'
+if printf '%s' "$out" | grep -qF '[aidd]'; then echo "unset config changed the listing" >&2; exit 1; fi
+# One plugin: aidd's list plus the plugin's, each under a heading.
+out=$(overlap_with "$plugins_dir/alpha" | context_of)
+printf '%s' "$out" | grep -F '[aidd]'
+printf '%s' "$out" | grep -F 'agent aidd:reviewer'
+printf '%s' "$out" | grep -F '[alpha]'
+printf '%s' "$out" | grep -F -- '- skill alpha:brainstorm: alpha brainstorming'
+# A same-named asset of another plugin is not refused; aidd's own same-name refusal still applies.
+[ "$(overlap_with "$plugins_dir/alpha" skills/brainstorm/SKILL.md | decision_of)" = none ]
+[ "$(overlap_with "$plugins_dir/alpha" agents/reviewer.md | decision_of)" = deny ]
+# Several plugins, one with relocated components: commands replace the default scan, skills add.
+out=$(overlap_with "$plugins_dir/alpha:$plugins_dir/beta" | context_of)
+printf '%s' "$out" | grep -F 'skill alpha:brainstorm'
+printf '%s' "$out" | grep -F 'command beta:ship: beta declared command'
+printf '%s' "$out" | grep -F 'skill beta:extra-skill'
+if printf '%s' "$out" | grep -qF 'beta:ignored'; then echo "replaced default commands/ was scanned" >&2; exit 1; fi
+# A missing directory, a broken manifest, or a directory with neither manifest nor components does
+# not stop the hook: the readable plugins are still listed, with one line naming the others.
+out=$(overlap_with "$plugins_dir/missing:$plugins_dir/broken:$plugins_dir/not-a-plugin:$plugins_dir/alpha" | context_of)
+printf '%s' "$out" | grep -F 'skill alpha:brainstorm'
+printf '%s' "$out" | grep -F 'agent aidd:reviewer'
+failed_line=$(printf '%s' "$out" | grep -F 'Could not read these AIDD_ASSET_OVERLAP_PLUGINS entries')
+printf '%s' "$failed_line" | grep -F "$plugins_dir/missing (not a directory)"
+printf '%s' "$failed_line" | grep -F "$plugins_dir/broken (JSONDecodeError"
+printf '%s' "$failed_line" | grep -F "$plugins_dir/not-a-plugin (no plugin manifest or components)"
+# Without aidd's shared reader (a plugin root lacking scripts/), every entry is reported, not dropped.
+AIDD_ASSET_OVERLAP_PLUGINS="$plugins_dir/alpha" CLAUDE_PLUGIN_ROOT="$tmp_dir/fake-plugin" \
+  run_write_guard Write file_path "$project/.claude/commands/new-one.md" | context_of | grep -F 'asset_index.py is missing'
+# Over the limit: extra descriptions are cut to 120 characters, and assets that do not fit under
+# the cap are counted instead of listed; every plugin keeps its heading and aidd's list stays whole.
+big="$plugins_dir/big"
+mkdir -p "$big/.claude-plugin" "$big/commands"
+printf '{"name":"big"}' > "$big/.claude-plugin/plugin.json"
+long_desc=$(printf 'x%.0s' $(seq 1 300))
+for i in $(seq 1 80); do
+  printf -- '---\ndescription: %s\n---\n' "$long_desc" > "$big/commands/c$i.md"
+done
+overlap_with "$big:$plugins_dir/alpha:$plugins_dir/missing" | python3 -c '
+import json, sys
+c = json.load(sys.stdin)["hookSpecificOutput"]["additionalContext"]
+assert len(c) < 10000, len(c)
+lines = c.split("\n")
+big = [l for l in lines if l.startswith("- command big:")]
+assert big and all(len(l.split(": ", 1)[1]) == 120 and l.endswith("…") for l in big), big[:1]
+assert f"- ... {80 - len(big)} more big assets omitted (additionalContext limit)" in lines, lines[-4:]
+assert "[alpha]" in lines and "agent aidd:reviewer" in c
+assert "missing (not a directory)" in lines[-1], lines[-1]
+'
+# Paths outside the asset directories stay silent, without reading the listed plugins.
+[ -z "$(overlap_with "$plugins_dir/missing" ../src/new.py)" ]
+[ -z "$(overlap_with "$plugins_dir/missing" notes/commands.md)" ]
+
 # The bundled list and the strict prompt-hook template must match the real assets.
 python3 "$repo_root/scripts/generate-asset-index.py" --check
 # CI runs the same check, since it does not run tests/*.sh.
@@ -638,7 +711,7 @@ fixture="$tmp_dir/fixture-plugin"
 mkdir -p "$fixture/.claude-plugin" "$fixture/scripts" "$fixture/hooks" "$fixture/templates" \
   "$fixture/commands" "$fixture/cmds" "$fixture/agents" "$fixture/custom-agents" \
   "$fixture/skills/base-skill" "$fixture/extra/more-skill"
-cp "$repo_root/scripts/generate-asset-index.py" "$fixture/scripts/"
+cp "$repo_root/scripts/generate-asset-index.py" "$repo_root/scripts/asset_index.py" "$fixture/scripts/"
 printf '{"name":"fx","commands":["./cmds"],"agents":["./custom-agents/picked.md"],"skills":["./extra"]}' > "$fixture/.claude-plugin/plugin.json"
 printf -- '---\ndescription: ignored\n---\n' > "$fixture/commands/default-cmd.md"
 printf -- '---\ndescription: declared command\n---\n' > "$fixture/cmds/declared-cmd.md"
