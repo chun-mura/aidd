@@ -8,6 +8,11 @@
     },
     {
       "kind": "command",
+      "name": "asset-audit",
+      "description": "利用側プロジェクトの .claude/ と CLAUDE.md を棚卸しし、削除・改訂・修正の候補を出す"
+    },
+    {
+      "kind": "command",
       "name": "autonomous-review",
       "description": "異種AIレビュー・根拠検証・品質ゲートを統合し、ローカルで自動マージ可否を判定する"
     },
@@ -35,6 +40,11 @@
       "kind": "command",
       "name": "eval",
       "description": "design-review パイプラインをゴールデンセットで評価し、検出率・誤棄却率を測定する"
+    },
+    {
+      "kind": "command",
+      "name": "incident-retro",
+      "description": "セッションで起きた事故を棚卸しし、再発防止の置き場 (コード・hook・CLAUDE.md・memory・コマンド・ADR・issue) を決めて定着させる"
     },
     {
       "kind": "command",
