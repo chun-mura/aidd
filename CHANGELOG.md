@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.39.0 (2026-09-30)
+
+- `issue-implement.md` を追加: issue 1本を着手ゲート (要件が受領した原文か起票時の推測かを確かめる、ADR は決定の節を最後まで読む) → 曖昧さの3分類 (一次情報で決まる／既存の決定と衝突する／仕様の選択が残る。3つ目だけを人に上げる) → レーン判定 (スキーマ変更・エントリポイント追加・認可・新しい画面・採否の判断・ファイル数のどれかで設計から入る。行数では判定しない) → 実装 (新規テストは前提を壊して落ちることを1回見る) → レビュー (差分の性質で silent-failure-hunter・`/security-review`・`/stdd:mutation-check` を足す) → 完了条件 (deferred を issue か棄却一覧に落とすまで完了にしない) の順に進め、PR を出す判断は人に残す。計画・TDD・デバッグ・検証の中身は持たず superpowers の skill を、設計・レビュー・テスト観点は aidd の既存資産を順に呼ぶ入口にした。README の範囲 (実装フェーズは superpowers に委ねる) を保ったまま、どの順でどの条件で呼ぶかという aidd 固有の判断を毎回の手書きプロンプトから外すため (#24)
+- `issue-select.md` を追加: open issue から今着手できる分を選ぶ。進行中の作業 (未 push の実装済みブランチを含む) を先に見て、本文の冒頭と決定済みの ADR を確かめ、人の手続きが要るものと衝突する組み合わせ (同じ画面・共有部品・同じモデル・同じテストファイルの新規作成・マイグレーションの同時進行・ADR の採番) を外し、提案で止める。ラベルは絞り込みと、付いている優先度ラベル (系列の規約か `.aidd/issue-priority.md` の定義) での並べ替えにだけ使い、優先度の基準を持たない (判定と付与は `aidd:issue-priority` skill の役割。ラベルが無ければ番号順)。未 push のブランチはリモートにも PR にも現れず、見落とすと同じ issue を二重に実装するため (#24)
+- README: 上記2コマンドを索引に追加し、冒頭の superpowers との範囲の記述と pr-review-toolkit の連携点を更新 (#24)
+
 ## 0.38.0 (2026-09-30)
 
 - `skills/parallel-coordinator/`: 複数の issue・タスクを worker に並行実装させるコーディネーターの規律を追加。並列化の一般的な進め方は `superpowers:dispatching-parallel-agents` / `subagent-driven-development` / `using-git-worktrees` を指すだけにし、それらに無い差分だけを置く: 組み込みサブエージェント (`isolation: "worktree"`、バックグラウンド実行、完了通知、`SendMessage`) を既定とする実行環境、worktree が既定ブランチから切られること、`subagent-driven-development` の並列禁止が worktree で分けた worker には当たらないこと、`model` 省略時の決まり方と fork (`aidd:model-selection` 参照)、検証環境の割り当て、worktree 内の hook・スクリプトは `CLAUDE_PROJECT_DIR` ではなく入力の `cwd` を使うこと、外部実行環境の手順を写さないこと、spec に書く事実の確かめ方、共有ファイルの衝突、マージ順と rebase、worker への指示、報告の検証。複数 issue の並行実装で、古い issue 本文から書いた spec、新しく作るテストファイルの衝突、新しいテストが1度も CI で走らないまま後発がマージされること、数え直されない worker の報告が繰り返し起きたため (#25)

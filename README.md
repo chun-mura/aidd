@@ -2,7 +2,7 @@
 
 AI駆使のための実行可能資産 + 知見。Claude Code プラグインとして導入可能な、タスク特化コマンド・エージェント・スキル・テンプレート・方法論の集約。
 
-**superpowers プラグイン必須**: aidd は設計・レビュー・運用強制のみを担当し、実装フェーズ (brainstorming・TDD・デバッグ・計画立案) は superpowers に委ねる設計 ([棲み分け原則](docs/tips/superpowers-usage.md))。`plugin.json` の `dependencies` で `superpowers@superpowers-marketplace` を宣言しているため、`/plugin install aidd@aidd` 時に自動導入・有効化される (Claude Code v2.1.110+ が必要)。古いバージョンでは session-start hook が未導入を検知して警告するが、ブロックはしない (検知はベストエフォート)。
+**superpowers プラグイン必須**: aidd は設計・レビュー・運用強制のみを担当し、実装フェーズ (brainstorming・TDD・デバッグ・計画立案) は superpowers に委ねる設計 ([棲み分け原則](docs/tips/superpowers-usage.md))。`/aidd:issue-implement` も実装フェーズの中身は持たず、着手・レーン・レビュー追加・完了の判断の間で superpowers の skill を順に呼ぶ入口である。`plugin.json` の `dependencies` で `superpowers@superpowers-marketplace` を宣言しているため、`/plugin install aidd@aidd` 時に自動導入・有効化される (Claude Code v2.1.110+ が必要)。古いバージョンでは session-start hook が未導入を検知して警告するが、ブロックはしない (検知はベストエフォート)。
 
 **pr-review-toolkit プラグイン推奨**: aidd:reviewer は成果物単体の検収用で、PR全体のレビュー (スタイル・テストカバレッジ・サイレント障害・型設計など多観点) は pr-review-toolkit の担当。導入しなくても aidd の各機能は動くが、PRレビューの網羅性が下がる。
 
@@ -67,6 +67,8 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 | `design-review.md` | 設計や実装方針を多観点レビュー。既定の `--depth=standard` は必要時だけ refuter / arbiter を起動し、反証済み指摘を直接報告する。`--depth=deep` は品質重視の完全経路。再レビューでは `--review-delta=<変更範囲>` で差分と周辺文脈に絞る。`--verify-sources` で外部情報源検証を追加。信頼境界を跨ぐ設計では security-reviewer (STRIDE) を条件起動 (`--security` / `--no-security` で強制・抑止) |
 | `issue-split.md` | 設計を独立マージ可能なPR単位 (縦切り・5ファイル以内目安) に分割し、承認後に GitHub issue 化 (作成前に `gh issue list --search` で重複を確認)。design-doc が規模超過を検知すると提案 |
 | `design-sync.md` | 設計書と実装の乖離を検知し、status を最新化する |
+| `issue-implement.md` | issue 1本を着手ゲート (要件が受領した原文か起票時の推測か、ADR の決定の節) → 曖昧さの3分類 (仕様の選択だけを人に上げる) → レーン判定 (行数でなくスキーマ・エントリポイント・認可・画面・採否・ファイル数で設計から入るか決める) → 実装 → 条件付きレビュー追加 → 完了条件の順に進める入口。実装の中身は superpowers と aidd の既存資産に委ねる。deferred を issue か棄却一覧に落とすまで完了にしない。push・PR作成は行わない |
+| `issue-select.md` | open issue から今着手できる分を選ぶ。進行中の作業 (未 push の実装済みブランチを含む) を先に見て、本文の冒頭と決定済み ADR を確かめ、人の手続きが要るもの・衝突する組み合わせ (同じ画面・共有部品・同じモデル・同じテストファイルの新規作成・マイグレーション・ADR 採番) を外す。ラベルは絞り込みと、付いている優先度ラベルでの並べ替えにだけ使い、優先度の基準は持たない (判定と付与は `aidd:issue-priority` skill の役割)。提案で止める |
 | `test-perspectives.md` | 実装対象・変更差分からテスト観点 (6分類 + 信頼境界に触れる変更のみセキュリティ分類) を洗い出し、BVA/ECP 適用フラグを付ける (手法の導出は stdd の担当) |
 | `autonomous-review.md` | ローカル差分または `--base` / `--head` で指定した2ブランチ間の差分を、既定の Codex read-only 異種AIレビュー（`--reviewer claude` で同一モデル自己レビュー）、差分の性質に応じた観点別レビュー (エラーハンドリング / セキュリティ) の条件付き追加、現物反証、品質ゲート、リスク判定で最大3ラウンド検査し、`deferred` は追跡先 (issue 番号 or `review-dismissed.md`) の確定を終了条件にし、自動マージ可否だけを判定する。未指定の `--base` / `--head` / `--reviewer` は AskUserQuestion で決める。`--reviewer claude` 時は最終判定が常に `human_required`。push・PR作成・マージは行わない |
 | `doctor.md` | aidd/superpowers の導入状態・バージョン整合・hooks 実行可否を診断する |
@@ -195,7 +197,7 @@ cp <aidd>/templates/aidd-hook-log.sh .claude/hooks/   # 実行ビットごとコ
 ## 依存プラグインの互換方針
 
 - **superpowers (必須)**: `plugin.json` の `dependencies` で `superpowers@superpowers-marketplace` を宣言しており、インストール・有効化時に自動解決される (Claude Code v2.1.110+)。古いバージョン向けのフォールバックとして `session-start.sh` が `~/.claude/plugins/installed_plugins.json` の `superpowers@` エントリで導入有無を検知する (ベストエフォート、非ブロック)。`docs/tips/superpowers-usage.md` が superpowers のスキル名を参照するため、superpowers 側の破壊的変更 (スキル改名・削除) で連携が壊れても aidd 自体の commands / agents / hooks は動作する。壊れた疑いがあるときは `/aidd:doctor` で診断する
-- **pr-review-toolkit (推奨)**: 連携点なし。未導入でも aidd の全機能が動作し、PRレビューの網羅性だけが下がる
+- **pr-review-toolkit (推奨)**: 連携点は `/aidd:issue-implement` の条件付きレビュー (silent-failure-hunter) だけで、未導入なら `aidd:reviewer` のエラーハンドリング観点で代える。未導入でも aidd の全機能が動作し、PRレビューの網羅性だけが下がる
 
 ## 運用ルール
 
