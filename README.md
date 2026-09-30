@@ -62,7 +62,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 | `design-doc.md` | 要件から設計書を生成し docs/design/ に保存。構成は design-review の6観点と1対1対応 |
 | `adr.md` | アーキテクチャ決定記録を docs/adr/NNNN-<slug>.md に作成。1 ADR = 1 決定。採番はローカルに加えローカル／リモートの全ブランチを見て衝突を避ける |
 | `design-review.md` | 設計や実装方針を多観点レビュー。既定の `--depth=standard` は必要時だけ refuter / arbiter を起動し、反証済み指摘を直接報告する。`--depth=deep` は品質重視の完全経路。再レビューでは `--review-delta=<変更範囲>` で差分と周辺文脈に絞る。`--verify-sources` で外部情報源検証を追加。信頼境界を跨ぐ設計では security-reviewer (STRIDE) を条件起動 (`--security` / `--no-security` で強制・抑止) |
-| `issue-split.md` | 設計を独立マージ可能なPR単位 (縦切り・5ファイル以内目安) に分割し、承認後に GitHub issue 化。design-doc が規模超過を検知すると提案 |
+| `issue-split.md` | 設計を独立マージ可能なPR単位 (縦切り・5ファイル以内目安) に分割し、承認後に GitHub issue 化 (作成前に `gh issue list --search` で重複を確認)。design-doc が規模超過を検知すると提案 |
 | `design-sync.md` | 設計書と実装の乖離を検知し、status を最新化する |
 | `test-perspectives.md` | 実装対象・変更差分からテスト観点 (6分類 + 信頼境界に触れる変更のみセキュリティ分類) を洗い出し、BVA/ECP 適用フラグを付ける (手法の導出は stdd の担当) |
 | `autonomous-review.md` | ローカル差分または `--base` / `--head` で指定した2ブランチ間の差分を、既定の Codex read-only 異種AIレビュー（`--reviewer claude` で同一モデル自己レビュー）、差分の性質に応じた観点別レビュー (エラーハンドリング / セキュリティ) の条件付き追加、現物反証、品質ゲート、リスク判定で最大3ラウンド検査し、`deferred` は追跡先 (issue 番号 or `review-dismissed.md`) の確定を終了条件にし、自動マージ可否だけを判定する。未指定の `--base` / `--head` / `--reviewer` は AskUserQuestion で決める。`--reviewer claude` 時は最終判定が常に `human_required`。push・PR作成・マージは行わない |
@@ -95,7 +95,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 |---------|------|
 | `session-start.sh` | SessionStart で aidd 資産の使いどころと「実装を左右する不明点は、このセッションが実際に持つ手段で確認する (対話なら AskUserQuestion、監督下なら親への返答)」を注入。superpowers 未導入を検知して警告 |
 | `usage-log.sh` | 起動を2経路で記録し、aidd コマンド使用数・最終利用時刻を `~/.claude/aidd/usage.json` に残す (`/aidd:retro` が読む): 行頭が `/aidd:<name>` のプロンプト (UserPromptSubmit) と、Skill ツール経由の起動 (PreToolUse、サブエージェント内の起動もここに入る)。文中で名前に触れただけのプロンプトは計上しない。実在するコマンド・skill 名だけを計上し、旧版が残した `prompt_log` は起動時に削除する |
-| `tool-reminder.sh` | `git commit` 前の test-perspectives 確認、`gh pr/issue create・edit` 前の日本語確認、`gh pr create` 前のレビュー証跡の確認、`git push` 後の PR 同期確認を1本で処理 (非ブロック)。コマンドは引用符・`&&` / `;` の連結・`#` のコメント・`if` / `then` / `do` などの制御構文・`cd`・`git -C`・前置のラッパー (`rtk` など) を見分けて判定し、1回の起動で当たった判定は JSON 1つにまとめて返す。コマンドに `git` / `gh` の語が無ければ python を起動せずに終わる。レビュー証跡の確認は、`--head` のブランチ (未指定なら cwd のブランチ) が基点ブランチに対してコードを変更しているのに、どの worktree の `.aidd/autonomous-review/` にもそのブランチの `state.json` が無いときだけ、変更ファイルの一覧つきで警告する (docs だけの変更では鳴らさない) |
+| `tool-reminder.sh` | `git commit` 前の test-perspectives 確認、`gh pr/issue create・edit` 前の日本語確認、`gh pr create` 前のレビュー証跡の確認、`git push` 後の PR 同期確認を1本で処理 (ここまでは非ブロック)。加えて、未コミットの作業を失う git 操作 (`stash`・`reset --hard`・パスを指定した `checkout` (`checkout -- <path>` / `checkout .` / `checkout <path>` / `checkout HEAD <path>`)・`checkout -f`・`switch -f` / `--discard-changes`・`--staged` だけでない `restore`・`-n` の無い `clean`) と指名しないステージ (`add -A` / `-u`、`.` / `./` / `..` / `:/` のように作業ディレクトリやルートを指すパス、`commit -a`) を拒否し、主ツリーを別のセッションが直近に使っているときは相手ごとに1回だけ worktree への移動を促し (拒否はしない。`session_id` は resume / compact の前後で同じと保証されていない)、`gh issue create` は同じセッションで直近に同じリポジトリ (`-R` / `--repo`、無ければ cwd の `origin`) に対して `gh issue list --search` を実行していなければ拒否する。コマンドは引用符・`&&` / `;` の連結・`#` のコメント・`if` / `then` / `do` などの制御構文・`cd`・`git -C`・前置のラッパー (`rtk` など) を見分けて判定し、1回の起動で当たった判定は JSON 1つにまとめて返す。コマンドに `git` / `gh` の語が無ければ python を起動せずに終わる。レビュー証跡の確認は、`--head` のブランチ (未指定なら cwd のブランチ) が基点ブランチに対してコードを変更しているのに、どの worktree の `.aidd/autonomous-review/` にもそのブランチの `state.json` が無いときだけ、変更ファイルの一覧つきで警告する (docs だけの変更では鳴らさない) |
 
 #### Hooks の書き込み先と無効化
 
@@ -104,6 +104,9 @@ hooks は上記スクリプトをセッション中に自動実行する。フ�
 | 書き込み先 | 内容 | 書き込み元 |
 |-----------|------|-----------|
 | `~/.claude/aidd/usage.json` | `/aidd:*` コマンドの使用数・最終使用時刻 | `usage-log.sh` |
+| `~/.claude/aidd/main-tree.json` | 主ツリーごとの、git を実行したセッション ID と最終時刻 (失効時間を過ぎたものは削除)、警告済みの組 (相手の占有が失効したら削除) | `tool-reminder.sh` |
+| `~/.claude/aidd/issue-search.json` | セッション ID とリポジトリの組ごとの、最後に `gh issue list --search` を実行した時刻 (1日を過ぎたものは削除) | `tool-reminder.sh` |
+| `~/.claude/aidd/*.json.lock`、`*.json.tmp` | 上の状態ファイルを更新するときの排他ロック (空ファイル、残る) と書き込み途中の一時ファイル (置き換えで消える) | `usage-log.sh`、`tool-reminder.sh` |
 
 プロンプト本文は記録しない (0.25.0 で廃止。旧版が書いた `prompt_log` は次回の hook 実行時に削除される)。記録したくない場合や注入がノイズな場合は、環境変数で個別に無効化できる (シェル環境、または settings.json の `env` で設定):
 
@@ -115,6 +118,13 @@ hooks は上記スクリプトをセッション中に自動実行する。フ�
 | `AIDD_REVIEW_BASE=<branch>` | レビュー証跡の警告で使う基点ブランチ。コマンドの `--base` を優先し、どちらも無ければ `origin/HEAD`、それも無ければ `main`、次に `master`。どれも解決できなければ、確認しなかったことを1行で伝える |
 | `AIDD_REVIEW_SKIP_PATHS=<正規表現>` | レビュー証跡の警告で「コードの変更」に数えないパス (既定 `(^docs/`、`\.md$`、`\.txt$` の OR)。変更がすべてこれに当たれば警告しない |
 | `AIDD_REVIEW_LIST_LIMIT=<件数>` | レビュー証跡の警告に並べる変更ファイルの上限 (既定 20)。超えた分は件数だけ出す |
+| `AIDD_COMMAND_WRAPPERS=<a,b c>` | `tool-reminder.sh` がコマンドの前置として読み飛ばすラッパーを追加する (カンマ区切り、1つが複数語でもよい。例 `chronic,sudo -E`)。既定は `rtk proxy`・`rtk`・`command`・`env`・`time`・`nohup`・`exec` と、行頭の `VAR=value`。一覧に無い前置の後ろのコマンドは判定されない |
+| `AIDD_DISABLE_GIT_SAFETY=1` | 未コミットの作業を失う git 操作と指名しないステージの拒否を止める |
+| `AIDD_DISABLE_MAIN_TREE_WARNING=1` | 主ツリーの共用の警告を止める |
+| `AIDD_MAIN_TREE_TTL_MINUTES=<分>` | 主ツリーの占有を有効とみなす時間 (既定 30)。これより前に git を実行したセッションは占有していないものとする |
+| `AIDD_WORKTREE_DIR=<path>` | 主ツリーの共用の警告で案内する worktree の作成先 (既定 `.claude/worktrees`。相対パスは主ツリーから) |
+| `AIDD_DISABLE_ISSUE_SEARCH_GATE=1` | `gh issue create` 前の重複検索の要求を止める |
+| `AIDD_ISSUE_SEARCH_TTL_MINUTES=<分>` | `gh issue list --search` の結果を有効とみなす時間 (既定 30) |
 
 非対話・監督下のセッション (print モード、スケジュール実行、親エージェントが指示を出すサブエージェント) では、注入文の指示どおり「このセッションが持つ確認手段」を使う。人間に届く手段が無い場合は前提を最終報告に明記させる形になるため、確認そのものを止めたい場合は `AIDD_DISABLE_CLARIFY_NUDGE=1` を設定する。
 
