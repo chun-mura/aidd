@@ -54,3 +54,22 @@ grep -F -- '件数だけの要約に置き換えてはならない' "$command_fi
 grep -F -- 'deferred の追跡' "$command_file"
 grep -F -- '"type": "unresolved"' "$command_file"
 grep -F -- '`tracking` が `unresolved` の `deferred` なし' "$command_file"
+grep -F -- '< /dev/null' "$command_file"
+grep -F -- 'exit 0 で空の応答' "$command_file"
+grep -F -- '終了コードでも stderr の有無でも成否を判断しない' "$command_file"
+grep -F -- ':(exclude).aidd' "$command_file"
+grep -F -- '--skip-git-repo-check -C <snapshot-dir>' "$command_file"
+grep -F -- 'git apply' "$command_file"
+grep -F -- '`rounds[].snapshot`' "$command_file"
+grep -F -- '5 の現物検証が終わった時点で削除する' "$command_file"
+grep -F -- '変更前ではなく変更後の内容で確かめる' "$command_file"
+grep -F -- 'Bash ツールの `timeout` パラメータ' "$command_file"
+grep -F -- 'codex login status < /dev/null' "$command_file"
+grep -F -- '--output-last-message' "$command_file"
+grep -F -- '`proceeding` を含む警告は失敗ではない' "$command_file"
+grep -F -- '現行は `2`' "$command_file"
+if grep -F -- 'git worktree remove --force' "$command_file"; then
+  echo "codex must not run from a git worktree: the shared object store still exposes .aidd/" >&2
+  exit 1
+fi
+grep -F -- '拡張子は `.txt`' "$command_file"
