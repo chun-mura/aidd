@@ -127,6 +127,10 @@ def asset_overlap():
     assets = index.get("assets", [])
     name = first if kind == "skills" else os.path.splitext(first)[0]
     same_kind = {"commands": ("command", "skill"), "skills": ("command", "skill"), "agents": ("agent",)}.get(kind, ())
+    # A command in a subdirectory is namespaced by it (commands/adr/new.md is /adr:new), and an
+    # agent's identity is its frontmatter name, so a subdirectory name is not the asset name.
+    if kind != "skills" and hit + 1 != len(parts) - 1:
+        same_kind = ()
     if os.environ.get("AIDD_ASSET_OVERLAP_DENY_SAME_NAME") != "0":
         for a in assets:
             if a.get("kind") in same_kind and a.get("name") == name:

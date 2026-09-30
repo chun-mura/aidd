@@ -212,6 +212,13 @@ printf '%s' "$out" | grep -F 'aidd:design-review'
 [ "$(run_write_guard Write file_path "$project/.claude/skills/adr/SKILL.md" | decision_of)" = deny ]
 [ "$(run_write_guard Write file_path "$project/.claude/agents/reviewer.md" | decision_of)" = deny ]
 [ "$(AIDD_ASSET_OVERLAP_DENY_SAME_NAME=0 run_write_guard Write file_path "$project/.claude/agents/reviewer.md" | decision_of)" = none ]
+# A subdirectory is not the asset name: commands/adr/new.md is /adr:new, and an agent is named by
+# its frontmatter, so both only get the list. A skill is still named by its directory.
+out=$(run_write_guard Write file_path "$project/.claude/commands/adr/new.md")
+[ "$(printf '%s' "$out" | decision_of)" = none ]
+printf '%s' "$out" | context_of | grep -F 'aidd:adr'
+[ "$(run_write_guard Write file_path "$project/.claude/agents/reviewer/extra.md" | decision_of)" = none ]
+[ "$(run_write_guard Write file_path "$project/.claude/skills/adr/references/notes.md" | decision_of)" = deny ]
 
 # Existing assets are out of scope: an existing file, or a new file inside an existing skill.
 mkdir -p "$project/.claude/commands" "$project/.claude/skills/local-skill"
@@ -233,6 +240,8 @@ CLAUDE_PLUGIN_ROOT="$tmp_dir/fake-plugin" run_write_guard Write file_path "$proj
 
 # The bundled list and the strict prompt-hook template must match the real assets.
 python3 "$repo_root/scripts/generate-asset-index.py" --check
+# CI runs the same check, since it does not run tests/*.sh.
+grep -F 'run: python3 scripts/generate-asset-index.py --check' "$repo_root/.github/workflows/validate.yml"
 
 # The generator takes component locations from plugin.json, not from fixed directories:
 # `commands` and `agents` replace the default scan, `skills` adds to it. A stale output fails --check.
