@@ -31,6 +31,8 @@ argument-hint: [ラベル (任意、複数可)]
 候補ごとに、タイトルではなく本文を読む。
 
 - **本文の冒頭**: 前提・「先に決めること」・依存する issue が書かれていないか。書かれていて未解決なら、その issue はまだ着手できない
+- **blocked by**: `gh api repos/{owner}/{repo}/issues/<番号>/dependencies/blocked_by --paginate --jq '[.[] | select(.state == "open")] | length'` が1以上なら、先行する issue が閉じるまで着手できない。候補から外し、先行する issue の番号を添えて報告する
+- **open のサブ issue を持つ親**: 作業は子にあり、親は子がすべて閉じるまで open のまま残る。親は候補から外し、open の子を候補に入れる。open の子の数は `gh api repos/{owner}/{repo}/issues/<番号>/sub_issues --paginate --jq '[.[] | select(.state == "open")] | length'` で数える
 - **決定済みの ADR**: `docs/adr/` に、その issue を不要にした決定、または issue の方向と衝突する決定がないか (`adr-recall` skill の手順で探す)。ある場合は候補から外し、理由を添えて報告する
 
 ## 4. 人の手続きが要るものを外す
