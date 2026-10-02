@@ -63,10 +63,10 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 | `design-doc.md` | 要件から設計書を生成し docs/design/ に保存。構成は design-review の6観点と1対1対応 |
 | `adr.md` | アーキテクチャ決定記録を docs/adr/NNNN-<slug>.md に作成。1 ADR = 1 決定。採番はローカルに加えローカル／リモートの全ブランチを見て衝突を避ける |
 | `design-review.md` | 設計や実装方針を多観点レビュー。既定の `--depth=standard` は必要時だけ refuter / arbiter を起動し、反証済み指摘を直接報告する。`--depth=deep` は品質重視の完全経路。再レビューでは `--review-delta=<変更範囲>` で差分と周辺文脈に絞る。`--verify-sources` で外部情報源検証を追加。信頼境界を跨ぐ設計では security-reviewer (STRIDE) を条件起動 (`--security` / `--no-security` で強制・抑止) |
-| `issue-split.md` | 設計を独立マージ可能なPR単位 (縦切り・5ファイル以内目安) に分割し、承認後に GitHub issue 化 (作成前に `gh issue list --search` で重複を確認)。design-doc が規模超過を検知すると提案 |
+| `issue-split.md` | 設計を独立マージ可能なPR単位 (縦切り・5ファイル以内目安) に分割し、承認後に GitHub issue 化 (作成前に `gh issue list --search` で重複を確認。元の issue が引数か設計書で明示されていれば、新規作成分をそのサブ issue に登録。分割案の依存を blocked by として登録し、読み直して確認)。design-doc が規模超過を検知すると提案 |
 | `design-sync.md` | 設計書と実装の乖離を検知し、status を最新化する |
 | `issue-implement.md` | issue 1本を着手ゲート (要件が受領した原文か起票時の推測か、ADR の決定の節) → 曖昧さの3分類 (仕様の選択だけを人に上げる) → レーン判定 (行数でなくスキーマ・エントリポイント・認可・画面・採否・ファイル数で設計から入るか決める) → 実装 → 条件付きレビュー追加 → 完了条件の順に進める入口。実装の中身は superpowers と aidd の既存資産に委ねる。deferred を issue か棄却一覧に落とすまで完了にしない。push・PR作成は行わない |
-| `issue-select.md` | open issue から今着手できる分を選ぶ。進行中の作業 (未 push の実装済みブランチを含む) を先に見て、本文の冒頭と決定済み ADR を確かめ、人の手続きが要るもの・衝突する組み合わせ (同じ画面・共有部品・同じモデル・同じテストファイルの新規作成・マイグレーション・ADR 採番) を外す。ラベルは絞り込みと、付いている優先度ラベルでの並べ替えにだけ使い、優先度の基準は持たない (判定と付与は `aidd:issue-priority` skill の役割)。提案で止める |
+| `issue-select.md` | open issue から今着手できる分を選ぶ。進行中の作業 (未 push の実装済みブランチを含む) を先に見て、本文の冒頭と決定済み ADR を確かめ、open のサブ issue を持つ親を子に置き換え、open の issue に blocked by されているものを外し、人の手続きが要るもの・衝突する組み合わせ (同じ画面・共有部品・同じモデル・同じテストファイルの新規作成・マイグレーション・ADR 採番) を外す。ラベルは絞り込みと、付いている優先度ラベルでの並べ替えにだけ使い、優先度の基準は持たない (判定と付与は `aidd:issue-priority` skill の役割)。提案で止める |
 | `test-perspectives.md` | 実装対象・変更差分からテスト観点 (6分類 + 信頼境界に触れる変更のみセキュリティ分類) を洗い出し、BVA/ECP 適用フラグを付ける (手法の導出は stdd の担当) |
 | `autonomous-review.md` | ローカル差分または `--base` / `--head` で指定した2ブランチ間の差分を、既定の Codex read-only 異種AIレビュー（`--reviewer claude` で同一モデル自己レビュー）、差分の性質に応じた観点別レビュー (エラーハンドリング / セキュリティ) の条件付き追加、現物反証、品質ゲート、リスク判定で最大3ラウンド検査し、`deferred` は追跡先 (issue 番号 or `review-dismissed.md`) の確定を終了条件にし、自動マージ可否だけを判定する。未指定の `--base` / `--head` / `--reviewer` は AskUserQuestion で決める。`--reviewer claude` 時は最終判定が常に `human_required`。push・PR作成・マージは行わない |
 | `doctor.md` | aidd/superpowers の導入状態・バージョン整合・hooks 実行可否を診断する |

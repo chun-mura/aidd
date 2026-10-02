@@ -1,9 +1,11 @@
 ---
 description: 設計を独立マージ可能なPR単位に分割し、GitHub issue 化する
-argument-hint: [設計書のパス or 設計の要約]
+argument-hint: [設計書のパス or 設計の要約] [元の issue 番号 (任意)]
 ---
 
 対象: $ARGUMENTS (設計書のパスが渡された場合は全文を読む)
+
+**元の issue**: 引数に issue 番号・URL があるか、設計書が元の issue を明記している場合だけ、それを親とする。どちらにも無ければ親は無しとし、タイトルや内容の近さから推測で結び付けない (無関係な issue に子が付くため)。
 
 設計された実装を、独立してマージ・テスト可能なPR単位に分割してください。レビュー単位が小さいほどレビュー精度が上がる ([Google Small CLs](https://google.github.io/eng-practices/review/developer/small-cls.html))。セッション内のタスク分解は superpowers:writing-plans の担当であり、このコマンドが扱うのはPR/issue 単位 (チーム・セッション横断の成果物単位) の分割のみ。
 
@@ -21,4 +23,32 @@ argument-hint: [設計書のパス or 設計の要約]
 3. 完了条件: 単独でマージ可能と判断できる検証内容
 4. 依存: 先行してマージが必要な単位 (なければ「独立」)
 
-**issue 化**: 分割案を AskUserQuestion で確認し (issue を作成する / 分割案のみで終了)、承認された場合のみ `gh issue create` で作成する。作成の前に、各単位のタイトルの主要語で `gh issue list --search '<キーワード>' --state all` を起票とは別のコマンドとして実行し、重複する issue があれば作成せずにその番号を報告する。タイトル・本文は日本語。本文には設計書のパス・スコープ・完了条件・依存関係を記載する。`gh` が使えない、または GitHub を使っていないプロジェクトでは分割案の提示のみで終了する。
+**issue 化**: 分割案を AskUserQuestion で確認し (issue を作成する / 分割案のみで終了。「依存」がそのまま blocked by として登録されることも示す)、承認された場合のみ `gh issue create` で作成する。作成の前に、各単位のタイトルの主要語で `gh issue list --search '<キーワード>' --state all` を起票とは別のコマンドとして実行し、重複する issue があれば作成せずにその番号を報告する。タイトル・本文は日本語。本文には設計書のパス・スコープ・完了条件・依存関係を記載する。
+
+**サブ issue 化**: 親がある場合は、分割案の確認で親の番号も示し、新しく作成した issue だけを親のサブ issue に登録する (重複として報告した既存の issue は登録しない。別の親を持っていることがあるため)。`gh` にはサブ issue を作るフラグが無いので REST API を使う。`sub_issue_id` は番号ではなく issue の `id` で、整数として渡す (`-f` だと文字列になり失敗する):
+
+```bash
+id=$(gh api repos/{owner}/{repo}/issues/<子の番号> --jq .id) &&
+  gh api -X POST repos/{owner}/{repo}/issues/<親の番号>/sub_issues -F sub_issue_id="$id"
+```
+
+親と子は同じオーナーのリポジトリにある必要がある。登録に失敗した issue は黙って飛ばさず、番号と理由を報告する (issue 自体の作成は取り消さない)。
+
+**blocked by の登録**: 分割案の「依存」から決める。単位 A が単位 B の先行マージを要するなら、A を B に blocked by にする。分割案に無い依存をこの段階で足さない (承認されていない判断になるため)。依存が循環する分割案は、どの単位も着手できなくなるので issue 化の前に作り直す。依存の片側が重複として報告した既存の issue に当たる場合は、先行側でも後続側でもその既存の issue を使う (サブ issue と違い、blocked by の追加は既存の関係を置き換えないため)。`issue_id` も番号ではなく `id` を整数で渡す:
+
+```bash
+blocker_id=$(gh api repos/{owner}/{repo}/issues/<先行の番号> --jq .id) &&
+  gh api -X POST repos/{owner}/{repo}/issues/<後続の番号>/dependencies/blocked_by -F issue_id="$blocker_id"
+```
+
+登録に失敗した組は黙って飛ばさず、番号と理由を報告する。
+
+**作成結果の確認**: 登録の応答ではなく、読み直した結果で確かめる。
+
+- 親がある場合: `gh api repos/{owner}/{repo}/issues/<親の番号>/sub_issues --paginate --jq '.[].number'` に、作成した issue がすべて含まれる
+- 作成した各 issue: `gh api repos/{owner}/{repo}/issues/<番号>/dependencies/blocked_by --paginate --jq '.[].number'` が、分割案の依存と過不足なく一致する
+- 依存の後続側になった既存の issue: 同じコマンドの結果に、分割案の依存がすべて含まれる (分割前からの関係があり得るので、余分は食い違いとしない)
+
+読み直しのコマンドが失敗した (終了コードが0でない) 場合は、空の結果と区別できないので一致とはみなさず「未確認」と報告する。食い違いがあれば、番号と内容を報告する。最後に、作成した issue ごとに番号・親・blocked by を一覧にして報告する。
+
+`gh` が使えない、または GitHub を使っていないプロジェクトでは分割案の提示のみで終了する。
