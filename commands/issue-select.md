@@ -31,9 +31,11 @@ argument-hint: [ラベル (任意、複数可)]
 候補ごとに、タイトルではなく本文を読む。
 
 - **本文の冒頭**: 前提・「先に決めること」・依存する issue が書かれていないか。書かれていて未解決なら、その issue はまだ着手できない
-- **blocked by**: `gh api repos/{owner}/{repo}/issues/<番号>/dependencies/blocked_by --paginate --jq '[.[] | select(.state == "open")] | length'` が1以上なら、先行する issue が閉じるまで着手できない。候補から外し、先行する issue の番号を添えて報告する
-- **open のサブ issue を持つ親**: 作業は子にあり、親は子がすべて閉じるまで open のまま残る。親は候補から外し、open の子を候補に入れる。open の子の数は `gh api repos/{owner}/{repo}/issues/<番号>/sub_issues --paginate --jq '[.[] | select(.state == "open")] | length'` で数える
+- **blocked by**: `gh api repos/{owner}/{repo}/issues/<番号>/dependencies/blocked_by --paginate --jq '.[] | select(.state == "open") | .number'` が番号を1つでも返せば、先行する issue が閉じるまで着手できない。候補から外し、返った番号を先行する issue として添えて報告する
+- **open のサブ issue を持つ親**: 作業は子にあり、親は子がすべて閉じるまで open のまま残る。親は候補から外し、`gh api repos/{owner}/{repo}/issues/<番号>/sub_issues --paginate --jq '.[] | select(.state == "open") | .number'` が返す open の子の番号を添えて報告する。子は他の候補と同じ判定にかける (絞り込みに当たらない子は候補に足さず、番号を示すだけにする)
 - **決定済みの ADR**: `docs/adr/` に、その issue を不要にした決定、または issue の方向と衝突する決定がないか (`adr-recall` skill の手順で探す)。ある場合は候補から外し、理由を添えて報告する
+
+blocked by と親の2つは件数 (`length`) ではなく番号を出して確かめる。`--paginate` では `--jq` が1ページごとに評価され、件数だと2ページ目以降が別の行に分かれるため。コマンドが失敗した (終了コードが0でない) issue は、空の結果 (該当なし) と区別できないので着手できるとはみなさない。「依存を確認できない」として候補から外し、失敗の理由を添えて報告する。
 
 ## 4. 人の手続きが要るものを外す
 
@@ -56,7 +58,7 @@ argument-hint: [ラベル (任意、複数可)]
 
 1. 候補: issue 番号・タイトル・本文冒頭の要約、同時に進めてよい組み合わせ
 2. 先に片付ける進行中の作業
-3. 外した issue と理由 (ADR・人の手続き・衝突の別)
+3. 外した issue と理由 (ADR・依存 (本文の前提・blocked by・open の子を持つ親)・人の手続き・衝突の別)
 4. 並べ順の根拠 (どの定義の優先度ラベルに従ったか、番号順か)
 
 選ばれた issue の実装は `/aidd:issue-implement` に渡す。このコマンドからは始めない。
