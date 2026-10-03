@@ -11,11 +11,16 @@ trap 'rm -rf "$tmp_dir"' EXIT
 
 [ -x "$dispatcher" ]
 
+# Without a cwd in the payload the dispatcher falls back to its own working directory, so run it
+# from an empty directory: the caller's checkout (recent docs/test-perspectives, docs-only staging)
+# must not decide the result.
+neutral_dir="$tmp_dir/neutral"
+mkdir -p "$neutral_dir"
 run_hook() {
   local event=$1
   local command=$2
   printf '{"hook_event_name":"%s","tool_input":{"command":"%s"}}' "$event" "$command" | \
-    AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$dispatcher"
+    (cd "$neutral_dir" && AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$dispatcher")
 }
 
 [ -z "$(run_hook PreToolUse 'git status')" ]
