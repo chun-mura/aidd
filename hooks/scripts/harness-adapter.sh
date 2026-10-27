@@ -8,7 +8,9 @@ if ! command -v python3 >/dev/null 2>&1; then
   skip_path="$state_dir/adapter-skips.json"
   ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || true)
   if [ ! -s "$skip_path" ]; then
-    printf '{"entries":[{"harness":"","harness_version":"","event":"","tool_name":"","reason":"no_python3","count":1,"last_seen":"%s"}]}\n' "$ts" > "$skip_path.tmp" 2>/dev/null && mv "$skip_path.tmp" "$skip_path" 2>/dev/null || true
+    if printf '{"entries":[{"harness":"","harness_version":"","event":"","tool_name":"","reason":"no_python3","count":1,"last_seen":"%s"}]}\n' "$ts" > "$skip_path.tmp"; then
+      mv "$skip_path.tmp" "$skip_path" || rm -f "$skip_path.tmp"
+    fi
   fi
   exit 0
 fi
