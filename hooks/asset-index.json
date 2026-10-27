@@ -138,6 +138,11 @@
     },
     {
       "kind": "hook",
+      "name": "harness-adapter",
+      "description": "[PreToolUse] Normalize Codex/Cursor hook input, call one aidd script, and convert the reply back."
+    },
+    {
+      "kind": "hook",
       "name": "session-start",
       "description": "[SessionStart] SessionStart hook: surface aidd assets so they are used without relying on memory."
     },

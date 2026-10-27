@@ -11,6 +11,8 @@ aidd プラグインの動作環境を診断してください。各チェック
 3. **hooks 実行権限**: `hooks/scripts/*.sh` それぞれに実行ビット (`x`) が付いているか (`ls -l` で確認)
 4. **python3 存在**: `which python3` — hooks が python3 に依存しているため必須
 5. **状態ファイルの妥当性**: `~/.claude/aidd/state.json` と `~/.claude/aidd/usage.json` が存在する場合、それぞれ有効な JSON としてパースできるか (存在しない場合はスキップ、エラーではない)
+6. **adapter の素通り**: `~/.claude/aidd/adapter-skips.json` がある場合、直近の素通り理由と件数を表示する (`harness` / `event` / `tool_name` / `reason` / `count` / `last_seen`)。無い場合はスキップ
+7. **Cursor fixture の版**: `adapter-skips.json` に記録された `harness_version` (`cursor_version`) が、設計書 `docs/superpowers/specs/2026-10-27-multi-harness-hooks-design.md` の実測版 (`2026.10.22-27dcf5f`) と違う場合、fixture を取り直すよう促す。記録が無い場合はスキップ
 
 各項目を実行するには Bash tool で以下相当のコマンドを使う:
 
@@ -27,6 +29,37 @@ for f in hooks/scripts/*.sh; do [ -x "$f" ] && echo "$f: OK" || echo "$f: WARN n
 which python3 && echo "python3: OK" || echo "python3: WARN not found"
 python3 -m json.tool ~/.claude/aidd/state.json > /dev/null 2>&1 && echo "state.json: OK" || echo "state.json: missing or invalid"
 python3 -m json.tool ~/.claude/aidd/usage.json > /dev/null 2>&1 && echo "usage.json: OK" || echo "usage.json: missing or invalid"
+python3 - <<'PY'
+import json, os
+path = os.path.expanduser("~/.claude/aidd/adapter-skips.json")
+expected = "2026.10.22-27dcf5f"
+if not os.path.isfile(path):
+    print("adapter-skips: skip (no file)")
+    raise SystemExit
+try:
+    data = json.load(open(path))
+except Exception:
+    print("adapter-skips: WARN invalid JSON")
+    raise SystemExit
+entries = data.get("entries") if isinstance(data, dict) else None
+if not isinstance(entries, list) or not entries:
+    print("adapter-skips: OK (empty)")
+    raise SystemExit
+entries = sorted(entries, key=lambda e: e.get("last_seen") or "", reverse=True)
+print("adapter-skips: OK")
+for e in entries[:10]:
+    print("  %s %s %s %s count=%s last=%s" % (
+        e.get("harness"), e.get("event"), e.get("tool_name"), e.get("reason"),
+        e.get("count"), e.get("last_seen")))
+versions = {e.get("harness_version") for e in entries if e.get("harness") == "cursor" and e.get("harness_version")}
+if not versions:
+    print("adapter-skips cursor_version: skip (no cursor records)")
+elif versions - {expected}:
+    print("adapter-skips: WARN cursor_version %s != fixture %s; re-record tests/fixtures/hooks/cursor/" % (
+        ",".join(sorted(versions - {expected})), expected))
+else:
+    print("adapter-skips cursor_version: OK")
+PY
 ```
 
 **出力**: 項目ごとに `OK` / `WARN` / `FAIL` と、`WARN`・`FAIL` には具体的な対処手順を1行で付ける。最後に総合サマリ (問題数) を1行で出す。

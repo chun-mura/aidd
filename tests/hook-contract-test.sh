@@ -576,7 +576,10 @@ AIDD_UNREADABLE_NAME_PATTERNS='*.draft:*.tmp' run_write_guard Write file_path "$
 python3 - "$repo_root/hooks/hooks.json" <<'PYEOF'
 import json, sys
 hooks = json.load(open(sys.argv[1]))["hooks"]["PreToolUse"]
-entries = [e for e in hooks if any("write-guard.sh" in h.get("command", "") for h in e["hooks"])]
+entries = [e for e in hooks if any(
+    "write-guard.sh" in h.get("command", "") and "harness-adapter.sh" not in h.get("command", "")
+    for h in e["hooks"]
+)]
 assert len(entries) == 1, entries
 assert entries[0]["matcher"] == "Write|Edit|NotebookEdit", entries[0]
 assert all("if" not in h for h in entries[0]["hooks"]), entries[0]
@@ -893,3 +896,225 @@ for h in handlers:
     assert "aidd:design-review" in h["prompt"], h
 assert "prompt" not in open(sys.argv[2]).read()
 PYEOF
+
+# harness-adapter.sh: normalize Cursor/Codex input, call one script, convert the reply.
+adapter="$repo_root/hooks/scripts/harness-adapter.sh"
+[ -x "$adapter" ]
+fixtures="$repo_root/tests/fixtures/hooks"
+run_adapter() {
+  AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$adapter" "$@"
+}
+skip_reasons() {
+  python3 -c '
+import json, sys
+print(" ".join(e["reason"] for e in json.load(open(sys.argv[1])).get("entries", [])))
+' "$tmp_dir/aidd/adapter-skips.json"
+}
+
+# Existing hooks.json entries stay in place; apply_patch is only appended.
+python3 - "$repo_root/hooks/hooks.json" <<'PYEOF'
+import json, sys
+pre = json.load(open(sys.argv[1]))["hooks"]["PreToolUse"]
+assert [e["matcher"] for e in pre] == [
+    "Bash", "^Skill$", "Write|Edit|NotebookEdit", "apply_patch"
+], [e["matcher"] for e in pre]
+assert "harness-adapter.sh" in pre[-1]["hooks"][0]["command"]
+assert "write-guard.sh" in pre[-1]["hooks"][0]["command"]
+for entry in pre[:-1]:
+    assert "harness-adapter.sh" not in entry["hooks"][0]["command"], entry
+PYEOF
+
+# Cursor wiring: Shell (not Bash) and sessionStart go through the adapter; Write is absent.
+python3 - "$repo_root/hooks/hooks-cursor.json" <<'PYEOF'
+import json, sys
+doc = json.load(open(sys.argv[1]))
+assert doc["version"] == 1
+hooks = doc["hooks"]
+assert set(hooks) == {"preToolUse", "postToolUse", "postToolUseFailure", "sessionStart"}, hooks
+adapter = "./hooks/scripts/harness-adapter.sh"
+for event in ("preToolUse", "postToolUse", "postToolUseFailure"):
+    entries = hooks[event]
+    assert len(entries) == 1, event
+    assert entries[0]["matcher"] == "Shell", event
+    assert entries[0]["command"] == adapter + " tool-reminder.sh", event
+ss = hooks["sessionStart"]
+assert len(ss) == 1 and "matcher" not in ss[0], ss
+assert ss[0]["command"] == adapter + " session-start.sh", ss
+blob = json.dumps(doc)
+assert "Write" not in blob and "write-guard.sh" not in blob, blob
+PYEOF
+
+# Codex and Cursor manifests share the Claude Code version; each points at its hook file.
+python3 - "$repo_root" <<'PYEOF'
+import json, sys
+from pathlib import Path
+root = Path(sys.argv[1])
+claude = json.load(open(root / ".claude-plugin/plugin.json"))
+codex = json.load(open(root / ".codex-plugin/plugin.json"))
+cursor = json.load(open(root / ".cursor-plugin/plugin.json"))
+assert claude["version"] == codex["version"] == cursor["version"]
+assert codex["hooks"] == "./hooks/hooks.json"
+assert cursor["hooks"] == "./hooks/hooks-cursor.json"
+PYEOF
+
+adapter_in="$tmp_dir/adapter-in.json"
+# Cursor git add -A → Cursor-shaped deny.
+out=$(run_adapter tool-reminder.sh < "$fixtures/cursor/preToolUse.shell-git-add-all.json")
+printf '%s' "$out" | python3 -c '
+import json, sys
+o = json.load(sys.stdin)
+assert o["permission"] == "deny", o
+assert o["user_message"].startswith("aidd:"), o
+assert o["agent_message"] == o["user_message"]
+assert "hookSpecificOutput" not in o
+'
+[ "$(printf '%s\n' "$out" | json_count)" = 1 ]
+
+# cursor_version absent, camelCase event still means Cursor.
+python3 - "$fixtures/cursor/preToolUse.shell-git-add-all.json" "$adapter_in" <<'PY'
+import json, sys
+p = json.load(open(sys.argv[1]))
+del p["cursor_version"]
+json.dump(p, open(sys.argv[2], "w"))
+PY
+out=$(run_adapter tool-reminder.sh < "$adapter_in")
+printf '%s' "$out" | python3 -c 'import json,sys; o=json.load(sys.stdin); assert o["permission"]=="deny", o'
+
+# Empty cwd, CURSOR_PROJECT_DIR set → git checks run in that repo.
+empty_cwd="$tmp_dir/cursor-empty-cwd"
+mkdir -p "$empty_cwd"
+git init -q --template= -b main "$empty_cwd"
+echo x > "$empty_cwd/app.txt"
+git -C "$empty_cwd" add app.txt
+git -C "$empty_cwd" commit -qm base
+python3 - "$fixtures/cursor/preToolUse.shell-git-add-all.json" "$adapter_in" <<'PY'
+import json, sys
+p = json.load(open(sys.argv[1]))
+p["cwd"] = ""
+p["workspace_roots"] = []
+json.dump(p, open(sys.argv[2], "w"))
+PY
+out=$(CURSOR_PROJECT_DIR="$empty_cwd" run_adapter tool-reminder.sh < "$adapter_in")
+printf '%s' "$out" | grep -F '"permission": "deny"' | grep -F 'git add -A'
+
+# cwd / CURSOR_PROJECT_DIR / workspace_roots all empty → no output, skip recorded.
+rm -f "$tmp_dir/aidd/adapter-skips.json"
+python3 - "$fixtures/cursor/preToolUse.shell-git-add-all.json" "$adapter_in" <<'PY'
+import json, sys
+p = json.load(open(sys.argv[1]))
+p["cwd"] = ""
+p["workspace_roots"] = []
+json.dump(p, open(sys.argv[2], "w"))
+PY
+out=$(env -u CURSOR_PROJECT_DIR AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$adapter" tool-reminder.sh < "$adapter_in")
+[ -z "$out" ]
+printf '%s' "$(skip_reasons)" | grep -Fw no_cwd
+
+# CLAUDE_PLUGIN_ROOT pointing elsewhere still uses aidd's asset-index.json.
+overlap_cwd="$tmp_dir/adapter-overlap"
+python3 -c '
+import json, sys
+cwd = sys.argv[2]
+json.dump({
+    "hook_event_name": "PreToolUse",
+    "cwd": cwd,
+    "tool_name": "apply_patch",
+    "tool_input": {"command": "*** Begin Patch\n*** Add File: %s/.claude/commands/doctor.md\n+x\n*** End Patch" % cwd},
+}, open(sys.argv[1], "w"))
+' "$adapter_in" "$overlap_cwd"
+out=$(CLAUDE_PLUGIN_ROOT="$tmp_dir/not-aidd" run_adapter write-guard.sh < "$adapter_in")
+printf '%s' "$out" | grep -F '"permissionDecision": "deny"' | grep -F 'aidd:doctor'
+
+# Codex apply_patch Add of .env.local (absolute).
+python3 - "$fixtures/codex/PreToolUse.apply_patch-add.json" "$adapter_in" <<'PY'
+import json, sys
+p = json.load(open(sys.argv[1]))
+p["tool_input"]["command"] = p["tool_input"]["command"].replace("/work/repo/new.txt", "/work/repo/.env.local")
+json.dump(p, open(sys.argv[2], "w"))
+PY
+out=$(run_adapter write-guard.sh < "$adapter_in")
+printf '%s' "$out" | python3 -c '
+import json, sys
+o = json.load(sys.stdin)["hookSpecificOutput"]
+assert o["permissionDecision"] == "deny" and ".env.local" in o["permissionDecisionReason"], o
+'
+
+# Relative Add File is resolved against cwd.
+python3 -c '
+import json, sys
+json.dump({
+    "hook_event_name": "PreToolUse",
+    "cwd": sys.argv[2],
+    "tool_name": "apply_patch",
+    "tool_input": {"command": "*** Begin Patch\n*** Add File: .env.local\n+x\n*** End Patch"},
+}, open(sys.argv[1], "w"))
+' "$adapter_in" "$tmp_dir/adapter-rel"
+out=$(run_adapter write-guard.sh < "$adapter_in")
+printf '%s' "$out" | grep -F '"deny"' | grep -F '.env.local'
+
+# Update File + Move to: .env.local still denies the new name.
+python3 -c '
+import json, sys
+json.dump({
+    "hook_event_name": "PreToolUse",
+    "cwd": sys.argv[2],
+    "tool_name": "apply_patch",
+    "tool_input": {"command": "*** Begin Patch\n*** Update File: old.txt\n*** Move to: .env.local\n@@\n-a\n+a\n*** End Patch"},
+}, open(sys.argv[1], "w"))
+' "$adapter_in" "$tmp_dir/adapter-move"
+out=$(run_adapter write-guard.sh < "$adapter_in")
+printf '%s' "$out" | grep -F '"deny"' | grep -F '.env.local'
+
+# Two Add File lines collapse to one JSON deny.
+python3 -c '
+import json, sys
+json.dump({
+    "hook_event_name": "PreToolUse",
+    "cwd": sys.argv[2],
+    "tool_name": "apply_patch",
+    "tool_input": {"command": "*** Begin Patch\n*** Add File: .env.local\n+x\n*** Add File: ok.txt\n+y\n*** End Patch"},
+}, open(sys.argv[1], "w"))
+' "$adapter_in" "$tmp_dir/adapter-two"
+out=$(run_adapter write-guard.sh < "$adapter_in")
+[ "$(printf '%s\n' "$out" | json_count)" = 1 ]
+printf '%s' "$out" | grep -F '"deny"' | grep -F '.env.local'
+
+# Failure paths: no output, exit 0, reason recorded.
+rm -f "$tmp_dir/aidd/adapter-skips.json"
+out=$(printf 'not-json' | run_adapter tool-reminder.sh)
+[ -z "$out" ]
+printf '%s' "$(skip_reasons)" | grep -Fw invalid_json
+
+python3 -c '
+import json, sys
+json.dump({
+    "hook_event_name": "PreToolUse",
+    "cwd": "/tmp",
+    "tool_name": "apply_patch",
+    "tool_input": {"command": "this is not a patch"},
+}, open(sys.argv[1], "w"))
+' "$adapter_in"
+out=$(run_adapter write-guard.sh < "$adapter_in")
+[ -z "$out" ]
+printf '%s' "$(skip_reasons)" | grep -Fw unparsed_patch
+
+out=$(run_adapter missing-script.sh < "$fixtures/codex/PreToolUse.apply_patch-add.json")
+[ -z "$out" ]
+printf '%s' "$(skip_reasons)" | grep -Fw missing_script
+
+bad_script="$tmp_dir/bad-output.sh"
+printf '%s\n' '#!/bin/bash' "echo '[1]'" > "$bad_script"
+chmod +x "$bad_script"
+out=$(run_adapter "$bad_script" < "$fixtures/codex/PreToolUse.apply_patch-add.json")
+[ -z "$out" ]
+printf '%s' "$(skip_reasons)" | grep -Fw bad_output
+
+# session-start.sh plaintext becomes Cursor additional_context JSON.
+out=$(AIDD_DISABLE_CLARIFY_NUDGE=1 AIDD_DISABLE_AUDIT_NUDGE=1 \
+  run_adapter session-start.sh < "$fixtures/cursor/sessionStart.json")
+printf '%s' "$out" | python3 -c '
+import json, sys
+o = json.load(sys.stdin)
+assert set(o) == {"additional_context"}, o
+assert o["additional_context"].startswith("aidd:"), o
+'

@@ -67,7 +67,8 @@ if missing) and validates both `.claude-plugin/marketplace.json` and `.claude-pl
   `model-selection` fires when choosing a subagent model). They hold *reusable* judgment logic that would
   otherwise be duplicated across commands.
 - **Hooks** (`hooks/hooks.json` + `hooks/scripts/*.sh`) are the only assets with actual enforcement power —
-  everything else is advisory text a model can ignore. `hooks.json` wires 7 entries across 5 events to 4 scripts:
+  everything else is advisory text a model can ignore. `hooks.json` wires 8 entries across 5 events to 5 scripts
+  (the 8th is Codex `apply_patch` → `harness-adapter.sh` → `write-guard.sh`; Cursor uses `hooks/hooks-cursor.json`):
   - `session-start.sh` (SessionStart): injects a one-time short nudge, an `/aidd:asset-audit` nudge only when the
     consumer's audit is overdue, and detects missing `superpowers` plugin
   - `usage-log.sh` (UserPromptSubmit + PreToolUse `^Skill$`): counts `/aidd:*` usage into `~/.claude/aidd/usage.json`
@@ -82,6 +83,9 @@ if missing) and validates both `.claude-plugin/marketplace.json` and `.claude-pl
   - `write-guard.sh` (PreToolUse, matcher `Write|Edit|NotebookEdit`): acts only on files that don't exist yet —
     denies names the sandbox usually can't read back, and points new consumer `.claude/{hooks,skills,commands,rules,agents}`
     assets at the aidd assets they duplicate (denying same-name commands/skills/agents)
+  - `harness-adapter.sh` (PreToolUse `apply_patch` in `hooks.json`; Cursor Shell / SessionStart in
+    `hooks-cursor.json`): rewrite Codex/Cursor input to the Claude Code shape, call one existing script,
+    convert the reply, and on any failure exit 0 after counting the reason in `adapter-skips.json`
   `tool-reminder.sh` and `write-guard.sh` resolve paths from the hook input's `cwd`, not `CLAUDE_PROJECT_DIR` (which
   stays on the main checkout inside a worktree); `session-start.sh` uses `${CLAUDE_PROJECT_DIR:-$PWD}`.
   All hook writes are confined to `~/.claude/aidd/` — no network calls, no writes elsewhere.

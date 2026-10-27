@@ -69,6 +69,15 @@
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/write-guard.sh\""
           }
         ]
+      },
+      {
+        "matcher": "apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/harness-adapter.sh\" write-guard.sh"
+          }
+        ]
       }
     ]
   }
