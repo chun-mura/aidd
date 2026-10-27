@@ -83,7 +83,7 @@ if missing) and validates both `.claude-plugin/marketplace.json` and `.claude-pl
   - `write-guard.sh` (PreToolUse, matcher `Write|Edit|NotebookEdit`): acts only on files that don't exist yet —
     denies names the sandbox usually can't read back, and points new consumer `.claude/{hooks,skills,commands,rules,agents}`
     assets at the aidd assets they duplicate (denying same-name commands/skills/agents)
-  - `harness-adapter.sh` (PreToolUse `apply_patch` in `hooks.json`; Cursor Shell / SessionStart in
+  - `harness-adapter.sh` (PreToolUse `apply_patch` in `hooks.json`; Cursor Shell / Write / SessionStart in
     `hooks-cursor.json`): rewrite Codex/Cursor input to the Claude Code shape, call one existing script,
     convert the reply, and on any failure exit 0 after counting the reason in `adapter-skips.json`
   `tool-reminder.sh` and `write-guard.sh` resolve paths from the hook input's `cwd`, not `CLAUDE_PROJECT_DIR` (which

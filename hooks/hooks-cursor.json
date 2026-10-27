@@ -5,6 +5,10 @@
       {
         "matcher": "Shell",
         "command": "./hooks/scripts/harness-adapter.sh tool-reminder.sh"
+      },
+      {
+        "matcher": "Write",
+        "command": "./hooks/scripts/harness-adapter.sh write-guard.sh"
       }
     ],
     "postToolUse": [
