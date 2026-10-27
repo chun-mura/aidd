@@ -63,6 +63,18 @@ Codex と Cursor でも、この判定を効かせる。skills と commands の�
 - `updatedInput` は反映される。rtk の書き換えで、preToolUse より後のイベントでは `rtk git add -A` になっていた。
 - `CURSOR_PLUGIN_ROOT` が、Claude Code に入っている別のプラグインを指していた。このことから、**Cursor は Claude Code に入れたプラグインの hooks も読んでいる**と推測する。aidd の hooks.json が実行されたかどうかは直接は確かめていない（未確認 1）。
 
+### deny と信頼の実測
+
+同じ日に、印の付いたコマンド（`AIDD_DENY_PROBE` を含むもの）と、`deny-probe` を含むパッチだけを deny する hook（denyprobe）で確かめた。
+
+| 確かめたこと | 結果 |
+|---|---|
+| Codex：`hookSpecificOutput.permissionDecision: deny`（Bash） | **止まった**。印の無い `echo hello` は実行された |
+| Codex：同じ出力（`apply_patch` で `deny-probe.txt` を新規作成） | **止まった**。ファイルは作られなかった。このときパッチの `Add File:` は**相対パス**（`deny-probe.txt`）だった |
+| Cursor：`{"permission":"deny","user_message":…,"agent_message":…}`（Shell、`--plugin-dir` で読み込み） | **止まった**。拒否の理由に hook の文言が入っていた。印の無いコマンドは承認待ちで拒否され、理由は空だった |
+| Codex：スクリプト本体だけを変えて再導入 | `trusted_hash` は変わらず、**再信頼なしで新しい本体が実行された** |
+| Codex：hooks.json のコマンド文字列を変えて再導入 | **未信頼になり、何も表示されずに実行されなかった**。印付きのコマンドがそのまま実行された |
+
 ## 方式
 
 ### 1. adapter は変換が要る経路にだけ置く
@@ -75,7 +87,7 @@ Claude Code と Codex の Bash の経路は、今の hooks.json の直接呼び�
 全エントリを adapter 経由にしない理由：
 - 今動いている判定を、新しい層の不具合（実行権限の喪失、typo）で黙って失う経路を作らないため
 - `tool-reminder.sh` 冒頭の bash による事前判定（git/gh を含まないコマンドで python を起動しない）の節約を、Claude Code と Codex で保つため
-- Codex の信頼キーはエントリの位置を含む（`<plugin>:hooks/hooks.json:<event>:<i>:<j>`）。既存エントリを書き換えず、末尾に足すだけにすれば、既存エントリの位置は変わらない
+- Codex は、hooks.json のエントリが変わると未信頼にして、何も表示せずに実行しない（「deny と信頼の実測」）。信頼キーはエントリの位置を含む（`<plugin>:hooks/hooks.json:<event>:<i>:<j>`）。既存エントリを書き換えず末尾に足すだけにすれば、既存の判定は信頼が切れずに動き続け、信頼し直しが要るのは新しいエントリだけになる
 
 ### 2. adapter の契約
 
@@ -113,7 +125,7 @@ stdout を JSON オブジェクトとして解析できればそれを、でき�
 | 上記以外のキー | そのまま | 捨てる |
 | 空 | 何も出さない | 何も出さない |
 
-Cursor 側の形は公式ドキュメントに基づく。実際に守られるかはリリース条件で確かめる（§6）。
+deny の形は、Codex と Cursor の両方で実際にコマンドが止まることを確かめた（「deny と信頼の実測」）。`agent_message` と `additional_context` は公式ドキュメントに基づき、未実測。
 
 **失敗時**
 - adapter は**どの失敗でも exit 0 で終わり、変換できなかった出力は返さない**。Cursor は hook の非0終了でツールを拒否する（上の実測）ので、adapter の例外が全ツールの停止につながる
@@ -158,8 +170,8 @@ Cursor 側の形は公式ドキュメントに基づく。実際に守られる�
 
 ### 6. リリース条件
 
-- deny を返す hook（hookprobe に deny を返させたもの）で、**Codex と Cursor の両方で、実際にコマンドが止まることを実測する**（未確認 2）。その入力と結果を fixture として残す。止まらなかったハーネスは対象範囲から外してリリースする
-- Codex の信頼：スクリプト本体だけを変えた版を作り、`trusted_hash` がそれを検出して再信頼を求めるかを実測する（未確認 5）。結果をリリースノートと README に書く
+- ~~deny を返す hook で、Codex と Cursor の両方で実際にコマンドが止まることを実測する~~：2026-10-27 に確認済み（「deny と信頼の実測」）。adapter を実装したら、adapter を通した deny で同じ確認をもう一度行う
+- ~~Codex の信頼が、スクリプト本体の変更を検出するかを実測する~~：検出しない、と確認済み。README とリリースノートには §7 の内容を書く
 - 二重実行（未確認 1）を確かめるまでは、Cursor 用プラグインの README に「Claude Code に入れた aidd と併用しない」と書く。併用すると、usage.json の二重加算や `additional_context` の重複が起きうるため
 
 ### 7. Codex の信頼（trust）の運用
@@ -167,7 +179,14 @@ Cursor 側の形は公式ドキュメントに基づく。実際に守られる�
 - 信頼していない hook は、`codex exec` では**何の表示もなく実行されない**。実測では、信頼する前は記録が0件、信頼した後に17件取れた
 - 信頼は `~/.codex/config.toml` の `[hooks.state."<plugin>@<marketplace>:hooks/hooks.json:<event>:<i>:<j>"]` に `trusted_hash` として保存される
 - `codex plugin remove` をしても、この信頼の記録は残った
-- README に、導入後に `/hooks` で aidd の hook を信頼する手順を書く。再信頼が要る条件は、§6 の実測結果で書く
+- `trusted_hash` が見ているのは hooks.json のエントリで、スクリプト本体ではない（「deny と信頼の実測」）
+  - スクリプトだけを直すアップデートは、再信頼なしで効く
+  - hooks.json のエントリを足す・変えるアップデートは、利用者が `/hooks` で信頼し直すまで、**そのエントリの判定が黙って止まる**
+  - 信頼はスクリプトの中身を保証しない。aidd のスクリプトの改変は、信頼済みのまま実行される
+- README とリリースノートに書くこと
+  - 導入後に `/hooks` で aidd の hook を信頼する手順
+  - hooks.json のエントリが変わるリリースでは、信頼し直しが要ること（そのリリースノートに必ず書く）
+  - `/hooks` 画面で、aidd 以外の hook の有効・無効を変えないこと。今回の実測では、信頼の操作のあとに、利用者が無効にしていた別の hook が2回とも有効に戻っていた（原因は切り分けていない）
 
 ## 採らなかった案
 
@@ -188,6 +207,7 @@ Cursor 側の形は公式ドキュメントに基づく。実際に守られる�
 - `cwd`・`CURSOR_PROJECT_DIR`・`workspace_roots` がすべて空 → 何も出さずに exit 0、`adapter-skips.json` に記録される
 - `CLAUDE_PLUGIN_ROOT` が別のディレクトリを指す → `write-guard.sh` が aidd の `asset-index.json` を読む
 - `codex/PreToolUse.apply_patch-add.json` のパスを `.env.local` に差し替えたもの → deny が返る
+- `Add File: .env.local`（相対パス。Codex は相対パスでも送ってくる）のパッチ → `cwd` を基準に解決され、deny が返る
 - `Update File` + `Move to: .env.local` のパッチ → deny が返る
 - `Add File` が2件（`.env.local` と通常のファイル）のパッチ → JSON 1つで deny が返る
 - 解析できないパッチ、JSON でない入力、存在しない `<script>`、`<script>` がテキストでも JSON でもない出力 → 何も出さずに exit 0、理由が記録される
@@ -208,10 +228,10 @@ fixture は実測値なので、`/aidd:doctor` が版の違いを示したら取
 1. Cursor が、Claude Code に入れた aidd の `hooks/hooks.json` を実行するか。実行する場合は次の問題が起きる
    - `${CLAUDE_PLUGIN_ROOT}` が別のプラグインに展開される
    - Cursor 用プラグインと併用すると二重に実行される
-2. 各ハーネスが deny の出力を実際に守るか（§6 のリリース条件）
+2. ~~各ハーネスが deny の出力を実際に守るか~~：守る（「deny と信頼の実測」）。Cursor で確かめたのは `--plugin-dir` で読み込んだプラグインの hook。`agent_message` / `additional_context` が文脈に入るかは未実測
 3. Codex の SessionStart がプレーンテキストを文脈に入れるか
 4. Codex と Cursor の `additionalContext` の文字数の上限
-5. Codex の `trusted_hash` がスクリプト本体の変更まで検出するか（§6 のリリース条件）。未信頼の hook を CLI から列挙する方法
+5. 未信頼の hook を CLI から列挙する方法（`/aidd:doctor` で検出するため）。`trusted_hash` がスクリプト本体を見ないことは確認済み
 6. Cursor の Write/Edit の preToolUse の入力、`afterFileEdit`・`beforeSubmitPrompt`・`stop`。今回は、ユーザー側の別の hook が編集前の Read を止めたうえ、`-p` で `--force` を使わなかったため取れなかった
 7. Cursor のマルチルートのワークスペースで、`workspace_roots[0]` 以外のリポジトリでコマンドを実行したときの入力（`cwd` が埋まるか）
 8. adapter の遅延。Claude Code と Codex の Bash 経路には挟まらない。Cursor の Shell 経路に挟まる分を実装時に測る
