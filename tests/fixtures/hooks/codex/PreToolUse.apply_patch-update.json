@@ -1,0 +1,14 @@
+{
+  "session_id": "00000000-0000-0000-0000-000000000000",
+  "turn_id": "00000000-0000-0000-0000-000000000000",
+  "transcript_path": "/home/user/.codex/sessions/2026/10/27/rollout-2026-10-27T17-41-11-00000000-0000-0000-0000-000000000000.jsonl",
+  "cwd": "/work/repo",
+  "hook_event_name": "PreToolUse",
+  "model": "gpt-5.6-sol",
+  "permission_mode": "default",
+  "tool_name": "apply_patch",
+  "tool_input": {
+    "command": "*** Begin Patch\n*** Update File: /work/repo/new.txt\n@@\n-hello\n+world\n*** End Patch"
+  },
+  "tool_use_id": "exec-00000000-0000-0000-0000-000000000000"
+}

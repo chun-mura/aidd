@@ -1,0 +1,18 @@
+{
+  "conversation_id": "00000000-0000-0000-0000-000000000000",
+  "generation_id": "00000000-0000-0000-0000-000000000000",
+  "model": "default",
+  "tool_name": "Read",
+  "tool_input": {
+    "file_path": "/work/repo/new.txt"
+  },
+  "tool_use_id": "call-0",
+  "session_id": "00000000-0000-0000-0000-000000000000",
+  "hook_event_name": "preToolUse",
+  "cursor_version": "2026.10.22-27dcf5f",
+  "workspace_roots": [
+    "/work/repo"
+  ],
+  "user_email": "user@example.com",
+  "transcript_path": "/home/user/.cursor/projects/work-repo/agent-transcripts/00000000-0000-0000-0000-000000000000/00000000-0000-0000-0000-000000000000.jsonl"
+}

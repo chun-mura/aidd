@@ -1,0 +1,42 @@
+{
+  "process_cwd": "/plugins/hookprobe",
+  "_note": "Recorded for the hookprobe plugin loaded with --plugin-dir. CLAUDE_PLUGIN_DATA is omitted: it was inherited from the parent Claude Code session that launched cursor-agent.",
+  "env_by_event": {
+    "sessionStart": {
+      "CURSOR_PROJECT_DIR": "/work/repo",
+      "CLAUDE_PROJECT_DIR": "/work/repo",
+      "CURSOR_PLUGIN_ROOT": "/plugins/hookprobe",
+      "CLAUDE_PLUGIN_ROOT": "/plugins/hookprobe"
+    },
+    "preToolUse": {
+      "CURSOR_PROJECT_DIR": "/work/repo",
+      "CLAUDE_PROJECT_DIR": "/work/repo",
+      "CURSOR_PLUGIN_ROOT": "/home/user/.claude/plugins/cache/openai-codex/codex/1.0.6",
+      "CLAUDE_PLUGIN_ROOT": "/home/user/.claude/plugins/cache/openai-codex/codex/1.0.6"
+    },
+    "beforeShellExecution": {
+      "CURSOR_PROJECT_DIR": "/work/repo",
+      "CLAUDE_PROJECT_DIR": "/work/repo",
+      "CURSOR_PLUGIN_ROOT": "/home/user/.claude/plugins/cache/openai-codex/codex/1.0.6",
+      "CLAUDE_PLUGIN_ROOT": "/home/user/.claude/plugins/cache/openai-codex/codex/1.0.6"
+    },
+    "afterShellExecution": {
+      "CURSOR_PROJECT_DIR": "/work/repo",
+      "CLAUDE_PROJECT_DIR": "/work/repo",
+      "CURSOR_PLUGIN_ROOT": "/home/user/.claude/plugins/cache/openai-codex/codex/1.0.6",
+      "CLAUDE_PLUGIN_ROOT": "/home/user/.claude/plugins/cache/openai-codex/codex/1.0.6"
+    },
+    "postToolUse": {
+      "CURSOR_PROJECT_DIR": "/work/repo",
+      "CLAUDE_PROJECT_DIR": "/work/repo",
+      "CURSOR_PLUGIN_ROOT": "/home/user/.claude/plugins/cache/openai-codex/codex/1.0.6",
+      "CLAUDE_PLUGIN_ROOT": "/home/user/.claude/plugins/cache/openai-codex/codex/1.0.6"
+    },
+    "postToolUseFailure": {
+      "CURSOR_PROJECT_DIR": "/work/repo",
+      "CLAUDE_PROJECT_DIR": "/work/repo",
+      "CURSOR_PLUGIN_ROOT": "/home/user/.claude/plugins/cache/openai-codex/codex/1.0.6",
+      "CLAUDE_PLUGIN_ROOT": "/home/user/.claude/plugins/cache/openai-codex/codex/1.0.6"
+    }
+  }
+}
