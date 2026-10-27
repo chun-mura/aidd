@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "matcher": "Shell",
+        "command": "./hooks/scripts/harness-adapter.sh tool-reminder.sh"
+      }
+    ],
+    "postToolUse": [
+      {
+        "matcher": "Shell",
+        "command": "./hooks/scripts/harness-adapter.sh tool-reminder.sh"
+      }
+    ],
+    "postToolUseFailure": [
+      {
+        "matcher": "Shell",
+        "command": "./hooks/scripts/harness-adapter.sh tool-reminder.sh"
+      }
+    ],
+    "sessionStart": [
+      {
+        "command": "./hooks/scripts/harness-adapter.sh session-start.sh"
+      }
+    ]
+  }
+}
