@@ -1,0 +1,10 @@
+{
+  "session_id": "00000000-0000-0000-0000-000000000000",
+  "turn_id": "00000000-0000-0000-0000-000000000000",
+  "transcript_path": "/home/user/.codex/sessions/2026/10/27/rollout-2026-10-27T17-41-11-00000000-0000-0000-0000-000000000000.jsonl",
+  "cwd": "/work/repo",
+  "hook_event_name": "UserPromptSubmit",
+  "model": "gpt-5.6-sol",
+  "permission_mode": "default",
+  "prompt": "次の手順を順に、1つずつ別のツール呼び出しで実行して。(1) シェルで git status を実行 (2) new.txt を新規作成して hello と書く (3) new.txt の hello を world に書き換える（ファイル編集ツールで） (4) シェルで git add -A を実行 (5) シェルで git log -1 no-such-ref を実行（失敗してよい）。最後に各手順の結果を1行ずつ報告して。"
+}

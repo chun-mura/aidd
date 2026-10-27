@@ -1,0 +1,9 @@
+{
+  "process_cwd": "/work/repo",
+  "env": {
+    "CLAUDE_PLUGIN_ROOT": "/home/user/.codex/plugins/cache/hookprobe/hookprobe/0.0.1",
+    "PLUGIN_DATA": "/home/user/.codex/plugins/data/hookprobe-hookprobe",
+    "CLAUDE_PLUGIN_DATA": "/home/user/.codex/plugins/data/hookprobe-hookprobe",
+    "PLUGIN_ROOT": "/home/user/.codex/plugins/cache/hookprobe/hookprobe/0.0.1"
+  }
+}

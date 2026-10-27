@@ -1,0 +1,18 @@
+{
+  "conversation_id": "00000000-0000-0000-0000-000000000000",
+  "generation_id": "00000000-0000-0000-0000-000000000000",
+  "model": "default",
+  "command": "rtk git add -A",
+  "output": "",
+  "duration": 1.417,
+  "sandbox": false,
+  "tool_use_id": "00000000-0000-0000-0000-000000000000",
+  "session_id": "00000000-0000-0000-0000-000000000000",
+  "hook_event_name": "afterShellExecution",
+  "cursor_version": "2026.10.22-27dcf5f",
+  "workspace_roots": [
+    "/work/repo"
+  ],
+  "user_email": "user@example.com",
+  "transcript_path": "/home/user/.cursor/projects/work-repo/agent-transcripts/00000000-0000-0000-0000-000000000000/00000000-0000-0000-0000-000000000000.jsonl"
+}

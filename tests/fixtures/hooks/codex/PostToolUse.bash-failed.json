@@ -1,0 +1,15 @@
+{
+  "session_id": "00000000-0000-0000-0000-000000000000",
+  "turn_id": "00000000-0000-0000-0000-000000000000",
+  "transcript_path": "/home/user/.codex/sessions/2026/10/27/rollout-2026-10-27T17-41-11-00000000-0000-0000-0000-000000000000.jsonl",
+  "cwd": "/work/repo",
+  "hook_event_name": "PostToolUse",
+  "model": "gpt-5.6-sol",
+  "permission_mode": "default",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "rtk git log -1 no-such-ref"
+  },
+  "tool_response": "fatal: ambiguous argument 'no-such-ref': unknown revision or path not in the working tree.\nUse '--' to separate paths from revisions, like this:\n'git <command> [<revision>...] -- [<file>...]'\n\n",
+  "tool_use_id": "exec-00000000-0000-0000-0000-000000000000"
+}
