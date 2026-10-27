@@ -924,7 +924,7 @@ for entry in pre[:-1]:
     assert "harness-adapter.sh" not in entry["hooks"][0]["command"], entry
 PYEOF
 
-# Cursor wiring: Shell (not Bash) and sessionStart go through the adapter; Write is absent.
+# Cursor wiring: Shell → tool-reminder, Write → write-guard; Edit is still unwired.
 python3 - "$repo_root/hooks/hooks-cursor.json" <<'PYEOF'
 import json, sys
 doc = json.load(open(sys.argv[1]))
@@ -932,7 +932,11 @@ assert doc["version"] == 1
 hooks = doc["hooks"]
 assert set(hooks) == {"preToolUse", "postToolUse", "postToolUseFailure", "sessionStart"}, hooks
 adapter = "./hooks/scripts/harness-adapter.sh"
-for event in ("preToolUse", "postToolUse", "postToolUseFailure"):
+pre = hooks["preToolUse"]
+assert [e["matcher"] for e in pre] == ["Shell", "Write"], pre
+assert pre[0]["command"] == adapter + " tool-reminder.sh", pre[0]
+assert pre[1]["command"] == adapter + " write-guard.sh", pre[1]
+for event in ("postToolUse", "postToolUseFailure"):
     entries = hooks[event]
     assert len(entries) == 1, event
     assert entries[0]["matcher"] == "Shell", event
@@ -941,7 +945,7 @@ ss = hooks["sessionStart"]
 assert len(ss) == 1 and "matcher" not in ss[0], ss
 assert ss[0]["command"] == adapter + " session-start.sh", ss
 blob = json.dumps(doc)
-assert "Write" not in blob and "write-guard.sh" not in blob, blob
+assert "Edit" not in blob, blob
 PYEOF
 
 # Codex and Cursor manifests share the Claude Code version; each points at its hook file.
@@ -1117,4 +1121,67 @@ import json, sys
 o = json.load(sys.stdin)
 assert set(o) == {"additional_context"}, o
 assert o["additional_context"].startswith("aidd:"), o
+'
+
+# Cursor Write of .env.local → Cursor-shaped deny (measured preToolUse Write payload).
+python3 - "$fixtures/cursor/preToolUse.write.json" "$adapter_in" "$tmp_dir/cursor-write/.env.local" <<'PY'
+import json, sys
+p = json.load(open(sys.argv[1]))
+p["tool_input"]["file_path"] = sys.argv[3]
+json.dump(p, open(sys.argv[2], "w"))
+PY
+out=$(run_adapter write-guard.sh < "$adapter_in")
+printf '%s' "$out" | python3 -c '
+import json, sys
+o = json.load(sys.stdin)
+assert o["permission"] == "deny", o
+assert ".env.local" in o["user_message"], o
+assert o["agent_message"] == o["user_message"]
+assert "hookSpecificOutput" not in o
+'
+
+# python3 missing → adapter-skips.json, no sentinel file.
+nopy="$tmp_dir/nopy"
+mkdir -p "$nopy"
+out=$(PATH=/bin AIDD_TEST_STATE_DIR="$nopy" bash "$adapter" tool-reminder.sh \
+  < "$fixtures/cursor/preToolUse.shell-git-add-all.json" || true)
+[ -z "$out" ]
+[ ! -e "$nopy/adapter-skips.no-python3" ]
+python3 - "$nopy/adapter-skips.json" <<'PY'
+import json, sys
+entries = json.load(open(sys.argv[1]))["entries"]
+assert any(e.get("reason") == "no_python3" for e in entries), entries
+PY
+
+# Extra Cursor keys are stripped before the child script runs.
+spy="$tmp_dir/spy-input.sh"
+printf '%s\n' '#!/bin/bash' "cat > \"$tmp_dir/child-in.json\"" > "$spy"
+chmod +x "$spy"
+run_adapter "$spy" < "$fixtures/cursor/preToolUse.shell-git-add-all.json" >/dev/null
+python3 - "$tmp_dir/child-in.json" <<'PY'
+import json, sys
+child = json.load(open(sys.argv[1]))
+for key in ("user_email", "generation_id", "cursor_version", "workspace_roots"):
+    assert key not in child, (key, child)
+assert "user@example.com" not in json.dumps(child)
+assert child["tool_name"] == "Bash"
+assert child["hook_event_name"] == "PreToolUse"
+PY
+
+# deny plus additionalContext stays on Cursor (agent_message keeps the nudge).
+python3 - "$fixtures/cursor/preToolUse.shell-git-add-all.json" "$adapter_in" "$repo" <<'PY'
+import json, sys
+p = json.load(open(sys.argv[1]))
+p["cwd"] = sys.argv[3]
+p["tool_input"]["command"] = "gh issue create --title t"
+p["tool_input"]["cwd"] = sys.argv[3]
+json.dump(p, open(sys.argv[2], "w"))
+PY
+out=$(AIDD_DISABLE_ISSUE_SEARCH_GATE=0 run_adapter tool-reminder.sh < "$adapter_in")
+printf '%s' "$out" | python3 -c '
+import json, sys
+o = json.load(sys.stdin)
+assert o["permission"] == "deny", o
+assert "gh issue create" in o["user_message"], o
+assert "日本語" in o["agent_message"], o
 '

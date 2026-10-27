@@ -13,7 +13,7 @@ Codex と Cursor でも、この判定を効かせる。skills と commands の�
 |---|---|---|
 | Claude Code | 今のまま | 今のまま |
 | Codex | 今のまま効く（再生で確認） | adapter で `apply_patch` に対応する |
-| Cursor | adapter で対応する | **対象外**。Write/Edit の入力を実測できていない（未確認 6）。実測してから別の変更で足す |
+| Cursor | adapter で対応する | adapter で Write に対応する。Edit は未配線（入力未取得） |
 
 ## 実測の条件
 
@@ -34,7 +34,7 @@ Codex と Cursor でも、この判定を効かせる。skills と commands の�
 | `hook_event_name` | `PreToolUse` など同じ表記（`codex/PreToolUse.bash-git-add-all.json`） | **`preToolUse` など camelCase**（`cursor/preToolUse.shell-git-add-all.json`） |
 | `tool_name`（matcher の対象） | シェルは `Bash`。**ファイル作成・編集は `apply_patch`**（`codex/PreToolUse.apply_patch-add.json`） | シェルは **`Shell`**。編集はまず **`Read`** として届いた（`cursor/preToolUse.read-before-edit.json`） |
 | `tool_input.command` | 同じ。`apply_patch` ではパッチ本文が入る | 同じ。`beforeShellExecution` だけはトップレベルの `command` |
-| `tool_input.file_path` | **無い**。パスはパッチ本文の `*** Add File: <絶対パス>` 行にある | Read では有る。Write/Edit の preToolUse は未取得 |
+| `tool_input.file_path` | **無い**。パスはパッチ本文の `*** Add File: <絶対パス>` 行にある | Read と Write では有る（`cursor/preToolUse.write.json`）。Edit の preToolUse は未取得 |
 | `cwd` | セッションの作業ディレクトリ | **空文字**。作業ディレクトリは `workspace_roots[0]` と `CURSOR_PROJECT_DIR` にある |
 | hook プロセスのカレントディレクトリ | 作業ディレクトリ（`codex/_process.json`） | **プラグインのディレクトリ**（`cursor/_process.json`） |
 | `CLAUDE_PROJECT_DIR` | 設定されない | 全イベントで作業ディレクトリ（`cursor/_process.json`） |
@@ -104,11 +104,11 @@ Claude Code と Codex の Bash の経路は、今の hooks.json の直接呼び�
 - ツール名：`Shell`→`Bash`
 - `cwd`：入力の `cwd` が空でなければそれを使う。空なら `CURSOR_PROJECT_DIR` → `workspace_roots[0]` の順に埋める（どちらも実測で全イベントとも作業ディレクトリを指していた。信用しないのは `*_PLUGIN_ROOT` だけ）。**すべて空なら `<script>` を呼ばずに終わる**（hook プロセスのカレントディレクトリは Cursor ではプラグインのディレクトリなので、そこで判定させない）
 - `CLAUDE_PLUGIN_ROOT`：adapter 自身の位置（`$0` から2階層上）で上書きして export してから `<script>` を呼ぶ。`write-guard.sh` はこの変数を優先して `hooks/asset-index.json` を読むため（`write-guard.sh:9`）
-- `user_email` などの余分な項目は落とす
+- `user_email`・`generation_id`・`cursor_version`・`workspace_roots` は落とす
 - `apply_patch`：パッチ本文から、**行頭の** `*** Add File: <path>` と `*** Move to: <path>` を取り出す。それぞれを `{"tool_name":"Write","tool_input":{"file_path":<path>}}` の1件として `<script>` を呼ぶ（Move to は移動先に新しいファイルを作るため）。`Update File` と `Delete File` は新しいファイルを作らないので呼ばない。相対パスは `cwd` を基準に解決する。パッチを解析できなければ `<script>` を呼ばずに終わる
 
 **`<script>` を複数回呼んだときの集約**
-- deny が1件でもあれば deny とし、理由は改行でつなぐ
+- deny が1件でもあれば deny とし、理由は改行でつなぐ。同じ結果に `additionalContext` があれば残す
 - `additionalContext` は重複を除いてつなぐ
 - 出力は常に JSON 1つにする（Claude Code は1回の hook につき返信を1つ読む。`tool-reminder.sh:3-4`）
 
@@ -118,7 +118,7 @@ stdout を JSON オブジェクトとして解析できればそれを、でき�
 
 | `<script>` の出力 | Claude Code / Codex へ | Cursor へ |
 |---|---|---|
-| `permissionDecision: deny` と理由 | そのまま | `{"permission":"deny","user_message":理由,"agent_message":理由}` |
+| `permissionDecision: deny` と理由 | そのまま（`additionalContext` があれば残す） | `{"permission":"deny","user_message":理由,"agent_message":理由}`。`additionalContext` があれば `agent_message` の末尾に足す |
 | `additionalContext`（PreToolUse） | そのまま | `agent_message` |
 | `additionalContext`（PostToolUse / PostToolUseFailure / SessionStart） | そのまま | `additional_context` |
 | プレーンテキスト（`session-start.sh`） | そのまま | `additional_context` |
@@ -142,7 +142,7 @@ deny の形は、Codex と Cursor の両方で実際にコマンドが止まる�
   - `"version": 1`
   - `preToolUse`（matcher `Shell`）、`postToolUse`（matcher `Shell`）、`postToolUseFailure`（matcher `Shell`）で、`harness-adapter tool-reminder.sh` を呼ぶ
   - `sessionStart` で `harness-adapter session-start.sh` を呼ぶ
-  - Write/Edit と `beforeSubmitPrompt`（`usage-log.sh`）は配線しない。入力が未取得のため（未確認 6）
+  - `preToolUse`（matcher `Write`）で `harness-adapter write-guard.sh` を呼ぶ。Edit と `beforeSubmitPrompt`（`usage-log.sh`）は配線しない。Edit の入力が未取得のため
   - `beforeShellExecution` も配線しない。preToolUse(Shell) と同じコマンドで二重に判定することになり、しかも rtk の書き換え後の文字列が来るため
   - コマンドのパスは `./hooks/...` の相対にする。`CURSOR_PLUGIN_ROOT` は sessionStart 以外で信用できない
   - hooks-cursor.json で matcher が効くかは未実測（実測したのは、Claude 用に登録した hook での読み替え）。効かなければ matcher を外し、adapter 側で `tool_name` が `Shell` 以外なら何もせず終える
@@ -153,7 +153,7 @@ deny の形は、Codex と Cursor の両方で実際にコマンドが止まる�
 | 対象 | 扱い |
 |---|---|
 | `usage-log.sh` の `PreToolUse(^Skill$)` | Codex と Cursor には Skill ツールが無い。利用回数の記録は Claude Code だけで行う |
-| Cursor の `write-guard.sh` | 対象外（対象範囲の表を参照） |
+| Cursor の `write-guard.sh` | Write のみ配線。Edit は対象外 |
 | `session-start.sh` のプレーンテキスト出力 | Cursor は adapter が `additional_context` に変換する。Codex がプレーンテキストを文脈に入れるかは未確認 3 |
 | `PostToolUseFailure`（Codex） | 失敗も `PostToolUse` で届く。commit 後の Why の確認は PostToolUse でも動くので影響しない。push が失敗しても PR 更新を促す文が出るが、促しは「push 後の PR 更新を忘れない」ためのもので、失敗時に出ても害が小さいので許容する |
 | `additionalContext` の 10,000 文字の前提 | Claude Code の仕様。Codex と Cursor の上限は未確認 4 |
@@ -212,6 +212,10 @@ deny の形は、Codex と Cursor の両方で実際にコマンドが止まる�
 - `Add File` が2件（`.env.local` と通常のファイル）のパッチ → JSON 1つで deny が返る
 - 解析できないパッチ、JSON でない入力、存在しない `<script>`、`<script>` がテキストでも JSON でもない出力 → 何も出さずに exit 0、理由が記録される
 - `session-start.sh` のプレーンテキスト → Cursor では `additional_context` の JSON になる
+- `cursor/preToolUse.write.json` のパスを `.env.local` に差し替えたもの → Cursor 形式の deny が返る
+- python3 が無い → `adapter-skips.json` に `no_python3` が残る
+- 子へ渡した JSON に `user_email` / `generation_id` / `cursor_version` / `workspace_roots` が無い
+- deny と `additionalContext` が同時の Cursor 入力 → `agent_message` に nudge が残る
 
 ### fixture の取り直し
 
@@ -232,6 +236,6 @@ fixture は実測値なので、`/aidd:doctor` が版の違いを示したら取
 3. Codex の SessionStart がプレーンテキストを文脈に入れるか
 4. Codex と Cursor の `additionalContext` の文字数の上限
 5. 未信頼の hook を CLI から列挙する方法（`/aidd:doctor` で検出するため）。`trusted_hash` がスクリプト本体を見ないことは確認済み
-6. Cursor の Write/Edit の preToolUse の入力、`afterFileEdit`・`beforeSubmitPrompt`・`stop`。今回は、ユーザー側の別の hook が編集前の Read を止めたうえ、`-p` で `--force` を使わなかったため取れなかった
+6. ~~Cursor の Write の preToolUse の入力~~：取得済み（`cursor/preToolUse.write.json`）。Edit、`afterFileEdit`・`beforeSubmitPrompt`・`stop` は未取得
 7. Cursor のマルチルートのワークスペースで、`workspace_roots[0]` 以外のリポジトリでコマンドを実行したときの入力（`cwd` が埋まるか）
 8. adapter の遅延。Claude Code と Codex の Bash 経路には挟まらない。Cursor の Shell 経路に挟まる分を実装時に測る

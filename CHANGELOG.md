@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.44.0 (2026-10-27)
+
+- Cursor の Write にも `write-guard.sh` を配線した（手順0で実測した `preToolUse` の `file_path`）。Edit はまだ対象外。adapter は deny と `additionalContext` を同時に残し、Cursor では nudge を `agent_message` に載せる。`user_email` に加え `generation_id` / `cursor_version` / `workspace_roots` も子スクリプトへ渡さない。python3 が無いときは sentinel ファイルではなく `adapter-skips.json` に `no_python3` を書く
+
 ## 0.43.0 (2026-10-27)
 
 - Codex と Cursor でも git/gh の deny と、Codex の新規ファイル deny を効かせる adapter を足した。判定スクリプト (`tool-reminder.sh` / `write-guard.sh`) は書き換えず、入力を Claude Code の形に揃えて呼び、返事を戻す。`hooks.json` の既存7エントリは変えず、末尾に `apply_patch` → `harness-adapter.sh write-guard.sh` を1つ足した (Codex の信頼はエントリ位置を見るため)。Cursor 用は `hooks/hooks-cursor.json` (Shell と SessionStart のみ。Write は対象外)。導入は `.codex-plugin` / `.cursor-plugin` の hooks 宣言。失敗は exit 0 で素通りし、`adapter-skips.json` に件数だけ残す。`/aidd:doctor` がその理由と、記録された `cursor_version` が fixture の版と違うことを出す。Codex では `/hooks` での信頼が必要で、hooks.json のエントリが変わるリリースでは信頼し直す

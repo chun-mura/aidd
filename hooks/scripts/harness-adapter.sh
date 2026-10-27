@@ -2,18 +2,21 @@
 # Normalize Codex/Cursor hook input, call one aidd script, and convert the reply back.
 # Always exits 0: Cursor treats a non-zero hook as a deny of the tool itself.
 input=$(cat)
+state_dir="${AIDD_TEST_STATE_DIR:-$HOME/.claude/aidd}"
+if ! command -v python3 >/dev/null 2>&1; then
+  mkdir -p "$state_dir" 2>/dev/null || true
+  skip_path="$state_dir/adapter-skips.json"
+  ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || true)
+  if [ ! -s "$skip_path" ]; then
+    printf '{"entries":[{"harness":"","harness_version":"","event":"","tool_name":"","reason":"no_python3","count":1,"last_seen":"%s"}]}\n' "$ts" > "$skip_path.tmp" 2>/dev/null && mv "$skip_path.tmp" "$skip_path" 2>/dev/null || true
+  fi
+  exit 0
+fi
 script_dir=$(cd "$(dirname "$0")" && pwd)
 plugin_root=$(cd "$script_dir/../.." && pwd)
-state_dir="${AIDD_TEST_STATE_DIR:-$HOME/.claude/aidd}"
 target="${1-}"
 if [ -n "$target" ] && [ "${target#/}" = "$target" ]; then
   target="$script_dir/$target"
-fi
-
-if ! command -v python3 >/dev/null 2>&1; then
-  mkdir -p "$state_dir" 2>/dev/null || true
-  : > "$state_dir/adapter-skips.no-python3" 2>/dev/null || true
-  exit 0
 fi
 
 PY_CODE=$(cat <<'PYEOF'
@@ -131,7 +134,8 @@ def abs_path(path, cwd):
 
 def normalize(event, cwd):
     out = dict(event)
-    out.pop("user_email", None)
+    for key in ("user_email", "generation_id", "cursor_version", "workspace_roots"):
+        out.pop(key, None)
     name = out.get("hook_event_name")
     if name in EVENT_MAP:
         out["hook_event_name"] = EVENT_MAP[name]
@@ -190,11 +194,14 @@ def merge_results(results, event_name):
         if ctx and ctx not in contexts:
             contexts.append(ctx)
     if denials:
-        return {"hookSpecificOutput": {
+        specific = {
             "hookEventName": event_name or "PreToolUse",
             "permissionDecision": "deny",
             "permissionDecisionReason": "\n".join(denials),
-        }}
+        }
+        if contexts:
+            specific["additionalContext"] = "\n".join(contexts)
+        return {"hookSpecificOutput": specific}
     if contexts:
         return {"hookSpecificOutput": {
             "hookEventName": event_name or "PreToolUse",
@@ -219,10 +226,14 @@ def convert_cursor(merged, event_name):
     specific = merged.get("hookSpecificOutput") or {}
     if specific.get("permissionDecision") == "deny":
         reason = specific.get("permissionDecisionReason") or ""
+        ctx = specific.get("additionalContext")
+        agent = reason
+        if isinstance(ctx, str) and ctx:
+            agent = (reason + "\n" + ctx) if reason else ctx
         return json.dumps({
             "permission": "deny",
             "user_message": reason,
-            "agent_message": reason,
+            "agent_message": agent,
         }, ensure_ascii=False)
     ctx = specific.get("additionalContext")
     if isinstance(ctx, str) and ctx:
