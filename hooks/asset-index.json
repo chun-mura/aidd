@@ -23,11 +23,6 @@
     },
     {
       "kind": "command",
-      "name": "design-review",
-      "description": "設計ドキュメントや実装方針を多観点でレビューする"
-    },
-    {
-      "kind": "command",
       "name": "design-sync",
       "description": "設計書と実装の乖離を検知し、status を最新化する"
     },
@@ -35,11 +30,6 @@
       "kind": "command",
       "name": "doctor",
       "description": "aidd/superpowers の導入状態・バージョン整合・hooks 実行可否・Codex custom agents の導入を診断する"
-    },
-    {
-      "kind": "command",
-      "name": "eval",
-      "description": "design-review パイプラインをゴールデンセットで評価し、検出率・誤棄却率を測定する"
     },
     {
       "kind": "command",
@@ -80,6 +70,16 @@
       "kind": "skill",
       "name": "adr-recall",
       "description": "Use when making an architectural decision, changing existing structure, or proposing a design that could contradict a past decision. Checks docs/adr/ for related ADRs before proceeding."
+    },
+    {
+      "kind": "skill",
+      "name": "design-review",
+      "description": "設計ドキュメントや実装方針を多観点でレビューする"
+    },
+    {
+      "kind": "skill",
+      "name": "eval",
+      "description": "design-review パイプラインをゴールデンセットで評価し、検出率・誤棄却率を測定する"
     },
     {
       "kind": "skill",

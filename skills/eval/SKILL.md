@@ -1,7 +1,11 @@
 ---
+name: eval
 description: design-review パイプラインをゴールデンセットで評価し、検出率・誤棄却率を測定する
 argument-hint: [ケース名 (structure / data-error / security)。省略時は全ケース]
+disable-model-invocation: true
 ---
+
+**パスと引数と質問の扱い**: この文書の相対パスは、この SKILL.md があるディレクトリを起点にする。`$ARGUMENTS` が文字のまま残っている場合（Codex・Cursor など）は、この skill を呼び出したメッセージのうち skill 名以外の部分を `$ARGUMENTS` とみなす。`AskUserQuestion` と書かれた箇所は、ユーザーに質問するツールがあればそれを使い、無ければ質問を書いて作業を止め、回答を待つ。回答が無いまま推測で進めない。
 
 対象ケース: $ARGUMENTS (未指定なら `tests/eval/cases/` 配下の全 `.md`)
 
@@ -14,7 +18,7 @@ design-review パイプラインの精度を、欠陥を意図的に埋め込ん
 
 ## 手順
 
-**1. レビュー実行** — ケースごとに逐次、`commands/design-review.md` を `--depth=deep` で適用する (並列 dispatch → refuter → arbiter。security-reviewer は条件起動判定に委ねるため `--security` を付けてはならない)。評価は最も厳密な経路を固定して測り、通常の `standard` 最適化による skip と混同しない。ケースは1ファイル・100行未満だが、design-review の小規模対象ショートカットは**適用禁止**。
+**1. レビュー実行** — ケースごとに逐次、`../design-review/SKILL.md` を `--depth=deep` で適用する (並列 dispatch → refuter → arbiter。security-reviewer は条件起動判定に委ねるため `--security` を付けてはならない)。評価は最も厳密な経路を固定して測り、通常の `standard` 最適化による skip と混同しない。ケースは1ファイル・100行未満だが、design-review の小規模対象ショートカットは**適用禁止**。
 
 ケースごとに以下の中間データを記録しておく:
 

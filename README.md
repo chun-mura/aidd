@@ -43,7 +43,7 @@ codex plugin add aidd@aidd
 
 導入後に `/hooks` で aidd の hook を信頼する。信頼していない hook は何も表示されずに実行されない。`hooks.json` のエントリが変わるリリースでは、そのエントリを `/hooks` で信頼し直す (スクリプト本体だけの修正では不要)。`/hooks` 画面では aidd 以外の hook の有効・無効を変えないこと (信頼の操作のあとに、無効にしていた別の hook が有効に戻った実測がある)。
 
-`.codex-plugin` は `skills/` も宣言する。既存の自動 skill（`adr-recall` / `model-selection` / `four-kinds-check` / `issue-priority` / `parallel-coordinator` / `review-loop`）は Codex でも読める。タスクコマンド（`/aidd:design-review` など）はまだ `commands/` にあり、Claude Code だけが `/aidd:<name>` で起動する。
+`.codex-plugin` は `skills/` も宣言する。既存の自動 skill に加え、`design-review` と `eval` は `$aidd:design-review` / `$aidd:eval` で起動できる。残りのタスクコマンドはまだ `commands/` にあり、Claude Code だけが `/aidd:<name>` で起動する。
 
 custom agents はプラグイン導入だけでは届かない。Codex が読むのは `~/.codex/agents/` か、今のリポの `.codex/agents/` だけだからである。プラグインのディレクトリで次を実行する:
 
@@ -60,7 +60,7 @@ spawn 名は `aidd-reviewer` / `aidd-refuter` / `aidd-design-arbiter` / `aidd-sc
 cursor-agent --trust --plugin-dir <aidd を clone したパス>
 ```
 
-`.cursor-plugin` は `skills/` も宣言する。既存の自動 skill は Cursor でも読める（名前空間は付かないので `/adr-recall` など）。タスクコマンドはまだ `commands/` にあり、この経路では起動しない。
+`.cursor-plugin` は `skills/` も宣言する。既存の自動 skill に加え、`/design-review` と `/eval` が起動できる（名前空間は付かない）。残りのタスクコマンドはまだ `commands/` にあり、この経路では起動しない。
 
 Claude Code に入れた aidd と、この Cursor 用プラグインは併用しない。併用すると usage.json の二重加算や案内文の重複が起きうる。Cursor は Claude Code に入っているプラグインの skill も読むので、Claude 側だけ入れてある場合は自動 skill は見える。Edit の判定 (`write-guard.sh`) は Cursor ではまだ配線していない。
 
@@ -92,7 +92,6 @@ Claude Code に入れた aidd と、この Cursor 用プラグインは併用し
 | `incident-retro.md` | セッションの事故の棚卸し。再発防止の置き場をコード (今直さないなら issue) → hook → ADR (決定とその理由) → `CLAUDE.md` / memory (リポジトリを移っても効くか) → コマンドの順に決め、一般則にする前にその規則で壊れるものを1件挙げさせる。ADR・issue は `/aidd:adr`・`/aidd:issue-split` に委ねる。人だけが起動する (`disable-model-invocation`) |
 | `design-doc.md` | 要件から設計書を生成し docs/design/ に保存。構成は design-review の6観点と1対1対応 |
 | `adr.md` | アーキテクチャ決定記録を docs/adr/NNNN-<slug>.md に作成。1 ADR = 1 決定。採番はローカルに加えローカル／リモートの全ブランチを見て衝突を避ける |
-| `design-review.md` | 設計や実装方針を多観点レビュー。既定の `--depth=standard` は必要時だけ refuter / arbiter を起動し、反証済み指摘を直接報告する。`--depth=deep` は品質重視の完全経路。再レビューでは `--review-delta=<変更範囲>` で差分と周辺文脈に絞る。`--verify-sources` で外部情報源検証を追加。信頼境界を跨ぐ設計では security-reviewer (STRIDE) を条件起動 (`--security` / `--no-security` で強制・抑止) |
 | `issue-split.md` | 設計を独立マージ可能なPR単位 (縦切り・5ファイル以内目安) に分割し、承認後に GitHub issue 化 (作成前に `gh issue list --search` で重複を確認。元の issue が引数か設計書で明示されていれば、新規作成分をそのサブ issue に登録。分割案の依存を blocked by として登録し、読み直して確認)。design-doc が規模超過を検知すると提案 |
 | `design-sync.md` | 設計書と実装の乖離を検知し、status を最新化する |
 | `issue-implement.md` | issue 1本を着手ゲート (要件が受領した原文か起票時の推測か、ADR の決定の節) → 曖昧さの3分類 (仕様の選択だけを人に上げる) → レーン判定 (行数でなくスキーマ・エントリポイント・認可・画面・採否・ファイル数で設計から入るか決める) → 実装 → 条件付きレビュー追加 → 完了条件の順に進める入口。実装の中身は superpowers と aidd の既存資産に委ねる。deferred を issue か棄却一覧に落とすまで完了にしない。push・PR作成は行わない |
@@ -101,7 +100,13 @@ Claude Code に入れた aidd と、この Cursor 用プラグインは併用し
 | `autonomous-review.md` | ローカル差分または `--base` / `--head` で指定した2ブランチ間の差分を、既定の Codex read-only 異種AIレビュー（`--reviewer claude` で同一モデル自己レビュー）、差分の性質に応じた観点別レビュー (エラーハンドリング / セキュリティ) の条件付き追加、現物反証、品質ゲート、リスク判定で最大3ラウンド検査し、`deferred` は追跡先 (issue 番号 or `review-dismissed.md`) の確定を終了条件にし、自動マージ可否だけを判定する。未指定の `--base` / `--head` / `--reviewer` は AskUserQuestion で決める。`--reviewer claude` 時は最終判定が常に `human_required`。push・PR作成・マージは行わない |
 | `doctor.md` | aidd/superpowers の導入状態・バージョン整合・hooks 実行可否・Codex custom agents の導入を診断する |
 | `infra-audit.md` | 利用側プロジェクトの静的解析(複雑度制御)・重複コード検出(jscpd/knip)・多OS CI の導入状況を診断する。doctor が aidd 自身を診断するのに対し、こちらは利用側プロジェクトの品質ガードを対象とする |
-| `eval.md` | design-review パイプラインの精度測定。`tests/eval/` のゴールデンセット (シード欠陥入り設計書 + 正解キー) にレビューを実行し、検出率・反証誤棄却・デコイ誤検出等を採点して `tests/eval/results/` に記録する (aidd リポジトリ自身で実行) |
+
+### Skills (利用者が呼ぶ。モデルからは自動起動しない)
+
+| Skill | 用途 | Claude Code | Codex | Cursor |
+|---|---|---|---|---|
+| `design-review/` | 設計や実装方針を多観点レビュー。既定の `--depth=standard` は必要時だけ refuter / arbiter を起動し、反証済み指摘を直接報告する。`--depth=deep` は品質重視の完全経路。再レビューでは `--review-delta=<変更範囲>` で差分と周辺文脈に絞る。`--verify-sources` で外部情報源検証を追加。信頼境界を跨ぐ設計では security-reviewer (STRIDE) を条件起動 (`--security` / `--no-security` で強制・抑止) | `/aidd:design-review` | `$aidd:design-review` | `/design-review` |
+| `eval/` | design-review パイプラインの精度測定。`tests/eval/` のゴールデンセット (シード欠陥入り設計書 + 正解キー) にレビューを実行し、検出率・反証誤棄却・デコイ誤検出等を採点して `tests/eval/results/` に記録する (aidd リポジトリ自身で実行) | `/aidd:eval` | `$aidd:eval` | `/eval` |
 
 ### Agents (サブエージェント定義)
 
@@ -237,7 +242,7 @@ cp <aidd>/templates/aidd-hook-log.sh .claude/hooks/   # 実行ビットごとコ
 3. **README更新**: 資産追加時は本インデックスを更新し、`.claude-plugin` / `.codex-plugin` / `.cursor-plugin` の `version` を同じ値に上げて CHANGELOG に記録。command・skill・agent・hook の追加・削除・改名、frontmatter の `name`・`description` の変更、`hooks/hooks.json` の配線や hook スクリプトの shebang 直後のコメント行の変更、plugin.json の `commands`・`skills`・`agents`・`hooks` の宣言の変更をしたら `python3 scripts/generate-asset-index.py` で資産一覧を再生成する (CI の `python3 scripts/generate-asset-index.py --check` と `tests/hook-contract-test.sh` が不一致で落ちる)。`agents/*.md` の本文や frontmatter を変えたら `python3 scripts/generate-codex-agents.py` も同じコミットで回す (CI の `--check` が stale で落ちる)
 4. **重複禁止**: superpowers・reqd・estimate・uidd・stdd・グローバル資産と被る機能は作らず、ポインタのみ記載
 5. **受動ドキュメント禁止**: セッション中に効かせたい知見は docs でなく skills (自動トリガ) か hooks (強制) にする
-6. **パイプライン変更時の評価**: `design-review.md`・`refuter.md`・`design-arbiter.md`・`security-reviewer.md`・`reviewer.md` のプロンプトを変更するリリースは、リリース前に `/aidd:eval` を実行し結果を `tests/eval/results/` に残す (退行の検知はこの記録の比較でのみ可能)
+6. **パイプライン変更時の評価**: `skills/design-review/SKILL.md`・`agents/refuter.md`・`agents/design-arbiter.md`・`agents/security-reviewer.md`・`agents/reviewer.md` のプロンプトを変更するリリースは、リリース前に `/aidd:eval` を実行し結果を `tests/eval/results/` に残す (退行の検知はこの記録の比較でのみ可能)
 
 ## 設計ドキュメント
 
