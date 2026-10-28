@@ -13,7 +13,7 @@ Codex と Cursor でも、この判定を効かせる。skills と commands の�
 |---|---|---|
 | Claude Code | 今のまま | 今のまま |
 | Codex | 今のまま効く（再生で確認） | adapter で `apply_patch` に対応する |
-| Cursor | adapter で対応する | adapter で Write に対応する。Edit は未配線（入力未取得） |
+| Cursor | adapter で対応する | adapter で Write に対応する。編集の `preToolUse` も `tool_name` は `Write`（2026-10-28 実測）。専用の Edit matcher は不要 |
 
 ## 実測の条件
 
@@ -32,9 +32,9 @@ Codex と Cursor でも、この判定を効かせる。skills と commands の�
 | 項目（Claude Code） | Codex | Cursor |
 |---|---|---|
 | `hook_event_name` | `PreToolUse` など同じ表記（`codex/PreToolUse.bash-git-add-all.json`） | **`preToolUse` など camelCase**（`cursor/preToolUse.shell-git-add-all.json`） |
-| `tool_name`（matcher の対象） | シェルは `Bash`。**ファイル作成・編集は `apply_patch`**（`codex/PreToolUse.apply_patch-add.json`） | シェルは **`Shell`**。編集はまず **`Read`** として届いた（`cursor/preToolUse.read-before-edit.json`） |
+| `tool_name`（matcher の対象） | シェルは `Bash`。**ファイル作成・編集は `apply_patch`**（`codex/PreToolUse.apply_patch-add.json`） | シェルは **`Shell`**。編集はまず **`Read`** として届いた（`cursor/preToolUse.read-before-edit.json`）。成功した編集の `preToolUse` は **`Write`**（内部は `editToolCall`。`tool_name: Edit` は来ない） |
 | `tool_input.command` | 同じ。`apply_patch` ではパッチ本文が入る | 同じ。`beforeShellExecution` だけはトップレベルの `command` |
-| `tool_input.file_path` | **無い**。パスはパッチ本文の `*** Add File: <絶対パス>` 行にある | Read と Write では有る（`cursor/preToolUse.write.json`）。Edit の preToolUse は未取得 |
+| `tool_input.file_path` | **無い**。パスはパッチ本文の `*** Add File: <絶対パス>` 行にある | Read と Write では有る（`cursor/preToolUse.write.json`）。内部の `editToolCall` も `preToolUse` では Write の `file_path`。無いファイルへの Edit は `fileNotFound` で、Write/Edit の `preToolUse` は来ない |
 | `cwd` | セッションの作業ディレクトリ | **空文字**。作業ディレクトリは `workspace_roots[0]` と `CURSOR_PROJECT_DIR` にある |
 | hook プロセスのカレントディレクトリ | 作業ディレクトリ（`codex/_process.json`） | **プラグインのディレクトリ**（`cursor/_process.json`） |
 | `CLAUDE_PROJECT_DIR` | 設定されない | 全イベントで作業ディレクトリ（`cursor/_process.json`） |
@@ -142,10 +142,10 @@ deny の形は、Codex と Cursor の両方で実際にコマンドが止まる�
   - `"version": 1`
   - `preToolUse`（matcher `Shell`）、`postToolUse`（matcher `Shell`）、`postToolUseFailure`（matcher `Shell`）で、`harness-adapter tool-reminder.sh` を呼ぶ
   - `sessionStart` で `harness-adapter session-start.sh` を呼ぶ
-  - `preToolUse`（matcher `Write`）で `harness-adapter write-guard.sh` を呼ぶ。Edit と `beforeSubmitPrompt`（`usage-log.sh`）は配線しない。Edit の入力が未取得のため
+  - `preToolUse`（matcher `Write`）で `harness-adapter write-guard.sh` を呼ぶ。Edit matcher は足さない（2026-10-28 実測で編集の `preToolUse` は `tool_name` `Write`。無いファイルへの Edit は `fileNotFound`）。`beforeSubmitPrompt`（`usage-log.sh`）は配線しない
   - `beforeShellExecution` も配線しない。preToolUse(Shell) と同じコマンドで二重に判定することになり、しかも rtk の書き換え後の文字列が来るため
   - コマンドのパスは `./hooks/...` の相対にする。`CURSOR_PLUGIN_ROOT` は sessionStart 以外で信用できない
-  - hooks-cursor.json で matcher が効くかは未実測（実測したのは、Claude 用に登録した hook での読み替え）。効かなければ matcher を外し、adapter 側で `tool_name` が `Shell` 以外なら何もせず終える
+  - hooks-cursor.json で matcher が効くかは未実測（実測したのは、Claude 用に登録した hook での読み替え）。効かなければ matcher を外し、adapter 側で `tool_name` が `Shell` でも `Write` でもなければ何もせず終える（`Write` は `write-guard.sh` へ）
 - `.codex-plugin/plugin.json`：`"hooks": "./hooks/hooks.json"`
 
 ### 4. 移せないもの・変わるもの
@@ -153,7 +153,7 @@ deny の形は、Codex と Cursor の両方で実際にコマンドが止まる�
 | 対象 | 扱い |
 |---|---|
 | `usage-log.sh` の `PreToolUse(^Skill$)` | Codex と Cursor には Skill ツールが無い。利用回数の記録は Claude Code だけで行う |
-| Cursor の `write-guard.sh` | Write のみ配線。Edit は対象外 |
+| Cursor の `write-guard.sh` | Write のみ配線。専用の `tool_name: Edit` は無く、新規作成は Edit ではできない（`fileNotFound`） |
 | `session-start.sh` のプレーンテキスト出力 | Cursor は adapter が `additional_context` に変換する。Codex がプレーンテキストを文脈に入れるかは未確認 3 |
 | `PostToolUseFailure`（Codex） | 失敗も `PostToolUse` で届く。commit 後の Why の確認は PostToolUse でも動くので影響しない。push が失敗しても PR 更新を促す文が出るが、促しは「push 後の PR 更新を忘れない」ためのもので、失敗時に出ても害が小さいので許容する |
 | `additionalContext` の 10,000 文字の前提 | Claude Code の仕様。Codex と Cursor の上限は未確認 4 |
@@ -236,6 +236,6 @@ fixture は実測値なので、`/aidd:doctor` が版の違いを示したら取
 3. Codex の SessionStart がプレーンテキストを文脈に入れるか
 4. Codex と Cursor の `additionalContext` の文字数の上限
 5. 未信頼の hook を CLI から列挙する方法（`/aidd:doctor` で検出するため）。`trusted_hash` がスクリプト本体を見ないことは確認済み
-6. ~~Cursor の Write の preToolUse の入力~~：取得済み（`cursor/preToolUse.write.json`）。Edit、`afterFileEdit`・`beforeSubmitPrompt`・`stop` は未取得
+6. ~~Cursor の Write の preToolUse の入力~~：取得済み（`cursor/preToolUse.write.json`）。~~Edit の preToolUse~~：`tool_name` は `Write`（内部は `editToolCall`。無いファイルへの Edit は `fileNotFound`）。`afterFileEdit`・`beforeSubmitPrompt`・`stop` は未配線（`afterFileEdit` は記録できるが deny できないので write-guard の対象外）
 7. Cursor のマルチルートのワークスペースで、`workspace_roots[0]` 以外のリポジトリでコマンドを実行したときの入力（`cwd` が埋まるか）
 8. adapter の遅延。Claude Code と Codex の Bash 経路には挟まらない。Cursor の Shell 経路に挟まる分を実装時に測る

@@ -62,7 +62,7 @@ cursor-agent --trust --plugin-dir <aidd を clone したパス>
 
 `.cursor-plugin` は `skills/` も宣言する。既存の自動 skill に加え、`/design-review` / `/eval` / `/autonomous-review` / `/issue-split` / `/issue-select` / `/retro` / `/asset-audit` / `/incident-retro` / `/adr` / `/design-doc` / `/design-sync` / `/doctor` / `/infra-audit` / `/issue-implement` / `/test-perspectives` が起動できる（名前空間は付かない）。`commands/` は無い。
 
-Claude Code に入れた aidd と、この Cursor 用プラグインは併用しない。併用すると usage.json の二重加算や案内文の重複が起きうる。Cursor は Claude Code に入っているプラグインの skill も読むので、Claude 側だけ入れてある場合は自動 skill は見える。Edit の判定 (`write-guard.sh`) は Cursor ではまだ配線していない。
+Claude Code に入れた aidd と、この Cursor 用プラグインは併用しない。併用すると usage.json の二重加算や案内文の重複が起きうる。Cursor は Claude Code に入っているプラグインの skill も読むので、Claude 側だけ入れてある場合は自動 skill は見える。Cursor の編集は `preToolUse` では `tool_name` `Write` として届くので、Write 配線で足りる。専用の Edit matcher は無い。
 
 ## 前提環境と利用側プロジェクトの規約
 
