@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.46.0 (2026-10-28)
+
+- `.codex-plugin` と `.cursor-plugin` に `"skills": "./skills/"` を載せた。hooks だけの宣言だと、既存の自動 skill（`adr-recall` など）が Codex / Cursor に届かなかった。`.claude-plugin` には `skills` キーを付けない（規約で `skills/` を見つける。reqd / stdd / uidd と同じ）。タスクコマンドはまだ `commands/` にあり Claude Code のみ。後続で skills へ移すときの置き場・`AskUserQuestion` の解釈・`commands/` を残さない方針は `.claude/CLAUDE.md` に書いた (#57)
+
 ## 0.45.0 (2026-10-28)
 
 - Codex 用の custom agent TOML を `.codex/agents/` に置いた。正本は既存の `agents/*.md` で、`scripts/generate-codex-agents.py` が必須3キー (`name` / `description` / `developer_instructions`) だけを出す。spawn 名は `aidd-reviewer` のように接頭辞を付け、公式サンプルの `reviewer` とぶつからない。Codex のプラグイン導入では TOML は届かないので、`scripts/install-codex-agents.sh` が `~/.codex/agents/`（`--project` なら今のリポ）へコピーする。`/aidd:doctor` がその未導入と版ずれを見る
