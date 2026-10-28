@@ -27,7 +27,7 @@ Codex と Cursor でも、この判定を効かせる。skills と commands の�
 
 記録は匿名化して `tests/fixtures/hooks/{codex,cursor}/` に置いた。以下、根拠は fixture のファイル名で示す。
 
-2026-10-28 に、同じ版（Codex CLI 0.163.0、Cursor agent CLI 2026.10.22-27dcf5f）で未確認 1–8 を追った。記録用プラグインは一時ディレクトリに置き、リポジトリの fixture は増やしていない。結果は「未確認」に書く。
+2026-10-28 に、同じ版（Codex CLI 0.163.0、Cursor agent CLI 2026.10.22-27dcf5f）で未確認 1–8 を追った。同日、`hooks-cursor.json` と同じ形の matcher（`Shell` / `Write` / `Read`）も `cursor-agent -p --trust --force --plugin-dir` で測った。記録用プラグインは一時ディレクトリに置き、リポジトリの fixture は増やしていない。結果は「未確認」に書く。
 
 ## aidd が入力から読む項目と、各ハーネスの実測値
 
@@ -147,7 +147,7 @@ deny の形は、Codex と Cursor の両方で実際にコマンドが止まる�
   - `preToolUse`（matcher `Write`）で `harness-adapter write-guard.sh` を呼ぶ。Edit matcher は足さない（2026-10-28 実測で編集の `preToolUse` は `tool_name` `Write`。無いファイルへの Edit は `fileNotFound`）。`beforeSubmitPrompt`（`usage-log.sh`）は配線しない
   - `beforeShellExecution` も配線しない。preToolUse(Shell) と同じコマンドで二重に判定することになり、しかも rtk の書き換え後の文字列が来るため
   - コマンドのパスは `./hooks/...` の相対にする。`CURSOR_PLUGIN_ROOT` は sessionStart 以外で信用できない
-  - hooks-cursor.json で matcher が効くかは未実測（実測したのは、Claude 用に登録した hook での読み替え）。効かなければ matcher を外し、adapter 側で `tool_name` が `Shell` でも `Write` でもなければ何もせず終える（`Write` は `write-guard.sh` へ）
+  - `hooks-cursor.json` の matcher は効く（2026-10-28。`preToolUse` の `Shell` / `Write` / `Read` と `postToolUse` の `Shell`。matcher なしの hook は全ツールで発火し、matcher 付きは該当ツールだけ）。今の配線のままでよい
 - `.codex-plugin/plugin.json`：`"hooks": "./hooks/hooks.json"`
 
 ### 4. 移せないもの・変わるもの
@@ -239,7 +239,6 @@ fixture は実測値なので、`/aidd:doctor` が版の違いを示したら取
 6. ~~Cursor の Write の preToolUse の入力~~：取得済み（`cursor/preToolUse.write.json`）。~~Edit の preToolUse~~：`tool_name` は `Write`（内部は `editToolCall`。無いファイルへの Edit は `fileNotFound`）。`afterFileEdit`・`beforeSubmitPrompt`・`stop` は未配線（`afterFileEdit` は記録できるが deny できないので write-guard の対象外）。`beforeSubmitPrompt` と `stop` は `cursor-agent -p` では来ない（2026-10-28）。配線しない
 7. ~~Cursor のマルチルートのワークスペースで、`workspace_roots[0]` 以外のリポジトリでコマンドを実行したときの入力~~：第二ルートのシェルでは `preToolUse` の `cwd` と `tool_input.cwd` がそのルート。`workspace_roots` と `CURSOR_PROJECT_DIR` は第一ルートのまま。`--add-dir` は `workspace_roots` に増えない。`cwd` が空の呼び出しも 1 回あった（2026-10-28）。adapter の cwd 優先（入力の `cwd` → `CURSOR_PROJECT_DIR` → `workspace_roots[0]`）は正しい
 8. ~~adapter の遅延~~：Cursor の `git add -A` fixture を adapter → `tool-reminder.sh` に 30 回流し、最小 81ms、中央 84ms、p95 89ms、最大 99ms（2026-10-28）。Claude Code と Codex の Bash 経路には挟まらない
+9. ~~`hooks-cursor.json` の matcher~~：効く（2026-10-28。`cursor-agent -p --trust --force --plugin-dir`。`Shell` は pre/post の Shell だけ、`Read` は Read だけ、編集の `Write` は Write だけ。matcher なしは全ツール）
 
-残しているもの:
-
-- `hooks-cursor.json` の matcher（§3）：効くかは未実測。実測したのは Claude 用 hook の読み替え。効かなければ matcher を外し、adapter 側で `tool_name` が `Shell` でも `Write` でもなければ何もせず終える
+残しているもの: なし
