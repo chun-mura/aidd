@@ -43,7 +43,7 @@ codex plugin add aidd@aidd
 
 導入後に `/hooks` で aidd の hook を信頼する。信頼していない hook は何も表示されずに実行されない。`hooks.json` のエントリが変わるリリースでは、そのエントリを `/hooks` で信頼し直す (スクリプト本体だけの修正では不要)。`/hooks` 画面では aidd 以外の hook の有効・無効を変えないこと (信頼の操作のあとに、無効にしていた別の hook が有効に戻った実測がある)。
 
-`.codex-plugin` は `skills/` も宣言する。既存の自動 skill に加え、`design-review` / `eval` / `autonomous-review` は `$aidd:<name>` で起動できる。残りのタスクコマンドはまだ `commands/` にあり、Claude Code だけが `/aidd:<name>` で起動する。
+`.codex-plugin` は `skills/` も宣言する。既存の自動 skill に加え、`design-review` / `eval` / `autonomous-review` / `issue-split` / `issue-select` / `retro` / `asset-audit` / `incident-retro` は `$aidd:<name>` で起動できる。残りのタスクコマンドはまだ `commands/` にあり、Claude Code だけが `/aidd:<name>` で起動する。
 
 custom agents はプラグイン導入だけでは届かない。Codex が読むのは `~/.codex/agents/` か、今のリポの `.codex/agents/` だけだからである。プラグインのディレクトリで次を実行する:
 
@@ -60,7 +60,7 @@ spawn 名は `aidd-reviewer` / `aidd-refuter` / `aidd-design-arbiter` / `aidd-sc
 cursor-agent --trust --plugin-dir <aidd を clone したパス>
 ```
 
-`.cursor-plugin` は `skills/` も宣言する。既存の自動 skill に加え、`/design-review` / `/eval` / `/autonomous-review` が起動できる（名前空間は付かない）。残りのタスクコマンドはまだ `commands/` にあり、この経路では起動しない。
+`.cursor-plugin` は `skills/` も宣言する。既存の自動 skill に加え、`/design-review` / `/eval` / `/autonomous-review` / `/issue-split` / `/issue-select` / `/retro` / `/asset-audit` / `/incident-retro` が起動できる（名前空間は付かない）。残りのタスクコマンドはまだ `commands/` にあり、この経路では起動しない。
 
 Claude Code に入れた aidd と、この Cursor 用プラグインは併用しない。併用すると usage.json の二重加算や案内文の重複が起きうる。Cursor は Claude Code に入っているプラグインの skill も読むので、Claude 側だけ入れてある場合は自動 skill は見える。Edit の判定 (`write-guard.sh`) は Cursor ではまだ配線していない。
 
@@ -87,15 +87,10 @@ Claude Code に入れた aidd と、この Cursor 用プラグインは併用し
 
 | ファイル | 説明 |
 |---------|------|
-| `retro.md` | aidd 資産の棚卸し。利用実績・hooks/skills の摩擦・陳腐化を洗い出す (対象は aidd 自身の資産のみ) |
-| `asset-audit.md` | 利用側プロジェクトの `.claude/` と `CLAUDE.md` の棚卸し。retro と同じ型を利用側の資産に当て、一定期間発火しない hook・参照先の消えた記述・上流に吸収された規則・2箇所にある同じ基準・観測1件からの一般化を削除・改訂候補に、`error` 行を持つ hook を修正候補にする。候補が0件なら基準を疑う。人だけが起動する (`disable-model-invocation`) |
-| `incident-retro.md` | セッションの事故の棚卸し。再発防止の置き場をコード (今直さないなら issue) → hook → ADR (決定とその理由) → `CLAUDE.md` / memory (リポジトリを移っても効くか) → コマンドの順に決め、一般則にする前にその規則で壊れるものを1件挙げさせる。ADR・issue は `/aidd:adr`・`/aidd:issue-split` に委ねる。人だけが起動する (`disable-model-invocation`) |
 | `design-doc.md` | 要件から設計書を生成し docs/design/ に保存。構成は design-review の6観点と1対1対応 |
 | `adr.md` | アーキテクチャ決定記録を docs/adr/NNNN-<slug>.md に作成。1 ADR = 1 決定。採番はローカルに加えローカル／リモートの全ブランチを見て衝突を避ける |
-| `issue-split.md` | 設計を独立マージ可能なPR単位 (縦切り・5ファイル以内目安) に分割し、承認後に GitHub issue 化 (作成前に `gh issue list --search` で重複を確認。元の issue が引数か設計書で明示されていれば、新規作成分をそのサブ issue に登録。分割案の依存を blocked by として登録し、読み直して確認)。design-doc が規模超過を検知すると提案 |
 | `design-sync.md` | 設計書と実装の乖離を検知し、status を最新化する |
 | `issue-implement.md` | issue 1本を着手ゲート (要件が受領した原文か起票時の推測か、ADR の決定の節) → 曖昧さの3分類 (仕様の選択だけを人に上げる) → レーン判定 (行数でなくスキーマ・エントリポイント・認可・画面・採否・ファイル数で設計から入るか決める) → 実装 → 条件付きレビュー追加 → 完了条件の順に進める入口。実装の中身は superpowers と aidd の既存資産に委ねる。deferred を issue か棄却一覧に落とすまで完了にしない。push・PR作成は行わない |
-| `issue-select.md` | open issue から今着手できる分を選ぶ。進行中の作業 (未 push の実装済みブランチを含む) を先に見て、本文の冒頭と決定済み ADR を確かめ、open のサブ issue を持つ親を子に置き換え、open の issue に blocked by されているものを外し、人の手続きが要るもの・衝突する組み合わせ (同じ画面・共有部品・同じモデル・同じテストファイルの新規作成・マイグレーション・ADR 採番) を外す。ラベルは絞り込みと、付いている優先度ラベルでの並べ替えにだけ使い、優先度の基準は持たない (判定と付与は `aidd:issue-priority` skill の役割)。提案で止める |
 | `test-perspectives.md` | 実装対象・変更差分からテスト観点 (6分類 + 信頼境界に触れる変更のみセキュリティ分類) を洗い出し、BVA/ECP 適用フラグを付ける (手法の導出は stdd の担当) |
 | `doctor.md` | aidd/superpowers の導入状態・バージョン整合・hooks 実行可否・Codex custom agents の導入を診断する |
 | `infra-audit.md` | 利用側プロジェクトの静的解析(複雑度制御)・重複コード検出(jscpd/knip)・多OS CI の導入状況を診断する。doctor が aidd 自身を診断するのに対し、こちらは利用側プロジェクトの品質ガードを対象とする |
@@ -107,6 +102,11 @@ Claude Code に入れた aidd と、この Cursor 用プラグインは併用し
 | `design-review/` | 設計や実装方針を多観点レビュー。既定の `--depth=standard` は必要時だけ refuter / arbiter を起動し、反証済み指摘を直接報告する。`--depth=deep` は品質重視の完全経路。再レビューでは `--review-delta=<変更範囲>` で差分と周辺文脈に絞る。`--verify-sources` で外部情報源検証を追加。信頼境界を跨ぐ設計では security-reviewer (STRIDE) を条件起動 (`--security` / `--no-security` で強制・抑止) | `/aidd:design-review` | `$aidd:design-review` | `/design-review` |
 | `eval/` | design-review パイプラインの精度測定。`tests/eval/` のゴールデンセット (シード欠陥入り設計書 + 正解キー) にレビューを実行し、検出率・反証誤棄却・デコイ誤検出等を採点して `tests/eval/results/` に記録する (aidd リポジトリ自身で実行) | `/aidd:eval` | `$aidd:eval` | `/eval` |
 | `autonomous-review/` | ローカル差分または `--base` / `--head` で指定した2ブランチ間の差分を、既定の Codex read-only 異種AIレビュー（`--reviewer claude` で同一モデル自己レビュー）、差分の性質に応じた観点別レビュー (エラーハンドリング / セキュリティ) の条件付き追加、現物反証、品質ゲート、リスク判定で最大3ラウンド検査し、`deferred` は追跡先 (issue 番号 or `review-dismissed.md`) の確定を終了条件にし、自動マージ可否だけを判定する。未指定の `--base` / `--head` / `--reviewer` は AskUserQuestion で決める。`--reviewer claude` 時は最終判定が常に `human_required`。push・PR作成・マージは行わない | `/aidd:autonomous-review` | `$aidd:autonomous-review` | `/autonomous-review` |
+| `issue-split/` | 設計を独立マージ可能なPR単位 (縦切り・5ファイル以内目安) に分割し、承認後に GitHub issue 化 (作成前に `gh issue list --search` で重複を確認。元の issue が引数か設計書で明示されていれば、新規作成分をそのサブ issue に登録。分割案の依存を blocked by として登録し、読み直して確認)。design-doc が規模超過を検知すると提案 | `/aidd:issue-split` | `$aidd:issue-split` | `/issue-split` |
+| `issue-select/` | open issue から今着手できる分を選ぶ。進行中の作業 (未 push の実装済みブランチを含む) を先に見て、本文の冒頭と決定済み ADR を確かめ、open のサブ issue を持つ親を子に置き換え、open の issue に blocked by されているものを外し、人の手続きが要るもの・衝突する組み合わせ (同じ画面・共有部品・同じモデル・同じテストファイルの新規作成・マイグレーション・ADR 採番) を外す。ラベルは絞り込みと、付いている優先度ラベルでの並べ替えにだけ使い、優先度の基準は持たない (判定と付与は `aidd:issue-priority` skill の役割)。提案で止める | `/aidd:issue-select` | `$aidd:issue-select` | `/issue-select` |
+| `retro/` | aidd 資産の棚卸し。利用実績・hooks/skills の摩擦・陳腐化を洗い出す (対象は aidd 自身の資産のみ) | `/aidd:retro` | `$aidd:retro` | `/retro` |
+| `asset-audit/` | 利用側プロジェクトの `.claude/` と `CLAUDE.md` の棚卸し。retro と同じ型を利用側の資産に当て、一定期間発火しない hook・参照先の消えた記述・上流に吸収された規則・2箇所にある同じ基準・観測1件からの一般化を削除・改訂候補に、`error` 行を持つ hook を修正候補にする。候補が0件なら基準を疑う。人だけが起動する (`disable-model-invocation`) | `/aidd:asset-audit` | `$aidd:asset-audit` | `/asset-audit` |
+| `incident-retro/` | セッションの事故の棚卸し。再発防止の置き場をコード (今直さないなら issue) → hook → ADR (決定とその理由) → `CLAUDE.md` / `AGENTS.md` / Cursor の rules / memory (リポジトリを移っても効くか) → コマンドの順に決め、一般則にする前にその規則で壊れるものを1件挙げさせる。ADR・issue は `/aidd:adr`・`/aidd:issue-split` に委ねる。人だけが起動する (`disable-model-invocation`) | `/aidd:incident-retro` | `$aidd:incident-retro` | `/incident-retro` |
 
 ### Agents (サブエージェント定義)
 

@@ -1,8 +1,11 @@
 ---
+name: incident-retro
 description: セッションで起きた事故を棚卸しし、再発防止の置き場 (コード・hook・CLAUDE.md・memory・コマンド・ADR・issue) を決めて定着させる
 argument-hint: [事故の概要 (省略時はこのセッションの会話から拾う)]
 disable-model-invocation: true
 ---
+
+**パスと引数と質問の扱い**: この文書の相対パスは、この SKILL.md があるディレクトリを起点にする。`$ARGUMENTS` が文字のまま残っている場合（Codex・Cursor など）は、この skill を呼び出したメッセージのうち skill 名以外の部分を `$ARGUMENTS` とみなす。`AskUserQuestion` と書かれた箇所は、ユーザーに質問するツールがあればそれを使い、無ければ質問を書いて作業を止め、回答を待つ。回答が無いまま推測で進めない。
 
 対象: $ARGUMENTS (空ならこのセッションの会話全体)
 
@@ -27,12 +30,12 @@ disable-model-invocation: true
 3. **決定とその理由を残すもの** (設計判断・トレードオフ) → `/aidd:adr` に委ねる
 4. **判断を伴う規則** → 「リポジトリを移っても効くべきか」で分ける
    - 効くべき → ユーザー側の memory (`~/.claude/CLAUDE.md` など、リポジトリに入らない置き場)
-   - このリポジトリでだけ効く → リポジトリの `CLAUDE.md`
+   - このリポジトリでだけ効く → リポジトリの `CLAUDE.md`。Codex は既定では `AGENTS.md`、Cursor は project rules も候補にする
 5. **繰り返す手順** → `.claude/commands/` か `.claude/skills/` (1回の事故だけなら昇格させず、上の置き場に留める)
 
 **一般則にする前の確認**: その規則を守ると壊れるもの (正当な例外) を1件挙げる。挙げられない規則は適用範囲が分かっていないので、一般則にせず事故の状況に限った書き方に留める。
 
-**重複の確認**: 足す前に、既存の `CLAUDE.md`・`.claude/` 配下・memory に同じ基準が無いかを grep する。あれば新しく書かず、既存の記述を直す。
+**重複の確認**: 足す前に、既存の `CLAUDE.md`・`AGENTS.md`・`.claude/` 配下・Cursor の rules・memory に同じ基準が無いかを grep する。あれば新しく書かず、既存の記述を直す。
 
 **3. 出力と実施**
 

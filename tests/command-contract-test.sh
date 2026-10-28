@@ -34,7 +34,7 @@ grep -F -- '検討した代替案' "$adr_command"
 # incident-retro picks the first matching tier, so the ADR tier must come before the rule
 # tier (a design decision also reads as a rule with judgment), and deferred work is folded
 # into the code tier instead of being a trailing tier that the code tier already shadows.
-incident_retro="$repo_root/commands/incident-retro.md"
+incident_retro="$repo_root/skills/incident-retro/SKILL.md"
 adr_line=$(grep -n '^[0-9]\. \*\*決定とその理由を残すもの\*\*' "$incident_retro" | cut -d: -f1)
 rule_line=$(grep -n '^[0-9]\. \*\*判断を伴う規則\*\*' "$incident_retro" | cut -d: -f1)
 [ -n "$adr_line" ] && [ -n "$rule_line" ] && [ "$adr_line" -lt "$rule_line" ]
@@ -45,4 +45,4 @@ fi
 
 # asset-audit must not silently continue when its state write fails (e.g. under the sandbox),
 # or the SessionStart nudge never stops.
-grep -F -- '書き込みに失敗したら黙って続けない' "$repo_root/commands/asset-audit.md"
+grep -F -- '書き込みに失敗したら黙って続けない' "$repo_root/skills/asset-audit/SKILL.md"

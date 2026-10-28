@@ -8,11 +8,6 @@
     },
     {
       "kind": "command",
-      "name": "asset-audit",
-      "description": "利用側プロジェクトの .claude/ と CLAUDE.md を棚卸しし、削除・改訂・修正の候補を出す"
-    },
-    {
-      "kind": "command",
       "name": "design-doc",
       "description": "要件から設計書を生成し docs/design/ に保存する"
     },
@@ -28,11 +23,6 @@
     },
     {
       "kind": "command",
-      "name": "incident-retro",
-      "description": "セッションで起きた事故を棚卸しし、再発防止の置き場 (コード・hook・CLAUDE.md・memory・コマンド・ADR・issue) を決めて定着させる"
-    },
-    {
-      "kind": "command",
       "name": "infra-audit",
       "description": "利用側プロジェクトの静的解析(複雑度制御)・重複コード検出・多OS CI導入状況を診断する"
     },
@@ -43,21 +33,6 @@
     },
     {
       "kind": "command",
-      "name": "issue-select",
-      "description": "open issue から今着手できる分を選び、提案で止める"
-    },
-    {
-      "kind": "command",
-      "name": "issue-split",
-      "description": "設計を独立マージ可能なPR単位に分割し、GitHub issue 化する"
-    },
-    {
-      "kind": "command",
-      "name": "retro",
-      "description": "aidd 資産の棚卸し。利用実績と陳腐化した資産を洗い出す"
-    },
-    {
-      "kind": "command",
       "name": "test-perspectives",
       "description": "実装対象・変更差分からテスト観点を洗い出す"
     },
@@ -65,6 +40,11 @@
       "kind": "skill",
       "name": "adr-recall",
       "description": "Use when making an architectural decision, changing existing structure, or proposing a design that could contradict a past decision. Checks docs/adr/ for related ADRs before proceeding."
+    },
+    {
+      "kind": "skill",
+      "name": "asset-audit",
+      "description": "利用側プロジェクトの .claude/ と CLAUDE.md を棚卸しし、削除・改訂・修正の候補を出す"
     },
     {
       "kind": "skill",
@@ -88,8 +68,23 @@
     },
     {
       "kind": "skill",
+      "name": "incident-retro",
+      "description": "セッションで起きた事故を棚卸しし、再発防止の置き場 (コード・hook・CLAUDE.md・memory・コマンド・ADR・issue) を決めて定着させる"
+    },
+    {
+      "kind": "skill",
       "name": "issue-priority",
       "description": "Use when asked to set, review, or triage the priority label of GitHub issues, or when about to file a GitHub issue (gh issue create) in a repository that uses priority labels (AIDD_REQUIRED_LABEL_PREFIX is set, .aidd/issue-priority.md exists, or gh label list shows priority labels). Not for ordering implementation tasks inside a plan."
+    },
+    {
+      "kind": "skill",
+      "name": "issue-select",
+      "description": "open issue から今着手できる分を選び、提案で止める"
+    },
+    {
+      "kind": "skill",
+      "name": "issue-split",
+      "description": "設計を独立マージ可能なPR単位に分割し、GitHub issue 化する"
     },
     {
       "kind": "skill",
@@ -100,6 +95,11 @@
       "kind": "skill",
       "name": "parallel-coordinator",
       "description": "Use when acting as the coordinator that has multiple workers implement several issues or tasks in parallel."
+    },
+    {
+      "kind": "skill",
+      "name": "retro",
+      "description": "aidd 資産の棚卸し。利用実績と陳腐化した資産を洗い出す"
     },
     {
       "kind": "skill",
