@@ -34,7 +34,7 @@
     {
       "kind": "command",
       "name": "doctor",
-      "description": "aidd/superpowers の導入状態・バージョン整合・hooks 実行可否を診断する"
+      "description": "aidd/superpowers の導入状態・バージョン整合・hooks 実行可否・Codex custom agents の導入を診断する"
     },
     {
       "kind": "command",

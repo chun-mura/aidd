@@ -13,11 +13,12 @@ index of every asset; when you add or remove a command/agent/skill/hook, update 
 
 ## Commands (verified against `.github/workflows/validate.yml`)
 
-CI (`validate` job) runs exactly four steps, in order:
+CI (`validate` job) runs exactly five steps, in order:
 
 ```bash
-shellcheck hooks/scripts/*.sh templates/*.sh   # lint the hook scripts and the consumer-side wrapper template
+shellcheck hooks/scripts/*.sh templates/*.sh scripts/install-codex-agents.sh
 python3 scripts/generate-asset-index.py --check # fail if hooks/asset-index.json / the prompt-hook template are stale
+python3 scripts/generate-codex-agents.py --check
 npm install -g @anthropic-ai/claude-code       # install the claude CLI
 claude plugin validate . --strict              # validates .claude-plugin/marketplace.json + plugin.json
 ```
@@ -38,6 +39,7 @@ bash tests/hook-contract-test.sh         # feeds fake hook-event JSON into hooks
 bash tests/hook-log-test.sh              # exercises templates/aidd-hook-log.sh (pass-through, signals, per-hook markers)
 bash tests/redundancy-contract-test.sh   # asserts removed assets stay removed and de-duplication boundaries hold
 bash tests/session-start-test.sh         # asserts session-start.sh injects the short nudges only when due
+bash tests/codex-agents-contract-test.sh # Codex TOML stays generated from agents/*.md; installer copies and --check detects stale/missing
 ```
 
 On macOS inside the Claude Code sandbox, `mktemp -d` may ignore `$TMPDIR` and fail under `/var/folders`; run the
@@ -49,9 +51,10 @@ prompt files; `hook-contract`, `hook-log` and `session-start` execute the script
 `commands/incident-retro.md`, `commands/autonomous-review.md`, `commands/asset-audit.md` (also executed by
 `hook-log-test.sh`), `skills/review-loop/SKILL.md`, `templates/design-perspectives.md.template`,
 `templates/CLAUDE.md.template`, `templates/aidd-hook-log.sh`, `hooks/hooks.json`, `hooks/scripts/*.sh`,
-`scripts/generate-asset-index.py`, or any command/skill/agent frontmatter, run the matching test script — a wording
+`scripts/generate-asset-index.py`, `scripts/generate-codex-agents.py`, `scripts/install-codex-agents.sh`,
+`.codex/agents/*.toml`, or any command/skill/agent frontmatter, run the matching test script — a wording
 change can silently break the contract. There is no CI job that runs these `tests/*.sh` scripts automatically; run
-them locally before committing.
+them locally before committing. After editing `agents/*.md`, run `python3 scripts/generate-codex-agents.py`.
 
 `claude plugin validate . --strict` requires the `claude` CLI on PATH (`npm install -g @anthropic-ai/claude-code`
 if missing) and validates both `.claude-plugin/marketplace.json` and `.claude-plugin/plugin.json`.

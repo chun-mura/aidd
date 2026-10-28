@@ -12,10 +12,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Shellcheck hook scripts
-        run: shellcheck hooks/scripts/*.sh templates/*.sh
+        run: shellcheck hooks/scripts/*.sh templates/*.sh scripts/install-codex-agents.sh
 
       - name: Check the bundled asset index is up to date
         run: python3 scripts/generate-asset-index.py --check
+
+      - name: Check Codex agent TOML is up to date
+        run: python3 scripts/generate-codex-agents.py --check
 
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code
