@@ -1,7 +1,11 @@
 ---
+name: autonomous-review
 description: 異種AIレビュー・根拠検証・品質ゲートを統合し、ローカルで自動マージ可否を判定する
 argument-hint: "[対象] [--base <branch>] [--head <branch>] [--reviewer codex|claude]"
+disable-model-invocation: true
 ---
+
+**パスと引数と質問の扱い**: この文書の相対パスは、この SKILL.md があるディレクトリを起点にする。`$ARGUMENTS` が文字のまま残っている場合（Codex・Cursor など）は、この skill を呼び出したメッセージのうち skill 名以外の部分を `$ARGUMENTS` とみなす。`AskUserQuestion` と書かれた箇所は、ユーザーに質問するツールがあればそれを使い、無ければ質問を書いて作業を止め、回答を待つ。回答が無いまま推測で進めない。
 
 `/aidd:autonomous-review [対象] [--base <branch>] [--head <branch>] [--reviewer codex|claude]` を、**ローカル専用**のレビュー・ループとして実行してください。GitHub への操作はスコープ外です。`git push`、`gh pr create`、PR 更新、マージ、`git merge` は絶対に実行しません。最終結果は `auto_merge_eligible` / `human_required` / `failed` の判定までです。
 

@@ -34,7 +34,7 @@ in the same commit, or CI fails.
 There is no `package.json`/Makefile/test runner. The contract tests are plain bash scripts run directly:
 
 ```bash
-bash tests/autonomous-review-contract-test.sh  # grep-asserts required phrases in commands/autonomous-review.md
+bash tests/autonomous-review-contract-test.sh  # grep-asserts required phrases in skills/autonomous-review/SKILL.md
 bash tests/command-contract-test.sh      # grep-asserts exact phrases exist in skills/design-review/SKILL.md, agents/reviewer.md, agents/refuter.md, skills/eval/SKILL.md, skills/review-loop/SKILL.md, commands/adr.md, commands/incident-retro.md, commands/asset-audit.md
 bash tests/hook-contract-test.sh         # feeds fake hook-event JSON into hooks/scripts/*.sh via stdin, asserts output; also runs generate-asset-index.py --check
 bash tests/hook-log-test.sh              # exercises templates/aidd-hook-log.sh (pass-through, signals, per-hook markers)
@@ -49,7 +49,7 @@ tests outside the sandbox (or with a writable temp dir) rather than treating tha
 These are **not** a general-purpose test framework — some grep for literal strings that must appear in specific
 prompt files; `hook-contract`, `hook-log` and `session-start` execute the scripts. If you edit
 `skills/design-review/SKILL.md`, `agents/reviewer.md`, `agents/refuter.md`, `skills/eval/SKILL.md`, `commands/adr.md`,
-`commands/incident-retro.md`, `commands/autonomous-review.md`, `commands/asset-audit.md` (also executed by
+`commands/incident-retro.md`, `skills/autonomous-review/SKILL.md`, `commands/asset-audit.md` (also executed by
 `hook-log-test.sh`), `skills/review-loop/SKILL.md`, `templates/design-perspectives.md.template`,
 `templates/CLAUDE.md.template`, `templates/aidd-hook-log.sh`, `hooks/hooks.json`, `hooks/scripts/*.sh`,
 `scripts/generate-asset-index.py`, `scripts/generate-codex-agents.py`, `scripts/install-codex-agents.sh`,
@@ -62,8 +62,8 @@ if missing) and validates both `.claude-plugin/marketplace.json` and `.claude-pl
 
 ## Multi-harness: moving commands to skills
 
-`design-review` and `eval` already live in `skills/<name>/SKILL.md`. Remaining task commands
-still live in `commands/*.md`. Claude Code invokes both as `/aidd:<name>`.
+`design-review`, `eval`, and `autonomous-review` already live in `skills/<name>/SKILL.md`.
+Remaining task commands still live in `commands/*.md`. Claude Code invokes both as `/aidd:<name>`.
 Codex does not ship plugin commands; Cursor recommends skills. Follow reqd / stdd / uidd
 (`origin/main`): move each remaining command to `skills/<name>/SKILL.md`, delete the
 `commands/` file (no stub), and keep `/aidd:<name>` via the skill's `name:` frontmatter.
@@ -95,7 +95,7 @@ When moving a command:
   invokes them as `/aidd:<name>`. Most don't do the work themselves — they orchestrate **agents**
   (`agents/*.md`) via parallel `Task`/dispatch, one message per wave, passing only the target +
   assigned perspective (never the full agent/command definition text, to keep dispatch payloads small).
-- **User-invoked skills** (`skills/design-review/`, `skills/eval/`) are the same kind of entry point,
+- **User-invoked skills** (`skills/design-review/`, `skills/eval/`, `skills/autonomous-review/`) are the same kind of entry point,
   already moved so Codex (`$aidd:<name>`) and Cursor (`/<name>`) can run them. They carry
   `disable-model-invocation: true` and Codex `allow_implicit_invocation: false`.
 - **Auto-trigger skills** (`skills/adr-recall/` and the others) fire based on their `description`

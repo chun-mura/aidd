@@ -13,11 +13,6 @@
     },
     {
       "kind": "command",
-      "name": "autonomous-review",
-      "description": "異種AIレビュー・根拠検証・品質ゲートを統合し、ローカルで自動マージ可否を判定する"
-    },
-    {
-      "kind": "command",
       "name": "design-doc",
       "description": "要件から設計書を生成し docs/design/ に保存する"
     },
@@ -70,6 +65,11 @@
       "kind": "skill",
       "name": "adr-recall",
       "description": "Use when making an architectural decision, changing existing structure, or proposing a design that could contradict a past decision. Checks docs/adr/ for related ADRs before proceeding."
+    },
+    {
+      "kind": "skill",
+      "name": "autonomous-review",
+      "description": "異種AIレビュー・根拠検証・品質ゲートを統合し、ローカルで自動マージ可否を判定する"
     },
     {
       "kind": "skill",

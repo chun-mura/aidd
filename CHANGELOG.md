@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.48.0 (2026-10-28)
+
+- `autonomous-review` を `skills/autonomous-review/SKILL.md` に移し、`commands/` から消した。Codex はプラグインに commands を同梱せず、Cursor は skills を勧めるため。Claude Code の `/aidd:autonomous-review` は skill の `name:` で残る。レビュー手順・品質ゲート・state.json スキーマは変えていない (#59)
+
 ## 0.47.0 (2026-10-28)
 
 - `design-review` と `eval` を `skills/<name>/SKILL.md` に移し、`commands/` から消した。Codex はプラグインに commands を同梱せず、Cursor は skills を勧めるため。Claude Code の `/aidd:design-review` / `/aidd:eval` は skill の `name:` で残る。パイプライン本文は変えていない（配置と `$ARGUMENTS` / AskUserQuestion の前文だけ） (#58)
