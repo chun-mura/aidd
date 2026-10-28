@@ -846,6 +846,27 @@ out=$(cd "$decoy" && printf '{"hook_event_name":"PreToolUse","tool_name":"Write"
 [ ! -e "$tmp_dir/decoy-marker" ]
 printf '%s' "$out" | context_of | grep -F 'asset_index.py is missing'
 
+# tool-reminder.sh and usage-log.sh must also keep cwd off sys.path (python3 -I).
+# A same-named json.py in the project must not run, and the hook must still work (#43).
+import_decoy="$tmp_dir/import-decoy"
+mkdir -p "$import_decoy"
+printf 'open(%s, "a").write("imported\\n")\n' "'$tmp_dir/import-decoy-marker'" > "$import_decoy/json.py"
+import_payload=$(python3 -c '
+import json, sys
+print(json.dumps({"hook_event_name": "PreToolUse", "cwd": sys.argv[1], "session_id": "s",
+                  "tool_name": "Bash", "tool_input": {"command": "git add -A"}}))
+' "$import_decoy")
+out=$(cd "$import_decoy" && printf '%s' "$import_payload" | AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$dispatcher")
+[ ! -e "$tmp_dir/import-decoy-marker" ]
+[ "$(printf '%s' "$out" | decision_of)" = deny ]
+printf '%s' '{"prompt":"/aidd:doctor"}' | (cd "$import_decoy" && AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$usage_log")
+[ ! -e "$tmp_dir/import-decoy-marker" ]
+python3 - "$tmp_dir/aidd/usage.json" <<'PYEOF'
+import json, sys
+data = json.load(open(sys.argv[1]))
+assert data["command_counts"]["doctor"] == 1, data["command_counts"]
+PYEOF
+
 # The bundled list and the strict prompt-hook template must match the real assets.
 python3 "$repo_root/scripts/generate-asset-index.py" --check
 # CI runs the same check, since it does not run tests/*.sh.
