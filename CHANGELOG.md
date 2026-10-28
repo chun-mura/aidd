@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.45.0 (2026-10-28)
+
+- Codex 用の custom agent TOML を `.codex/agents/` に置いた。正本は既存の `agents/*.md` で、`scripts/generate-codex-agents.py` が必須3キー (`name` / `description` / `developer_instructions`) だけを出す。spawn 名は `aidd-reviewer` のように接頭辞を付け、公式サンプルの `reviewer` とぶつからない。Codex のプラグイン導入では TOML は届かないので、`scripts/install-codex-agents.sh` が `~/.codex/agents/`（`--project` なら今のリポ）へコピーする。`/aidd:doctor` がその未導入と版ずれを見る
+
 ## 0.44.0 (2026-10-27)
 
 - Cursor の Write にも `write-guard.sh` を配線した（手順0で実測した `preToolUse` の `file_path`）。Edit はまだ対象外。adapter は deny と `additionalContext` を同時に残し、Cursor では nudge を `agent_message` に載せる。`user_email` に加え `generation_id` / `cursor_version` / `workspace_roots` も子スクリプトへ渡さない。python3 が無いときは sentinel ファイルではなく `adapter-skips.json` に `no_python3` を書く

@@ -1,5 +1,5 @@
 ---
-description: aidd/superpowers の導入状態・バージョン整合・hooks 実行可否を診断する
+description: aidd/superpowers の導入状態・バージョン整合・hooks 実行可否・Codex custom agents の導入を診断する
 ---
 
 aidd プラグインの動作環境を診断してください。各チェックは独立に実行し、1項目の失敗が他の診断を止めないようにする。
@@ -13,6 +13,7 @@ aidd プラグインの動作環境を診断してください。各チェック
 5. **状態ファイルの妥当性**: `~/.claude/aidd/state.json` と `~/.claude/aidd/usage.json` が存在する場合、それぞれ有効な JSON としてパースできるか (存在しない場合はスキップ、エラーではない)
 6. **adapter の素通り**: `~/.claude/aidd/adapter-skips.json` がある場合、直近の素通り理由と件数を表示する (`harness` / `event` / `tool_name` / `reason` / `count` / `last_seen`)。無い場合はスキップ
 7. **Cursor fixture の版**: `adapter-skips.json` に記録された `harness_version` (`cursor_version`) が、設計書 `docs/superpowers/specs/2026-10-27-multi-harness-hooks-design.md` の実測版 (`2026.10.22-27dcf5f`) と違う場合、fixture を取り直すよう促す。記録が無い場合はスキップ
+8. **Codex custom agents**: `scripts/install-codex-agents.sh --check` で、`~/.codex/agents/` の TOML がプラグイン正本と一致するか見る。未導入・版ずれなら同スクリプトの実行を促す。インストーラが見つからない場合はスキップせず WARN にする。Codex のプラグイン導入だけでは TOML は届かない
 
 各項目を実行するには Bash tool で以下相当のコマンドを使う:
 
@@ -60,6 +61,19 @@ elif versions - {expected}:
 else:
     print("adapter-skips cursor_version: OK")
 PY
+script=""
+if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/scripts/install-codex-agents.sh" ]; then
+  script="$CLAUDE_PLUGIN_ROOT/scripts/install-codex-agents.sh"
+elif [ -n "${PLUGIN_ROOT:-}" ] && [ -f "$PLUGIN_ROOT/scripts/install-codex-agents.sh" ]; then
+  script="$PLUGIN_ROOT/scripts/install-codex-agents.sh"
+elif [ -f "./scripts/install-codex-agents.sh" ]; then
+  script="./scripts/install-codex-agents.sh"
+fi
+if [ -z "$script" ]; then
+  echo "codex-agents: WARN installer not found; from the aidd plugin directory run: bash scripts/install-codex-agents.sh"
+else
+  bash "$script" --check || true
+fi
 ```
 
 **出力**: 項目ごとに `OK` / `WARN` / `FAIL` と、`WARN`・`FAIL` には具体的な対処手順を1行で付ける。最後に総合サマリ (問題数) を1行で出す。

@@ -34,7 +34,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 
 更新の配信は `plugin.json` の `version` に固定される (version を上げない限りメンバーに更新が届かない)。リリース時は必ず version を上げて CHANGELOG に記録すること (運用ルール3)。メンバー側は `/plugin update aidd` で追従する。
 
-### Codex CLI (hooks のみ)
+### Codex CLI (hooks と custom agents)
 
 ```bash
 codex plugin marketplace add chun-mura/aidd
@@ -42,6 +42,15 @@ codex plugin add aidd@aidd
 ```
 
 導入後に `/hooks` で aidd の hook を信頼する。信頼していない hook は何も表示されずに実行されない。`hooks.json` のエントリが変わるリリースでは、そのエントリを `/hooks` で信頼し直す (スクリプト本体だけの修正では不要)。`/hooks` 画面では aidd 以外の hook の有効・無効を変えないこと (信頼の操作のあとに、無効にしていた別の hook が有効に戻った実測がある)。
+
+custom agents はプラグイン導入だけでは届かない。Codex が読むのは `~/.codex/agents/` か、今のリポの `.codex/agents/` だけだからである。プラグインのディレクトリで次を実行する:
+
+```bash
+bash scripts/install-codex-agents.sh            # このマシンの全プロジェクト
+bash scripts/install-codex-agents.sh --project  # 今のリポだけ（チーム共有）
+```
+
+spawn 名は `aidd-reviewer` / `aidd-refuter` / `aidd-design-arbiter` / `aidd-scout` / `aidd-security-reviewer` / `aidd-source-verifier`。`agents/*.md` を変えたら `python3 scripts/generate-codex-agents.py` を同じコミットで回す。`/aidd:doctor` が未コピーと正本とのずれを見る。
 
 ### Cursor agent CLI (hooks のみ)
 
@@ -86,7 +95,7 @@ Claude Code に入れた aidd と、この Cursor 用プラグインは併用し
 | `issue-select.md` | open issue から今着手できる分を選ぶ。進行中の作業 (未 push の実装済みブランチを含む) を先に見て、本文の冒頭と決定済み ADR を確かめ、open のサブ issue を持つ親を子に置き換え、open の issue に blocked by されているものを外し、人の手続きが要るもの・衝突する組み合わせ (同じ画面・共有部品・同じモデル・同じテストファイルの新規作成・マイグレーション・ADR 採番) を外す。ラベルは絞り込みと、付いている優先度ラベルでの並べ替えにだけ使い、優先度の基準は持たない (判定と付与は `aidd:issue-priority` skill の役割)。提案で止める |
 | `test-perspectives.md` | 実装対象・変更差分からテスト観点 (6分類 + 信頼境界に触れる変更のみセキュリティ分類) を洗い出し、BVA/ECP 適用フラグを付ける (手法の導出は stdd の担当) |
 | `autonomous-review.md` | ローカル差分または `--base` / `--head` で指定した2ブランチ間の差分を、既定の Codex read-only 異種AIレビュー（`--reviewer claude` で同一モデル自己レビュー）、差分の性質に応じた観点別レビュー (エラーハンドリング / セキュリティ) の条件付き追加、現物反証、品質ゲート、リスク判定で最大3ラウンド検査し、`deferred` は追跡先 (issue 番号 or `review-dismissed.md`) の確定を終了条件にし、自動マージ可否だけを判定する。未指定の `--base` / `--head` / `--reviewer` は AskUserQuestion で決める。`--reviewer claude` 時は最終判定が常に `human_required`。push・PR作成・マージは行わない |
-| `doctor.md` | aidd/superpowers の導入状態・バージョン整合・hooks 実行可否を診断する |
+| `doctor.md` | aidd/superpowers の導入状態・バージョン整合・hooks 実行可否・Codex custom agents の導入を診断する |
 | `infra-audit.md` | 利用側プロジェクトの静的解析(複雑度制御)・重複コード検出(jscpd/knip)・多OS CI の導入状況を診断する。doctor が aidd 自身を診断するのに対し、こちらは利用側プロジェクトの品質ガードを対象とする |
 | `eval.md` | design-review パイプラインの精度測定。`tests/eval/` のゴールデンセット (シード欠陥入り設計書 + 正解キー) にレビューを実行し、検出率・反証誤棄却・デコイ誤検出等を採点して `tests/eval/results/` に記録する (aidd リポジトリ自身で実行) |
 
@@ -100,6 +109,7 @@ Claude Code に入れた aidd と、この Cursor 用プラグインは併用し
 | `scout.md` | 軽量読み取り調査エージェント (haiku)、ファイル検索・コードベース偵察用 |
 | `security-reviewer.md` | 信頼境界を跨ぐ設計への STRIDE ベース脅威レビュー (sonnet)。design-review が条件起動。攻撃経路を構成できる懸念のみ high/mid で報告 |
 | `source-verifier.md` | 設計書の外部検証可能な主張を信頼できる情報源と突き合わせる (sonnet, WebSearch/WebFetch)。design-review の `--verify-sources` 専用 |
+| `.codex/agents/aidd-*.toml` | 上の6定義の Codex 用写し。必須キーは `name` / `description` / `developer_instructions` だけ。`scripts/generate-codex-agents.py` が生成し、`scripts/install-codex-agents.sh` が利用側へコピーする |
 
 ### Skills (自動トリガする知見)
 
@@ -220,7 +230,7 @@ cp <aidd>/templates/aidd-hook-log.sh .claude/hooks/   # 実行ビットごとコ
 
 1. **1ファイル1関心事**: 各ファイルは単一トピックに集中。docs は冒頭に「いつ使うか」を明記
 2. **2回ルール**: 同じプロンプトを2回以上使ったものだけ commands/skills に昇格
-3. **README更新**: 資産追加時は本インデックスを更新し、plugin.json の version を上げて CHANGELOG に記録。command・skill・agent・hook の追加・削除・改名、frontmatter の `name`・`description` の変更、`hooks/hooks.json` の配線や hook スクリプトの shebang 直後のコメント行の変更、plugin.json の `commands`・`skills`・`agents`・`hooks` の宣言の変更をしたら `python3 scripts/generate-asset-index.py` で資産一覧を再生成する (CI の `python3 scripts/generate-asset-index.py --check` と `tests/hook-contract-test.sh` が不一致で落ちる)
+3. **README更新**: 資産追加時は本インデックスを更新し、plugin.json の version を上げて CHANGELOG に記録。command・skill・agent・hook の追加・削除・改名、frontmatter の `name`・`description` の変更、`hooks/hooks.json` の配線や hook スクリプトの shebang 直後のコメント行の変更、plugin.json の `commands`・`skills`・`agents`・`hooks` の宣言の変更をしたら `python3 scripts/generate-asset-index.py` で資産一覧を再生成する (CI の `python3 scripts/generate-asset-index.py --check` と `tests/hook-contract-test.sh` が不一致で落ちる)。`agents/*.md` の本文や frontmatter を変えたら `python3 scripts/generate-codex-agents.py` も同じコミットで回す (CI の `--check` が stale で落ちる)
 4. **重複禁止**: superpowers・reqd・estimate・uidd・stdd・グローバル資産と被る機能は作らず、ポインタのみ記載
 5. **受動ドキュメント禁止**: セッション中に効かせたい知見は docs でなく skills (自動トリガ) か hooks (強制) にする
 6. **パイプライン変更時の評価**: `design-review.md`・`refuter.md`・`design-arbiter.md`・`security-reviewer.md`・`reviewer.md` のプロンプトを変更するリリースは、リリース前に `/aidd:eval` を実行し結果を `tests/eval/results/` に残す (退行の検知はこの記録の比較でのみ可能)
