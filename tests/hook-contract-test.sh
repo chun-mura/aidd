@@ -945,7 +945,8 @@ for entry in pre[:-1]:
     assert "harness-adapter.sh" not in entry["hooks"][0]["command"], entry
 PYEOF
 
-# Cursor wiring: Shell → tool-reminder, Write → write-guard; Edit is still unwired.
+# Cursor wiring: Shell → tool-reminder, Write → write-guard.
+# Edit has no separate tool_name; file edits arrive as Write.
 python3 - "$repo_root/hooks/hooks-cursor.json" <<'PYEOF'
 import json, sys
 doc = json.load(open(sys.argv[1]))

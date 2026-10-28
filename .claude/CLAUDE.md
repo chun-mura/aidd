@@ -85,9 +85,10 @@ When moving a command:
 ```
 
 - Leave the word `AskUserQuestion` in the body. Do not rewrite each occurrence.
-- Do not change hook scripts, hook write destinations (`~/.claude/aidd/`), or Cursor Edit
-  write-guard. Existing auto-trigger skills (`adr-recall` and the others) keep auto-start;
-  do not add `disable-model-invocation` or `openai.yaml` to them.
+- Do not change hook scripts, hook write destinations (`~/.claude/aidd/`), or add a
+  Cursor Edit write-guard matcher (edits arrive as `tool_name` Write). Existing
+  auto-trigger skills (`adr-recall` and the others) keep auto-start; do not add
+  `disable-model-invocation` or `openai.yaml` to them.
 - Update contract tests that grep `commands/<name>.md` to the new `SKILL.md` path, and run
   `python3 scripts/generate-asset-index.py` in the same commit.
 
