@@ -2,10 +2,10 @@
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
-design_review="$repo_root/commands/design-review.md"
+design_review="$repo_root/skills/design-review/SKILL.md"
 reviewer="$repo_root/agents/reviewer.md"
 refuter="$repo_root/agents/refuter.md"
-eval_command="$repo_root/commands/eval.md"
+eval_command="$repo_root/skills/eval/SKILL.md"
 review_loop="$repo_root/skills/review-loop/SKILL.md"
 adr_command="$repo_root/commands/adr.md"
 

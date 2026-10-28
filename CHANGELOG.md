@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.47.0 (2026-10-28)
+
+- `design-review` と `eval` を `skills/<name>/SKILL.md` に移し、`commands/` から消した。Codex はプラグインに commands を同梱せず、Cursor は skills を勧めるため。Claude Code の `/aidd:design-review` / `/aidd:eval` は skill の `name:` で残る。パイプライン本文は変えていない（配置と `$ARGUMENTS` / AskUserQuestion の前文だけ） (#58)
+
 ## 0.46.0 (2026-10-28)
 
 - `.codex-plugin` と `.cursor-plugin` に `"skills": "./skills/"` を載せた。hooks だけの宣言だと、既存の自動 skill（`adr-recall` など）が Codex / Cursor に届かなかった。`.claude-plugin` には `skills` キーを付けない（規約で `skills/` を見つける。reqd / stdd / uidd と同じ）。タスクコマンドはまだ `commands/` にあり Claude Code のみ。後続で skills へ移すときの置き場・`AskUserQuestion` の解釈・`commands/` を残さない方針は `.claude/CLAUDE.md` に書いた (#57)

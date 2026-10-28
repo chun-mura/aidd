@@ -35,7 +35,7 @@ There is no `package.json`/Makefile/test runner. The contract tests are plain ba
 
 ```bash
 bash tests/autonomous-review-contract-test.sh  # grep-asserts required phrases in commands/autonomous-review.md
-bash tests/command-contract-test.sh      # grep-asserts exact phrases exist in commands/design-review.md, agents/reviewer.md, agents/refuter.md, commands/eval.md, skills/review-loop/SKILL.md, commands/adr.md, commands/incident-retro.md, commands/asset-audit.md
+bash tests/command-contract-test.sh      # grep-asserts exact phrases exist in skills/design-review/SKILL.md, agents/reviewer.md, agents/refuter.md, skills/eval/SKILL.md, skills/review-loop/SKILL.md, commands/adr.md, commands/incident-retro.md, commands/asset-audit.md
 bash tests/hook-contract-test.sh         # feeds fake hook-event JSON into hooks/scripts/*.sh via stdin, asserts output; also runs generate-asset-index.py --check
 bash tests/hook-log-test.sh              # exercises templates/aidd-hook-log.sh (pass-through, signals, per-hook markers)
 bash tests/redundancy-contract-test.sh   # asserts removed assets stay removed and de-duplication boundaries hold
@@ -48,7 +48,7 @@ tests outside the sandbox (or with a writable temp dir) rather than treating tha
 
 These are **not** a general-purpose test framework — some grep for literal strings that must appear in specific
 prompt files; `hook-contract`, `hook-log` and `session-start` execute the scripts. If you edit
-`commands/design-review.md`, `agents/reviewer.md`, `agents/refuter.md`, `commands/eval.md`, `commands/adr.md`,
+`skills/design-review/SKILL.md`, `agents/reviewer.md`, `agents/refuter.md`, `skills/eval/SKILL.md`, `commands/adr.md`,
 `commands/incident-retro.md`, `commands/autonomous-review.md`, `commands/asset-audit.md` (also executed by
 `hook-log-test.sh`), `skills/review-loop/SKILL.md`, `templates/design-perspectives.md.template`,
 `templates/CLAUDE.md.template`, `templates/aidd-hook-log.sh`, `hooks/hooks.json`, `hooks/scripts/*.sh`,
@@ -62,10 +62,11 @@ if missing) and validates both `.claude-plugin/marketplace.json` and `.claude-pl
 
 ## Multi-harness: moving commands to skills
 
-Task commands still live in `commands/*.md` and Claude Code invokes them as `/aidd:<name>`.
+`design-review` and `eval` already live in `skills/<name>/SKILL.md`. Remaining task commands
+still live in `commands/*.md`. Claude Code invokes both as `/aidd:<name>`.
 Codex does not ship plugin commands; Cursor recommends skills. Follow reqd / stdd / uidd
-(`origin/main`): move each command to `skills/<name>/SKILL.md`, delete the `commands/` file
-(no stub), and keep `/aidd:<name>` via the skill's `name:` frontmatter.
+(`origin/main`): move each remaining command to `skills/<name>/SKILL.md`, delete the
+`commands/` file (no stub), and keep `/aidd:<name>` via the skill's `name:` frontmatter.
 
 When moving a command:
 
@@ -90,14 +91,16 @@ When moving a command:
 
 ## Architecture: how the asset types relate
 
-- **Commands** (`commands/*.md`) are the entry points a user invokes as `/aidd:<name>`. Most commands don't do
-  the work themselves — they orchestrate **agents** (`agents/*.md`) via parallel `Task`/dispatch, one message per
-  wave, passing only the target + assigned perspective (never the full agent/command definition text, to keep
-  dispatch payloads small).
-- **Skills** (`skills/*/SKILL.md`) are auto-triggered knowledge, not commands — they fire based on their
-  `description` frontmatter matching the situation (e.g. `adr-recall` fires before an architectural change,
-  `model-selection` fires when choosing a subagent model). They hold *reusable* judgment logic that would
-  otherwise be duplicated across commands.
+- **Commands** (`commands/*.md`) are user-invoked entry points still waiting to move. Claude Code
+  invokes them as `/aidd:<name>`. Most don't do the work themselves — they orchestrate **agents**
+  (`agents/*.md`) via parallel `Task`/dispatch, one message per wave, passing only the target +
+  assigned perspective (never the full agent/command definition text, to keep dispatch payloads small).
+- **User-invoked skills** (`skills/design-review/`, `skills/eval/`) are the same kind of entry point,
+  already moved so Codex (`$aidd:<name>`) and Cursor (`/<name>`) can run them. They carry
+  `disable-model-invocation: true` and Codex `allow_implicit_invocation: false`.
+- **Auto-trigger skills** (`skills/adr-recall/` and the others) fire based on their `description`
+  frontmatter matching the situation. They hold *reusable* judgment logic that would otherwise be
+  duplicated across commands.
 - **Hooks** (`hooks/hooks.json` + `hooks/scripts/*.sh`) are the only assets with actual enforcement power —
   everything else is advisory text a model can ignore. `hooks.json` wires 8 entries across 5 events to 5 scripts
   (the 8th is Codex `apply_patch` → `harness-adapter.sh` → `write-guard.sh`; Cursor uses `hooks/hooks-cursor.json`):
@@ -128,7 +131,7 @@ When moving a command:
   `asset-overlap-prompt-hook.json.template` is generated here (checked by CI `--check` and `hook-contract-test.sh`),
   and `templates/aidd-hook-log.sh` is shellchecked in CI and tested by `hook-log-test.sh`.
 
-### The design-review pipeline (`commands/design-review.md`)
+### The design-review pipeline (`skills/design-review/SKILL.md`)
 
 This is the most structurally complex asset — read the file itself before modifying it, but the shape is:
 
@@ -156,7 +159,7 @@ This is the most structurally complex asset — read the file itself before modi
 6. Findings needing a code-level security audit after implementation are pointed at `/security-review` (a
    *different*, code-diff-focused tool) — Agent 6 only covers the design document, not implementation.
 
-### Evaluation harness (`commands/eval.md`, `tests/eval/`)
+### Evaluation harness (`skills/eval/SKILL.md`, `tests/eval/`)
 
 `/aidd:eval` measures the design-review pipeline's own precision by running it (always at `--depth=deep`, no
 shortcuts) against seeded-defect design docs in `tests/eval/cases/*.md` and grading against
@@ -164,8 +167,9 @@ shortcuts) against seeded-defect design docs in `tests/eval/cases/*.md` and grad
 reading them early would let the scoring pass (the main loop) leak into how it dispatches/reviews. Metrics
 (core detection rate, extended detection rate, false-refutation rate, severity match, decoy false-positive rate,
 security auto-trigger) are written to `tests/eval/results/YYYY-MM-DD.md`, compared against the most recent prior
-result. **Operating rule 6**: any release that changes `design-review.md`, `refuter.md`, `design-arbiter.md`,
-`security-reviewer.md`, or `reviewer.md` must run `/aidd:eval` before release and keep the result file — this is
+result. **Operating rule 6**: any release that changes `skills/design-review/SKILL.md`, `agents/refuter.md`,
+`agents/design-arbiter.md`, `agents/security-reviewer.md`, or `agents/reviewer.md` must run `/aidd:eval` before
+release and keep the result file — this is
 the only regression signal for pipeline prompt changes, since there's no automated scoring in CI.
 
 ## Dependency on `superpowers`
