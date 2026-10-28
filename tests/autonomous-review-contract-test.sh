@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
-command_file="$repo_root/commands/autonomous-review.md"
+command_file="$repo_root/skills/autonomous-review/SKILL.md"
 
 grep -F -- '/aidd:autonomous-review [対象] [--base <branch>] [--head <branch>] [--reviewer codex|claude]' "$command_file"
 grep -F -- '--reviewer codex|claude' "$command_file"
