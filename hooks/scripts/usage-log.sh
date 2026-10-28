@@ -97,6 +97,6 @@ with open(lock_file, "w") as lock:
 PYEOF
 )
 
-python3 -c "$PY_CODE" "$USAGE_FILE" "$PLUGIN_ROOT" 2>/dev/null
+python3 -I -c "$PY_CODE" "$USAGE_FILE" "$PLUGIN_ROOT" 2>/dev/null
 
 exit 0

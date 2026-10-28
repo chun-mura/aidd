@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.50.1 (2026-10-28)
+
+- `tool-reminder.sh` と `usage-log.sh` を `python3 -I -c` で起動する。`python3 -c` は sys.path の先頭に cwd を入れるので、利用側に `json.py` があると標準ライブラリの代わりにそれが実行されていた。判定ロジックは変えていない。`write-guard.sh` は #34 で同じ対処済み (#43)
+
 ## 0.50.0 (2026-10-28)
 
 - `adr` / `design-doc` / `design-sync` / `doctor` / `infra-audit` / `issue-implement` / `test-perspectives` を `skills/<name>/SKILL.md` に移し、空になった `commands/` を消した。Codex はプラグインに commands を同梱せず、Cursor は skills を勧めるため。Claude Code の `/aidd:<name>` は skill の `name:` で残る。`doctor` の項目1–2は Claude Code 以外ではスキップして「Claude Code のみ」と書く。未確認の Codex / Cursor 導入パスは書いていない。それ以外の手順は変えていない (#61)

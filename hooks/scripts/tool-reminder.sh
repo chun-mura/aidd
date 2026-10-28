@@ -741,6 +741,6 @@ if denials or contexts:
 PYEOF
 )
 
-printf '%s' "$input" | python3 -c "$PY_CODE" 2>/dev/null
+printf '%s' "$input" | python3 -I -c "$PY_CODE" 2>/dev/null
 
 exit 0
