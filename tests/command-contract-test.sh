@@ -7,7 +7,7 @@ reviewer="$repo_root/agents/reviewer.md"
 refuter="$repo_root/agents/refuter.md"
 eval_command="$repo_root/skills/eval/SKILL.md"
 review_loop="$repo_root/skills/review-loop/SKILL.md"
-adr_command="$repo_root/commands/adr.md"
+adr_command="$repo_root/skills/adr/SKILL.md"
 
 grep -F -- '--depth=standard|deep' "$design_review"
 grep -F -- '既定は `--depth=standard`' "$design_review"

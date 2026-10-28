@@ -43,7 +43,7 @@ codex plugin add aidd@aidd
 
 導入後に `/hooks` で aidd の hook を信頼する。信頼していない hook は何も表示されずに実行されない。`hooks.json` のエントリが変わるリリースでは、そのエントリを `/hooks` で信頼し直す (スクリプト本体だけの修正では不要)。`/hooks` 画面では aidd 以外の hook の有効・無効を変えないこと (信頼の操作のあとに、無効にしていた別の hook が有効に戻った実測がある)。
 
-`.codex-plugin` は `skills/` も宣言する。既存の自動 skill に加え、`design-review` / `eval` / `autonomous-review` / `issue-split` / `issue-select` / `retro` / `asset-audit` / `incident-retro` は `$aidd:<name>` で起動できる。残りのタスクコマンドはまだ `commands/` にあり、Claude Code だけが `/aidd:<name>` で起動する。
+`.codex-plugin` は `skills/` も宣言する。既存の自動 skill に加え、`design-review` / `eval` / `autonomous-review` / `issue-split` / `issue-select` / `retro` / `asset-audit` / `incident-retro` / `adr` / `design-doc` / `design-sync` / `doctor` / `infra-audit` / `issue-implement` / `test-perspectives` は `$aidd:<name>` で起動できる。`commands/` は無い。
 
 custom agents はプラグイン導入だけでは届かない。Codex が読むのは `~/.codex/agents/` か、今のリポの `.codex/agents/` だけだからである。プラグインのディレクトリで次を実行する:
 
@@ -60,7 +60,7 @@ spawn 名は `aidd-reviewer` / `aidd-refuter` / `aidd-design-arbiter` / `aidd-sc
 cursor-agent --trust --plugin-dir <aidd を clone したパス>
 ```
 
-`.cursor-plugin` は `skills/` も宣言する。既存の自動 skill に加え、`/design-review` / `/eval` / `/autonomous-review` / `/issue-split` / `/issue-select` / `/retro` / `/asset-audit` / `/incident-retro` が起動できる（名前空間は付かない）。残りのタスクコマンドはまだ `commands/` にあり、この経路では起動しない。
+`.cursor-plugin` は `skills/` も宣言する。既存の自動 skill に加え、`/design-review` / `/eval` / `/autonomous-review` / `/issue-split` / `/issue-select` / `/retro` / `/asset-audit` / `/incident-retro` / `/adr` / `/design-doc` / `/design-sync` / `/doctor` / `/infra-audit` / `/issue-implement` / `/test-perspectives` が起動できる（名前空間は付かない）。`commands/` は無い。
 
 Claude Code に入れた aidd と、この Cursor 用プラグインは併用しない。併用すると usage.json の二重加算や案内文の重複が起きうる。Cursor は Claude Code に入っているプラグインの skill も読むので、Claude 側だけ入れてある場合は自動 skill は見える。Edit の判定 (`write-guard.sh`) は Cursor ではまだ配線していない。
 
@@ -83,18 +83,6 @@ Claude Code に入れた aidd と、この Cursor 用プラグインは併用し
 
 ## インデックス
 
-### Commands (タスク特化プロンプト)
-
-| ファイル | 説明 |
-|---------|------|
-| `design-doc.md` | 要件から設計書を生成し docs/design/ に保存。構成は design-review の6観点と1対1対応 |
-| `adr.md` | アーキテクチャ決定記録を docs/adr/NNNN-<slug>.md に作成。1 ADR = 1 決定。採番はローカルに加えローカル／リモートの全ブランチを見て衝突を避ける |
-| `design-sync.md` | 設計書と実装の乖離を検知し、status を最新化する |
-| `issue-implement.md` | issue 1本を着手ゲート (要件が受領した原文か起票時の推測か、ADR の決定の節) → 曖昧さの3分類 (仕様の選択だけを人に上げる) → レーン判定 (行数でなくスキーマ・エントリポイント・認可・画面・採否・ファイル数で設計から入るか決める) → 実装 → 条件付きレビュー追加 → 完了条件の順に進める入口。実装の中身は superpowers と aidd の既存資産に委ねる。deferred を issue か棄却一覧に落とすまで完了にしない。push・PR作成は行わない |
-| `test-perspectives.md` | 実装対象・変更差分からテスト観点 (6分類 + 信頼境界に触れる変更のみセキュリティ分類) を洗い出し、BVA/ECP 適用フラグを付ける (手法の導出は stdd の担当) |
-| `doctor.md` | aidd/superpowers の導入状態・バージョン整合・hooks 実行可否・Codex custom agents の導入を診断する |
-| `infra-audit.md` | 利用側プロジェクトの静的解析(複雑度制御)・重複コード検出(jscpd/knip)・多OS CI の導入状況を診断する。doctor が aidd 自身を診断するのに対し、こちらは利用側プロジェクトの品質ガードを対象とする |
-
 ### Skills (利用者が呼ぶ。モデルからは自動起動しない)
 
 | Skill | 用途 | Claude Code | Codex | Cursor |
@@ -107,6 +95,13 @@ Claude Code に入れた aidd と、この Cursor 用プラグインは併用し
 | `retro/` | aidd 資産の棚卸し。利用実績・hooks/skills の摩擦・陳腐化を洗い出す (対象は aidd 自身の資産のみ) | `/aidd:retro` | `$aidd:retro` | `/retro` |
 | `asset-audit/` | 利用側プロジェクトの `.claude/` と `CLAUDE.md` の棚卸し。retro と同じ型を利用側の資産に当て、一定期間発火しない hook・参照先の消えた記述・上流に吸収された規則・2箇所にある同じ基準・観測1件からの一般化を削除・改訂候補に、`error` 行を持つ hook を修正候補にする。候補が0件なら基準を疑う。人だけが起動する (`disable-model-invocation`) | `/aidd:asset-audit` | `$aidd:asset-audit` | `/asset-audit` |
 | `incident-retro/` | セッションの事故の棚卸し。再発防止の置き場をコード (今直さないなら issue) → hook → ADR (決定とその理由) → `CLAUDE.md` / `AGENTS.md` / Cursor の rules / memory (リポジトリを移っても効くか) → コマンドの順に決め、一般則にする前にその規則で壊れるものを1件挙げさせる。ADR・issue は `/aidd:adr`・`/aidd:issue-split` に委ねる。人だけが起動する (`disable-model-invocation`) | `/aidd:incident-retro` | `$aidd:incident-retro` | `/incident-retro` |
+| `adr/` | アーキテクチャ決定記録を docs/adr/NNNN-<slug>.md に作成。1 ADR = 1 決定。採番はローカルに加えローカル／リモートの全ブランチを見て衝突を避ける | `/aidd:adr` | `$aidd:adr` | `/adr` |
+| `design-doc/` | 要件から設計書を生成し docs/design/ に保存。構成は design-review の6観点と1対1対応 | `/aidd:design-doc` | `$aidd:design-doc` | `/design-doc` |
+| `design-sync/` | 設計書と実装の乖離を検知し、status を最新化する | `/aidd:design-sync` | `$aidd:design-sync` | `/design-sync` |
+| `doctor/` | aidd/superpowers の導入状態・バージョン整合・hooks 実行可否・Codex custom agents の導入を診断する。項目1–2（`claude plugin list` と `installed_plugins.json`）は Claude Code 以外ではスキップして「Claude Code のみ」と書く | `/aidd:doctor` | `$aidd:doctor` | `/doctor` |
+| `infra-audit/` | 利用側プロジェクトの静的解析(複雑度制御)・重複コード検出(jscpd/knip)・多OS CI の導入状況を診断する。doctor が aidd 自身を診断するのに対し、こちらは利用側プロジェクトの品質ガードを対象とする | `/aidd:infra-audit` | `$aidd:infra-audit` | `/infra-audit` |
+| `issue-implement/` | issue 1本を着手ゲート (要件が受領した原文か起票時の推測か、ADR の決定の節) → 曖昧さの3分類 (仕様の選択だけを人に上げる) → レーン判定 (行数でなくスキーマ・エントリポイント・認可・画面・採否・ファイル数で設計から入るか決める) → 実装 → 条件付きレビュー追加 → 完了条件の順に進める入口。実装の中身は superpowers と aidd の既存資産に委ねる。deferred を issue か棄却一覧に落とすまで完了にしない。push・PR作成は行わない | `/aidd:issue-implement` | `$aidd:issue-implement` | `/issue-implement` |
+| `test-perspectives/` | 実装対象・変更差分からテスト観点 (6分類 + 信頼境界に触れる変更のみセキュリティ分類) を洗い出し、BVA/ECP 適用フラグを付ける (手法の導出は stdd の担当) | `/aidd:test-perspectives` | `$aidd:test-perspectives` | `/test-perspectives` |
 
 ### Agents (サブエージェント定義)
 

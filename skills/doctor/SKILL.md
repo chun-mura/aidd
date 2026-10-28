@@ -1,10 +1,16 @@
 ---
+name: doctor
 description: aidd/superpowers の導入状態・バージョン整合・hooks 実行可否・Codex custom agents の導入を診断する
+disable-model-invocation: true
 ---
+
+**パスと引数と質問の扱い**: この文書の相対パスは、この SKILL.md があるディレクトリを起点にする。`$ARGUMENTS` が文字のまま残っている場合（Codex・Cursor など）は、この skill を呼び出したメッセージのうち skill 名以外の部分を `$ARGUMENTS` とみなす。`AskUserQuestion` と書かれた箇所は、ユーザーに質問するツールがあればそれを使い、無ければ質問を書いて作業を止め、回答を待つ。回答が無いまま推測で進めない。
 
 aidd プラグインの動作環境を診断してください。各チェックは独立に実行し、1項目の失敗が他の診断を止めないようにする。
 
 **チェック項目**:
+
+項目1–2は Claude Code 以外では実行せず、結果を「Claude Code のみ」と書く。未確認の Codex / Cursor 導入パスは書かない。
 
 1. **superpowers 導入**: `claude plugin list --json` に `superpowers@` で始まり `enabled: true` のエントリがあるか (plugin.json の dependencies 宣言により通常は自動導入されるはずだが、古い Claude Code や依存解決エラーを検知する)
 2. **バージョン整合**: `.claude-plugin/plugin.json` の `version` と、`~/.claude/plugins/installed_plugins.json` に記録された aidd のインストール済みバージョンを比較する。ズレていれば `push + /plugin update aidd` 忘れの可能性を指摘する
@@ -18,6 +24,7 @@ aidd プラグインの動作環境を診断してください。各チェック
 各項目を実行するには Bash tool で以下相当のコマンドを使う:
 
 ```bash
+# 項目1–2は Claude Code のみ。Claude Code 以外では実行せず、各項目を「Claude Code のみ」と書く。
 claude plugin list --json 2>/dev/null | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
@@ -76,4 +83,4 @@ else
 fi
 ```
 
-**出力**: 項目ごとに `OK` / `WARN` / `FAIL` と、`WARN`・`FAIL` には具体的な対処手順を1行で付ける。最後に総合サマリ (問題数) を1行で出す。
+**出力**: 項目ごとに `OK` / `WARN` / `FAIL` と、`WARN`・`FAIL` には具体的な対処手順を1行で付ける。項目1–2を Claude Code 以外でスキップしたときは `Claude Code のみ` と書く。最後に総合サマリ (問題数) を1行で出す。

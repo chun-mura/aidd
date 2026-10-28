@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.50.0 (2026-10-28)
+
+- `adr` / `design-doc` / `design-sync` / `doctor` / `infra-audit` / `issue-implement` / `test-perspectives` を `skills/<name>/SKILL.md` に移し、空になった `commands/` を消した。Codex はプラグインに commands を同梱せず、Cursor は skills を勧めるため。Claude Code の `/aidd:<name>` は skill の `name:` で残る。`doctor` の項目1–2は Claude Code 以外ではスキップして「Claude Code のみ」と書く。未確認の Codex / Cursor 導入パスは書いていない。それ以外の手順は変えていない (#61)
+
 ## 0.49.0 (2026-10-28)
 
 - `issue-split` / `issue-select` / `retro` / `asset-audit` / `incident-retro` を `skills/<name>/SKILL.md` に移し、`commands/` から消した。Codex はプラグインに commands を同梱せず、Cursor は skills を勧めるため。Claude Code の `/aidd:<name>` は skill の `name:` で残る。`incident-retro` の memory 候補に Codex の `AGENTS.md` と Cursor の rules を足した以外、手順は変えていない (#60)

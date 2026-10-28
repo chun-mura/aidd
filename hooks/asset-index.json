@@ -2,39 +2,9 @@
   "plugin": "aidd",
   "assets": [
     {
-      "kind": "command",
+      "kind": "skill",
       "name": "adr",
       "description": "アーキテクチャ決定記録 (ADR) を作成し docs/adr/ に保存する"
-    },
-    {
-      "kind": "command",
-      "name": "design-doc",
-      "description": "要件から設計書を生成し docs/design/ に保存する"
-    },
-    {
-      "kind": "command",
-      "name": "design-sync",
-      "description": "設計書と実装の乖離を検知し、status を最新化する"
-    },
-    {
-      "kind": "command",
-      "name": "doctor",
-      "description": "aidd/superpowers の導入状態・バージョン整合・hooks 実行可否・Codex custom agents の導入を診断する"
-    },
-    {
-      "kind": "command",
-      "name": "infra-audit",
-      "description": "利用側プロジェクトの静的解析(複雑度制御)・重複コード検出・多OS CI導入状況を診断する"
-    },
-    {
-      "kind": "command",
-      "name": "issue-implement",
-      "description": "issue 1本を着手判断から完了報告まで進める入口。実装の中身は superpowers と aidd の既存資産に委ねる"
-    },
-    {
-      "kind": "command",
-      "name": "test-perspectives",
-      "description": "実装対象・変更差分からテスト観点を洗い出す"
     },
     {
       "kind": "skill",
@@ -53,8 +23,23 @@
     },
     {
       "kind": "skill",
+      "name": "design-doc",
+      "description": "要件から設計書を生成し docs/design/ に保存する"
+    },
+    {
+      "kind": "skill",
       "name": "design-review",
       "description": "設計ドキュメントや実装方針を多観点でレビューする"
+    },
+    {
+      "kind": "skill",
+      "name": "design-sync",
+      "description": "設計書と実装の乖離を検知し、status を最新化する"
+    },
+    {
+      "kind": "skill",
+      "name": "doctor",
+      "description": "aidd/superpowers の導入状態・バージョン整合・hooks 実行可否・Codex custom agents の導入を診断する"
     },
     {
       "kind": "skill",
@@ -70,6 +55,16 @@
       "kind": "skill",
       "name": "incident-retro",
       "description": "セッションで起きた事故を棚卸しし、再発防止の置き場 (コード・hook・CLAUDE.md・memory・コマンド・ADR・issue) を決めて定着させる"
+    },
+    {
+      "kind": "skill",
+      "name": "infra-audit",
+      "description": "利用側プロジェクトの静的解析(複雑度制御)・重複コード検出・多OS CI導入状況を診断する"
+    },
+    {
+      "kind": "skill",
+      "name": "issue-implement",
+      "description": "issue 1本を着手判断から完了報告まで進める入口。実装の中身は superpowers と aidd の既存資産に委ねる"
     },
     {
       "kind": "skill",
@@ -105,6 +100,11 @@
       "kind": "skill",
       "name": "review-loop",
       "description": "Use when running repeated review-fix rounds (design review, PR review, or subagent findings) and deciding when to stop, or when findings arrive in mixed severity vocabularies."
+    },
+    {
+      "kind": "skill",
+      "name": "test-perspectives",
+      "description": "実装対象・変更差分からテスト観点を洗い出す"
     },
     {
       "kind": "agent",
