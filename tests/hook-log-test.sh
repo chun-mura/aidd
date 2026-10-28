@@ -149,7 +149,7 @@ printf '%s' "$input" | CLAUDE_PROJECT_DIR="$tmp_dir/wt" AIDD_TEST_STATE_DIR="$wt
 (cd "$tmp_dir/wt/" && printf '%s' "$input" | env -u CLAUDE_PROJECT_DIR AIDD_TEST_STATE_DIR="$wt_state" bash "$wrapper" c true)
 [ "$(find "$wt_state/projects" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')" -eq 1 ]
 wt_key=$(basename "$(find "$wt_state/projects" -mindepth 1 -maxdepth 1)")
-audit_md="$repo_root/commands/asset-audit.md"
+audit_md="$repo_root/skills/asset-audit/SKILL.md"
 [ "$(grep -cF 'rev-parse --path-format=absolute --git-common-dir' "$audit_md")" -eq 2 ]
 audit_key=$(cd "$tmp_dir/wt" && env -u CLAUDE_PROJECT_DIR bash -c "$(awk '/^project_root=/{p=1} p{print} /^project_key=/{exit}' "$audit_md"); printf '%s' \"\$project_key\"")
 [ "$audit_key" = "$wt_key" ]

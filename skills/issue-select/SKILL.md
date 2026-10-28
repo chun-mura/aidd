@@ -1,7 +1,11 @@
 ---
+name: issue-select
 description: open issue から今着手できる分を選び、提案で止める
 argument-hint: [ラベル (任意、複数可)]
+disable-model-invocation: true
 ---
+
+**パスと引数と質問の扱い**: この文書の相対パスは、この SKILL.md があるディレクトリを起点にする。`$ARGUMENTS` が文字のまま残っている場合（Codex・Cursor など）は、この skill を呼び出したメッセージのうち skill 名以外の部分を `$ARGUMENTS` とみなす。`AskUserQuestion` と書かれた箇所は、ユーザーに質問するツールがあればそれを使い、無ければ質問を書いて作業を止め、回答を待つ。回答が無いまま推測で進めない。
 
 絞り込み: $ARGUMENTS (未指定なら open issue 全件)
 
