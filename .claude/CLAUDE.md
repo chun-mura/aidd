@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 definitions, skills, hooks, and templates for AI-driven development (design review, ADR, test perspectives,
 etc.). There is no build step and no application runtime — the "product" is the Markdown/JSON/shell assets
 themselves, consumed by another Claude Code session that installs this plugin. `README.md` is the canonical
-index of every asset; when you add or remove a command/agent/skill/hook, update that index, bump `version` in
+index of every asset; when you add or remove an agent/skill/hook, update that index, bump `version` in
 `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, and `.cursor-plugin/plugin.json` to the same value,
 and add a `CHANGELOG.md` entry (operating rule 3, see README "運用ルール").
 
@@ -60,37 +60,29 @@ them locally before committing. After editing `agents/*.md`, run `python3 script
 `claude plugin validate . --strict` requires the `claude` CLI on PATH (`npm install -g @anthropic-ai/claude-code`
 if missing) and validates both `.claude-plugin/marketplace.json` and `.claude-plugin/plugin.json`.
 
-## Multi-harness: moving commands to skills
+## Adding a user-invoked skill
 
-`design-review`, `eval`, `autonomous-review`, `issue-split`, `issue-select`, `retro`,
-`asset-audit`, `incident-retro`, `adr`, `design-doc`, `design-sync`, `doctor`,
-`infra-audit`, `issue-implement`, and `test-perspectives` already live in `skills/<name>/SKILL.md`.
-`commands/` is gone. Claude Code invokes them as `/aidd:<name>`.
-Codex does not ship plugin commands; Cursor recommends skills. Follow reqd / stdd / uidd
-(`origin/main`): put a user-invoked task in `skills/<name>/SKILL.md`, do not add a
-`commands/` file (no stub), and keep `/aidd:<name>` via the skill's `name:` frontmatter.
+There is no `commands/` directory. Codex does not ship plugin commands and Cursor recommends
+skills, so a user-invoked task goes in `skills/<name>/SKILL.md` (same as reqd / stdd / uidd).
+Do not add a `commands/` file, not even a stub. Claude Code invokes it as `/aidd:<name>` through
+the skill's `name:` frontmatter.
 
-When moving a command:
-
-- Frontmatter: keep `description` (and `argument-hint` / `disable-model-invocation` if present),
-  add `name: <name>`, set `disable-model-invocation: true`.
+- Frontmatter: `name: <name>`, `description`, `disable-model-invocation: true`, and
+  `argument-hint` if it takes arguments.
 - Add `skills/<name>/agents/openai.yaml` with `policy.allow_implicit_invocation: false`
   (Codex would otherwise auto-start a user-invoked task).
 - Do not add a `skills` key to `.claude-plugin/plugin.json`. `.codex-plugin` and
   `.cursor-plugin` already declare `"skills": "./skills/"`.
-- Prepend this block (uidd wording) after the frontmatter, before the existing body:
+- Put this block (uidd wording) right after the frontmatter:
 
 ```
 **パスと引数と質問の扱い**: この文書の相対パスは、この SKILL.md があるディレクトリを起点にする。`$ARGUMENTS` が文字のまま残っている場合（Codex・Cursor など）は、この skill を呼び出したメッセージのうち skill 名以外の部分を `$ARGUMENTS` とみなす。`AskUserQuestion` と書かれた箇所は、ユーザーに質問するツールがあればそれを使い、無ければ質問を書いて作業を止め、回答を待つ。回答が無いまま推測で進めない。
 ```
 
-- Leave the word `AskUserQuestion` in the body. Do not rewrite each occurrence.
-- Do not change hook scripts, hook write destinations (`~/.claude/aidd/`), or add a
-  Cursor Edit write-guard matcher (edits arrive as `tool_name` Write). Existing
-  auto-trigger skills (`adr-recall` and the others) keep auto-start; do not add
-  `disable-model-invocation` or `openai.yaml` to them.
-- Update contract tests that grep `commands/<name>.md` to the new `SKILL.md` path, and run
-  `python3 scripts/generate-asset-index.py` in the same commit.
+- Write `AskUserQuestion` in the body as is; the block above covers other harnesses.
+- Auto-trigger skills (`adr-recall` and the others) keep auto-start; do not give them
+  `disable-model-invocation` or `openai.yaml`.
+- Run `python3 scripts/generate-asset-index.py` in the same commit.
 
 ## Architecture: how the asset types relate
 
@@ -168,10 +160,9 @@ This is the most structurally complex asset — read the file itself before modi
 `/aidd:eval` measures the design-review pipeline's own precision by running it (always at `--depth=deep`, no
 shortcuts) against seeded-defect design docs in `tests/eval/cases/*.md` and grading against
 `tests/eval/keys/*.md`. Contamination guard: **keys must not be read until every case's review has completed** —
-reading them early would let the scoring pass (the main loop) leak into how it dispatches/reviews. Metrics
-(core detection rate, extended detection rate, false-refutation rate, severity match, decoy false-positive rate,
-security auto-trigger) are written to `tests/eval/results/YYYY-MM-DD.md`, compared against the most recent prior
-result. **Operating rule 6**: any release that changes `skills/design-review/SKILL.md`, `agents/refuter.md`,
+reading them early would let the scoring pass (the main loop) leak into how it dispatches/reviews. The metrics
+are defined in the table in `skills/eval/SKILL.md` (step 3); results are written to
+`tests/eval/results/YYYY-MM-DD.md` and compared against the most recent prior result. **Operating rule 6**: any release that changes `skills/design-review/SKILL.md`, `agents/refuter.md`,
 `agents/design-arbiter.md`, `agents/security-reviewer.md`, or `agents/reviewer.md` must run `/aidd:eval` before
 release and keep the result file — this is
 the only regression signal for pipeline prompt changes, since there's no automated scoring in CI.
