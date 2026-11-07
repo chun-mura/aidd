@@ -7,3 +7,4 @@
 | PL-SEC1 | high | cases/security.md:22 (構成と責務) | `POST /api/files` がファイル種別を検証せずに S3 へ保存するため、PDF 以外の任意ファイル (実行ファイル等) を取引先に配布できる | Content-Type とマジックバイトで PDF を検証し、サイズ上限を設ける |
 | PL-SEC2 | mid | cases/security.md:33 (データフロー) | 発行した署名付きURLを `contract_files` テーブルに保存しており、DB が漏えいすると有効なダウンロードURLが流出する | 署名付きURLは保存せず都度発行する |
 | PL-SEC3 | mid | cases/security.md:37 (エラー処理) | 存在しない `file_id` への応答に S3 のキーやバケット名が含まれ得て、内部構成が露出する | 404 には存在有無以外の情報を含めない |
+| PL-SEC4 | high | cases/security.md:45 (運用 / 監査ログ) | 監査ログに残る署名付きURLに有効期限の指定がなく、ログを読める者は期間の制限なく契約書をダウンロードできる | 署名付きURLに短い有効期限を設定する |

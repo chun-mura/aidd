@@ -7,3 +7,4 @@
 | PL-DE1 | high | cases/data-error.md:39 (エラー処理) | WMS API が認証エラーや 5xx を返し続けても、各商品の失敗としてスキップして処理を続け、バッチは正常終了する。WMS 側の全面障害が exit code の監視に現れない | 認証エラー・5xx 連続を検知したら例外を上げてバッチを失敗させる |
 | PL-DE2 | mid | cases/data-error.md:34 (データフロー) | `StockApi` が Redis にキーが無い場合の挙動が定義されておらず、キャッシュミス時に在庫数を返せない | キャッシュミス時は DB を読む |
 | PL-DE3 | mid | cases/data-error.md:30 (インターフェース) | `GET /internal/stock/{product_id}` が外部に公開される前提なのに、認証・アクセス制御の設計が無い | 内部ネットワークからのみ到達可能にする |
+| PL-DE4 | mid | cases/data-error.md:34 (データフロー) | WMS の Webhook によるリアルタイム更新と5分間隔の `SyncBatch` が同じ在庫行に書き込むため、後から書いた方が勝ち、古い在庫数で新しい値を上書きし得る | 書き込みにバージョン番号や更新時刻を持たせ、古い値での上書きを拒否する |
