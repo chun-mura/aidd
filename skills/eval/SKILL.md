@@ -1,7 +1,7 @@
 ---
 name: eval
 description: design-review パイプラインをゴールデンセットで評価し、検出率・誤棄却率を測定する
-argument-hint: [ケース名 (structure / data-error / security)。省略時は全ケース]
+argument-hint: [ケース名 (structure / data-error / security / crosscut)。省略時は全ケース]
 disable-model-invocation: true
 ---
 
