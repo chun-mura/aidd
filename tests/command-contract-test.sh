@@ -18,6 +18,9 @@ grep -F -- '指摘なしの場合は' "$reviewer"
 grep -F -- '1行だけ' "$reviewer"
 grep -F -- '引用箇所と必要最小限の関連パス' "$refuter"
 grep -F -- '`--depth=deep`' "$eval_command"
+grep -F -- 'arbiter に渡す前に偽指摘を取り除く' "$eval_command"
+grep -F -- '偽指摘の棄却率' "$eval_command"
+grep -F -- 'reviewer の high/mid が0件でも' "$eval_command"
 grep -F -- '--review-delta' "$design_review"
 grep -F -- '差分と必要な周辺文脈' "$design_review"
 grep -F -- '全体再レビュー' "$design_review"
@@ -46,3 +49,21 @@ fi
 # asset-audit must not silently continue when its state write fails (e.g. under the sandbox),
 # or the SessionStart nudge never stops.
 grep -F -- '書き込みに失敗したら黙って続けない' "$repo_root/skills/asset-audit/SKILL.md"
+
+# Every eval case has planted false findings (high/mid only), and every planted ID has
+# its refutation evidence in the key, so the refuter's discrimination can be scored.
+for case_file in "$repo_root"/tests/eval/cases/*.md; do
+  name=$(basename "$case_file" .md)
+  planted="$repo_root/tests/eval/planted/$name.md"
+  key="$repo_root/tests/eval/keys/$name.md"
+  [ -f "$planted" ]
+  ids=$(grep -oE '^\| PL-[A-Z]+[0-9]+ ' "$planted" | tr -d '| ')
+  [ -n "$ids" ]
+  # `! cmd` never trips set -e, so fail explicitly on a low/unknown severity row.
+  if grep -E '^\| PL-' "$planted" | grep -qvE '^\| PL-[A-Z]+[0-9]+ \| (high|mid) \|'; then
+    echo "planted finding with non high/mid severity: $planted" >&2
+    exit 1
+  fi
+  grep -F -- '## 偽指摘 (refuter の弁別力測定)' "$key"
+  for id in $ids; do grep -qE "^\| $id \|" "$key"; done
+done

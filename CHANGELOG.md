@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.51.0 (2026-11-06)
+
+- `/aidd:eval` に偽指摘を混ぜ、refuter が誤った指摘を落とせるかを測るようにした。これまで refuter に渡るのは実在する欠陥だけで、本物を棄却しない側しか測れていなかった。敵対的レビューを残すか削るかをデータで決めるため。偽指摘は `tests/eval/planted/`、反証の根拠はキーに置く。design-review・refuter・arbiter のプロンプトは変えていない
+
 ## 0.50.1 (2026-10-28)
 
 - `tool-reminder.sh` と `usage-log.sh` を `python3 -I -c` で起動する。`python3 -c` は sys.path の先頭に cwd を入れるので、利用側に `json.py` があると標準ライブラリの代わりにそれが実行されていた。判定ロジックは変えていない。`write-guard.sh` は #34 で同じ対処済み (#43)
