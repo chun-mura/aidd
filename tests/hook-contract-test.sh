@@ -1250,7 +1250,7 @@ gate '{"hook_event_name":"PreToolUse","tool_name":"Skill","note":"autonomous-rev
 # Without python3 the gate still asks for the named skill.
 nopy_bin="$tmp_dir/nopy-bin"
 mkdir -p "$nopy_bin"
-for tool in bash cat grep dirname mkdir date mv rm printf; do
+for tool in bash cat grep dirname mkdir date mv rm printf tr; do
   src=$(command -v "$tool" 2>/dev/null || true)
   [ -n "$src" ] && [ "${src#/}" != "$src" ] && ln -sf "$src" "$nopy_bin/$tool"
 done
@@ -1320,3 +1320,35 @@ out=$(PATH="$nopy_bin" AIDD_TEST_STATE_DIR="$nopy_state" "$nopy_bin/bash" "$adap
 [ -z "$out" ]
 [ ! -e "$nopy_state/adapter-skips.json" ]
 [ -z "$(AIDD_TEST_STATE_DIR="$gate_dir" bash "$adapter" skill-gate.sh < "$fixtures/cursor/preToolUse.read-before-edit.json")" ]
+
+# autonomous-review run 20261117T071154Z-5bf017 findings.
+# S1: on a case-insensitive filesystem (macOS default) a differently cased path opens the same SKILL.md.
+case_variant="$repo_root/skills/Autonomous-Review/skill.md"
+if [ -e "$case_variant" ]; then
+  gate "$(read_payload "$case_variant")" | expect_gate deny
+fi
+# Another name for the same file is still this plugin's SKILL.md.
+ln -s "$repo_root/skills/autonomous-review/SKILL.md" "$tmp_dir/autonomous-review-alias.md"
+gate "$(read_payload "$tmp_dir/autonomous-review-alias.md")" | expect_gate deny
+# E3: when python cannot judge a Cursor Read of the skill, fail closed with deny (Cursor ignores ask).
+out=$(read_payload "$repo_root/skills/autonomous-review/SKILL.md" | PATH="$nopy_bin" AIDD_TEST_STATE_DIR="$gate_dir" "$nopy_bin/bash" "$skill_gate")
+printf '%s' "$out" | expect_gate deny
+# E1: a held counter lock must not hold up the hook after the decision is printed.
+lock_dir="$tmp_dir/gate-locked"
+mkdir -p "$lock_dir"
+python3 -c '
+import fcntl, sys, time
+f = open(sys.argv[1], "w")
+fcntl.flock(f, fcntl.LOCK_EX)
+open(sys.argv[2], "w").close()
+time.sleep(6)
+' "$lock_dir/skill-gate.json.lock" "$lock_dir/locked" &
+locker=$!
+until [ -e "$lock_dir/locked" ]; do :; done
+start=$(date +%s)
+skill_payload aidd:autonomous-review | AIDD_TEST_STATE_DIR="$lock_dir" bash "$skill_gate" | expect_gate ask
+[ $(( $(date +%s) - start )) -lt 3 ]
+wait "$locker"
+# R2-1: the fail-closed Read check must not depend on line breaks inside valid JSON.
+gate '{"tool_name"
+: "Read", "tool_input": null, "note": "autonomous-review"}' | expect_gate deny

@@ -38,10 +38,17 @@ if event.get("tool_name") == "Skill":
 elif event.get("tool_name") == "Read":
     # Cursor loads a skill by reading its SKILL.md. Only this plugin's copy is refused,
     # so editing the aidd repository itself in Cursor keeps working.
+    # Compare the files, not the strings: a case-insensitive filesystem (macOS default) or a link
+    # opens the same SKILL.md under another spelling.
     path = tool_input.get("file_path")
     own = os.path.join(plugin_root, "skills", "autonomous-review", "SKILL.md")
-    if isinstance(path, str) and path and os.path.realpath(path) == os.path.realpath(own):
-        reply("deny", deny_reason)
+    if isinstance(path, str) and path:
+        try:
+            same = os.path.samefile(path, own)
+        except OSError:
+            same = False  # nothing there to read
+        if same:
+            reply("deny", deny_reason)
 PYEOF
 )
 
@@ -61,7 +68,12 @@ if [ "$status" -eq 0 ]; then
     esac
   fi
 elif printf '%s' "$payload" | grep -qi 'autonomous-review'; then
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"%s"}}\n' "$ASK_REASON"
+  # A Read can only come from Cursor, which ignores ask, so failing closed there means deny.
+  if printf '%s' "$payload" | tr -d '\r\n' | grep -q '"tool_name"[[:space:]]*:[[:space:]]*"Read"'; then
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$DENY_REASON"
+  else
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"%s"}}\n' "$ASK_REASON"
+  fi
   kind=ask_failclosed
 fi
 
@@ -75,7 +87,8 @@ state_dir, kind = sys.argv[1], sys.argv[2]
 os.makedirs(state_dir, exist_ok=True)
 path = os.path.join(state_dir, "skill-gate.json")
 with open(path + ".lock", "w") as lock:
-    fcntl.flock(lock, fcntl.LOCK_EX)
+    # Never wait: the decision is already out, and a hook killed at its timeout counts as failed.
+    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     try:
         with open(path) as f:
             data = json.load(f)
