@@ -75,6 +75,8 @@ git -C "$repo" switch -q main
 out=$(hook PreToolUse "$repo" 'gh pr create --base main --head feat --title t --body b')
 printf '%s\n' "$out" | grep -F '/aidd:autonomous-review --base main --head feat'
 printf '%s\n' "$out" | grep -F 'src/a.sh, src/b.sh'
+# A refusal leaves no evidence, so the warning itself must stop the warn → invoke → ask loop.
+printf '%s\n' "$out" | grep -F 'ユーザーが実行を断った場合は'
 # It warns without denying, and shares one JSON reply with the Japanese-language nudge.
 [ "$(printf '%s\n' "$out" | json_count)" = 1 ]
 [ "$(printf '%s\n' "$out" | decision_of)" = none ]
@@ -945,7 +947,7 @@ for entry in pre[:-1]:
     assert "harness-adapter.sh" not in entry["hooks"][0]["command"], entry
 PYEOF
 
-# Cursor wiring: Shell → tool-reminder, Write → write-guard.
+# Cursor wiring: Shell → tool-reminder, Write → write-guard, Read → skill-gate.
 # Edit has no separate tool_name; file edits arrive as Write.
 python3 - "$repo_root/hooks/hooks-cursor.json" <<'PYEOF'
 import json, sys
@@ -955,9 +957,10 @@ hooks = doc["hooks"]
 assert set(hooks) == {"preToolUse", "postToolUse", "postToolUseFailure", "sessionStart"}, hooks
 adapter = "./hooks/scripts/harness-adapter.sh"
 pre = hooks["preToolUse"]
-assert [e["matcher"] for e in pre] == ["Shell", "Write"], pre
+assert [e["matcher"] for e in pre] == ["Shell", "Write", "Read"], pre
 assert pre[0]["command"] == adapter + " tool-reminder.sh", pre[0]
 assert pre[1]["command"] == adapter + " write-guard.sh", pre[1]
+assert pre[2]["command"] == adapter + " skill-gate.sh", pre[2]
 for event in ("postToolUse", "postToolUseFailure"):
     entries = hooks[event]
     assert len(entries) == 1, event
@@ -1207,3 +1210,113 @@ assert o["permission"] == "deny", o
 assert "gh issue create" in o["user_message"], o
 assert "日本語" in o["agent_message"], o
 '
+
+# --- skill-gate.sh: the model may start autonomous-review only after the user approves ----------
+skill_gate="$repo_root/hooks/scripts/skill-gate.sh"
+gate_dir="$tmp_dir/gate"
+gate() {  # PAYLOAD: run skill-gate with its own state dir
+  printf '%s' "$1" | AIDD_TEST_STATE_DIR="$gate_dir" bash "$skill_gate"
+}
+expect_gate() {  # DECISION: the reply on stdin carries this permissionDecision
+  python3 -c '
+import json, sys
+o = json.load(sys.stdin)["hookSpecificOutput"]
+assert o["hookEventName"] == "PreToolUse", o
+assert o["permissionDecision"] == sys.argv[1], o
+assert o["permissionDecisionReason"], o
+' "$1"
+}
+skill_payload() { printf '{"hook_event_name":"PreToolUse","tool_name":"Skill","tool_input":{"skill":"%s"}}' "$1"; }
+
+# Every spelling the Skill tool may carry is gated (R9: the bare name reaches the hook).
+for name in 'aidd:autonomous-review' 'autonomous-review' '/aidd:autonomous-review' ' AIDD:Autonomous-Review '; do
+  gate "$(skill_payload "$name")" | expect_gate ask
+done
+gate "$(skill_payload aidd:autonomous-review)" | python3 -c '
+import json, sys
+reason = json.load(sys.stdin)["hookSpecificOutput"]["permissionDecisionReason"]
+assert "許可" in reason and "Codex" in reason, reason
+# headless returns this to the model as the refusal (R2), so it must not announce a run.
+assert not reason.startswith("autonomous-review を実行します"), reason
+'
+# Other skills pass untouched, even when their arguments mention the gated one.
+[ -z "$(gate "$(skill_payload aidd:design-review)")" ]
+[ -z "$(gate '{"hook_event_name":"PreToolUse","tool_name":"Skill","tool_input":{"skill":"aidd:retro","args":"after autonomous-review"}}')" ]
+# Fail-closed: input that cannot be judged but names the skill (any case) still asks.
+gate '{"tool_name":"Skill","tool_input":{"skill":"Autonomous-Review"' | expect_gate ask
+gate '{"hook_event_name":"PreToolUse","tool_name":"Skill","tool_input":{"skill":["aidd:autonomous-review"]}}' | expect_gate ask
+gate '{"hook_event_name":"PreToolUse","tool_name":"Skill","note":"autonomous-review"}' | expect_gate ask
+[ -z "$(gate '{"tool_name":"Skill","tool_input":{"skill":"aidd:adr"')" ]
+# Without python3 the gate still asks for the named skill.
+nopy_bin="$tmp_dir/nopy-bin"
+mkdir -p "$nopy_bin"
+for tool in bash cat grep dirname mkdir date mv rm printf; do
+  src=$(command -v "$tool" 2>/dev/null || true)
+  [ -n "$src" ] && [ "${src#/}" != "$src" ] && ln -sf "$src" "$nopy_bin/$tool"
+done
+out=$(skill_payload aidd:autonomous-review | PATH="$nopy_bin" AIDD_TEST_STATE_DIR="$gate_dir" "$nopy_bin/bash" "$skill_gate")
+printf '%s' "$out" | expect_gate ask
+[ -z "$(skill_payload aidd:adr | PATH="$nopy_bin" AIDD_TEST_STATE_DIR="$gate_dir" "$nopy_bin/bash" "$skill_gate")" ]
+# A state dir that cannot be written must not cost the decision or the exit code.
+skill_payload aidd:autonomous-review | AIDD_TEST_STATE_DIR=/dev/null/aidd bash "$skill_gate" | expect_gate ask
+# Counts per decision kind, nothing else.
+python3 - "$gate_dir/skill-gate.json" <<'PYEOF'
+import json, sys
+data = json.load(open(sys.argv[1]))
+counts = data["counts"]
+assert counts["ask"] >= 5, counts
+assert counts["ask_failclosed"] >= 3, counts
+assert set(counts) <= {"ask", "ask_failclosed", "deny_cursor_read"}, counts
+assert set(data) == {"counts", "last_seen"}, data
+assert "aidd:" not in json.dumps(data), data
+PYEOF
+# The usage-log opt-out also stops the gate's counting, never its decision.
+optout_dir="$tmp_dir/gate-optout"
+skill_payload aidd:autonomous-review | AIDD_DISABLE_USAGE_LOG=1 AIDD_TEST_STATE_DIR="$optout_dir" bash "$skill_gate" | expect_gate ask
+[ ! -e "$optout_dir/skill-gate.json" ]
+
+# Cursor loads a skill by reading its SKILL.md (R11). Only this plugin's copy is refused.
+read_payload() { printf '{"hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"%s"}}' "$1"; }
+gate "$(read_payload "$repo_root/skills/autonomous-review/SKILL.md")" | expect_gate deny
+gate "$(read_payload "$repo_root/skills/autonomous-review/../autonomous-review/SKILL.md")" | expect_gate deny
+mkdir -p "$tmp_dir/copy/skills/autonomous-review"
+: > "$tmp_dir/copy/skills/autonomous-review/SKILL.md"
+[ -z "$(gate "$(read_payload "$tmp_dir/copy/skills/autonomous-review/SKILL.md")")" ]
+[ -z "$(gate "$(read_payload "$repo_root/skills/design-review/SKILL.md")")" ]
+[ -z "$(gate '{"hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{}}')" ]
+python3 - "$gate_dir/skill-gate.json" <<'PYEOF'
+import json, sys
+assert json.load(open(sys.argv[1]))["counts"]["deny_cursor_read"] >= 2
+PYEOF
+
+# hooks.json: the gate sits beside usage-log in the existing Skill entry (matchers unchanged above).
+python3 - "$repo_root/hooks/hooks.json" <<'PYEOF'
+import json, sys
+pre = json.load(open(sys.argv[1]))["hooks"]["PreToolUse"]
+skill = [e for e in pre if e["matcher"] == "^Skill$"]
+assert len(skill) == 1, skill
+commands = [h["command"] for h in skill[0]["hooks"]]
+assert any("usage-log.sh" in c for c in commands), commands
+assert any("skill-gate.sh" in c for c in commands), commands
+PYEOF
+
+# Through the Cursor adapter: this plugin's SKILL.md read becomes a Cursor deny.
+python3 - "$fixtures/cursor/preToolUse.read-before-edit.json" "$adapter_in" "$repo_root/skills/autonomous-review/SKILL.md" <<'PY'
+import json, sys
+p = json.load(open(sys.argv[1]))
+p["tool_input"]["file_path"] = sys.argv[3]
+json.dump(p, open(sys.argv[2], "w"))
+PY
+out=$(AIDD_TEST_STATE_DIR="$gate_dir" bash "$adapter" skill-gate.sh < "$adapter_in")
+printf '%s' "$out" | python3 -c '
+import json, sys
+o = json.load(sys.stdin)
+assert o["permission"] == "deny", o
+assert "/autonomous-review" in o["user_message"], o
+'
+# Unrelated reads never start python: without python3 they leave no adapter skip record.
+nopy_state="$tmp_dir/adapter-nopy"
+out=$(PATH="$nopy_bin" AIDD_TEST_STATE_DIR="$nopy_state" "$nopy_bin/bash" "$adapter" skill-gate.sh < "$fixtures/cursor/preToolUse.read-before-edit.json")
+[ -z "$out" ]
+[ ! -e "$nopy_state/adapter-skips.json" ]
+[ -z "$(AIDD_TEST_STATE_DIR="$gate_dir" bash "$adapter" skill-gate.sh < "$fixtures/cursor/preToolUse.read-before-edit.json")" ]

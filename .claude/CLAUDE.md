@@ -83,6 +83,11 @@ the skill's `name:` frontmatter.
 - Auto-trigger skills (`adr-recall` and the others) keep auto-start; do not give them
   `disable-model-invocation` or `openai.yaml`.
 - Run `python3 scripts/generate-asset-index.py` in the same commit.
+- One exception: `autonomous-review` has no `disable-model-invocation`, so the model can start it
+  in Claude Code, and `hooks/scripts/skill-gate.sh` asks the user before every model-started run
+  (Cursor: refuses the model's SKILL.md read). It keeps `openai.yaml`. Do not copy this to another
+  skill without measuring the gate for it; the measurements are in
+  `docs/superpowers/specs/2026-11-14-autonomous-review-auto-invocation-design.md`.
 
 ## Architecture: how the asset types relate
 
@@ -93,17 +98,23 @@ the skill's `name:` frontmatter.
   text, to keep dispatch payloads small).
 - **User-invoked skills** (`skills/design-review/`, `skills/eval/`, `skills/autonomous-review/`, `skills/issue-split/`, `skills/issue-select/`, `skills/retro/`, `skills/asset-audit/`, `skills/incident-retro/`, `skills/adr/`, `skills/design-doc/`, `skills/design-sync/`, `skills/doctor/`, `skills/infra-audit/`, `skills/issue-implement/`, `skills/test-perspectives/`) are the same kind of entry point,
   already moved so Codex (`$aidd:<name>`) and Cursor (`/<name>`) can run them. They carry
-  `disable-model-invocation: true` and Codex `allow_implicit_invocation: false`.
+  `disable-model-invocation: true` and Codex `allow_implicit_invocation: false`, except
+  `autonomous-review` (model-invocable behind `skill-gate.sh`, see above).
 - **Auto-trigger skills** (`skills/adr-recall/` and the others) fire based on their `description`
   frontmatter matching the situation. They hold *reusable* judgment logic that would otherwise be
   duplicated across commands.
 - **Hooks** (`hooks/hooks.json` + `hooks/scripts/*.sh`) are the only assets with actual enforcement power —
-  everything else is advisory text a model can ignore. `hooks.json` wires 8 entries across 5 events to 5 scripts
+  everything else is advisory text a model can ignore. `hooks.json` wires 8 entries across 5 events to 6 scripts
   (the 8th is Codex `apply_patch` → `harness-adapter.sh` → `write-guard.sh`; Cursor uses `hooks/hooks-cursor.json`):
   - `session-start.sh` (SessionStart): injects a one-time short nudge, an `/aidd:asset-audit` nudge only when the
     consumer's audit is overdue, and detects missing `superpowers` plugin
   - `usage-log.sh` (UserPromptSubmit + PreToolUse `^Skill$`): counts `/aidd:*` usage into `~/.claude/aidd/usage.json`
     (read by `/aidd:retro`); never logs prompt text
+  - `skill-gate.sh` (PreToolUse `^Skill$`, beside `usage-log.sh`; Cursor `Read` through the adapter): returns
+    `ask` before the model starts `autonomous-review`, and on Cursor denies the read of this plugin's
+    `skills/autonomous-review/SKILL.md`. Prints the decision before its best-effort count in `skill-gate.json`,
+    always exits 0 (a hook that fails to start lets the Skill through), and asks when it cannot parse input
+    that names the skill
   - `tool-reminder.sh` (PreToolUse + PostToolUse + PostToolUseFailure, matcher `Bash`): the single Bash dispatcher.
     It splits the command (quotes, `&&`/`;`, comments, control keywords, `cd`, `git -C`, wrappers), collects every
     matching check, and emits one JSON: the original nudges (test-perspectives, Japanese PR/issue text, post-push
@@ -114,9 +125,10 @@ the skill's `name:` frontmatter.
   - `write-guard.sh` (PreToolUse, matcher `Write|Edit|NotebookEdit`): acts only on files that don't exist yet —
     denies names the sandbox usually can't read back, and points new consumer `.claude/{hooks,skills,commands,rules,agents}`
     assets at the aidd assets they duplicate (denying same-name commands/skills/agents)
-  - `harness-adapter.sh` (PreToolUse `apply_patch` in `hooks.json`; Cursor Shell / Write / SessionStart in
+  - `harness-adapter.sh` (PreToolUse `apply_patch` in `hooks.json`; Cursor Shell / Write / Read / SessionStart in
     `hooks-cursor.json`): rewrite Codex/Cursor input to the Claude Code shape, call one existing script,
-    convert the reply, and on any failure exit 0 after counting the reason in `adapter-skips.json`
+    convert the reply, and on any failure exit 0 after counting the reason in `adapter-skips.json`. For
+    `skill-gate.sh` it exits before python unless the input mentions `autonomous-review` (every Cursor Read lands here)
   `tool-reminder.sh` and `write-guard.sh` resolve paths from the hook input's `cwd`, not `CLAUDE_PROJECT_DIR` (which
   stays on the main checkout inside a worktree); `session-start.sh` uses `${CLAUDE_PROJECT_DIR:-$PWD}`.
   All hook writes are confined to `~/.claude/aidd/` — no network calls, no writes elsewhere.

@@ -9,6 +9,10 @@
       {
         "matcher": "Write",
         "command": "./hooks/scripts/harness-adapter.sh write-guard.sh"
+      },
+      {
+        "matcher": "Read",
+        "command": "./hooks/scripts/harness-adapter.sh skill-gate.sh"
       }
     ],
     "postToolUse": [

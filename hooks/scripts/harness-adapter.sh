@@ -2,6 +2,11 @@
 # Normalize Codex/Cursor hook input, call one aidd script, and convert the reply back.
 # Always exits 0: Cursor treats a non-zero hook as a deny of the tool itself.
 input=$(cat)
+# Cursor sends every Read here for skill-gate.sh; only one SKILL.md matters, so skip python otherwise.
+case "${1-}" in
+  skill-gate.sh | */skill-gate.sh)
+    printf '%s' "$input" | grep -qi 'autonomous-review' || exit 0 ;;
+esac
 state_dir="${AIDD_TEST_STATE_DIR:-$HOME/.claude/aidd}"
 if ! command -v python3 >/dev/null 2>&1; then
   mkdir -p "$state_dir" 2>/dev/null || true
