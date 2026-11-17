@@ -110,4 +110,18 @@
 - **R2（項目5のうち headless・項目2の一部）**: `claude -p`（hook 入力の `permission_mode` は `auto`）で、モデルが Skill ツールで対象 skill を呼んだ。PreToolUse hook が `ask` を返すと、確認は出ず、Skill ツールは `permissionDecisionReason` の文をエラーとして返した。skill の本文は読み込まれず、PostToolUse は発火しなかった。headless では `ask` が拒否として働く。
 - **R3（項目6の一部）**: モデルに `gateprobe:probe-review` と名前を指定して呼ばせた場合、`tool_input.skill` は `gateprobe:probe-review`（plugin 名つき）だった。接頭辞なしの名前を受け付けるかはまだ測っていない。
 
-未実測: 項目1、2（対話セッション）、3（対話の auto mode）、4、5（bypassPermissions・allow ルール）、6（接頭辞なし）、7。`bypassPermissions` での nested session の起動は、このセッションの auto mode の分類器に拒否されたため、ユーザーが手で測る。
+以下は対話セッション（`claude --plugin-dir`）で、ユーザーが操作して測った。
+
+- **R4（項目1）**: ユーザーが `/gateprobe:probe-review` と打つと、記録は UserPromptSubmit だけで、PreToolUse(Skill) は発火しなかった。手で打ったときに gate の確認は出ない（二重確認なし）。
+- **R5（項目2）**: default モードでモデルが起動すると、本文の読み込み前に確認が出た。拒否すると PostToolUse は発火せず、skill は実行されなかった。
+- **R6（項目3）**: 対話の auto mode（`permission_mode: auto`）でも確認はユーザーに出た。分類器による自動許可は起きなかった。許可すると PostToolUse が発火した。
+- **R7（項目4）**: サブエージェントが Skill ツールで起動すると、hook 入力に `agent_id` が入り、確認は親のユーザーに届いた。許可すると実行された。
+- **R8（項目5）**: `--permission-mode bypassPermissions` でも、`--allowedTools "Skill(gateprobe:probe-review)"` でも確認が出た。どちらも拒否すると skill は実行されなかった。hook の `ask` は bypass と allow ルールより優先される。
+- **R9（項目6）**: 接頭辞なしで呼ばせると、`tool_input.skill` は `probe-review` だった（hook は判定の前に受け取る）。完全一致の照合ならすり抜けていた。拒否したので、Skill ツールがその名前を解決できるかは測っていない。正規化した照合は残す。
+- **R10（項目7、Cursor）**: `.cursor/skills/` に、フラグなしの `probe-on` と `disable-model-invocation: true` の `probe-off` を置いた。Agent に使える skill の一覧を聞くと `probe-on` だけが出た。**Cursor はこのフラグを解釈する。**「run the probe off」と頼むと、モデルは `probe-on` の SKILL.md を読んだあと、ワークスペースを検索して `probe-off` の SKILL.md を直接読み、その指示に従った。これは skill としての起動ではなく、ファイルの読み取りである。Cursor の skill の読み込みも UI 上は「Explored SKILL.md」と表示された。
+
+### 実測から分かったこと
+
+- 項目1〜6の前提は成り立った。Claude Code では、対話・auto・bypass・allow ルール・サブエージェントのどれでも `ask` がユーザーに届き、headless では拒否として働く。確認が届かない環境を見分けて `deny` にする分岐（方針の4つ目）は不要になる。
+- 項目7は成り立たなかった。フラグを外すと Cursor ではモデルが起動できる。設計どおり、Cursor の skill 起動に gate を掛けられるかを確かめるまで実装しない。
+- モデルは SKILL.md をファイルとして直接読み、その指示に従うことができる（R10）。これは今の `disable-model-invocation: true` でも同じで、この変更で新しく生まれる経路ではない。gate はこの経路を防げない。
