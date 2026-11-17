@@ -93,8 +93,21 @@
 
 - モデルが `.aidd/autonomous-review/` に証跡を自分で書けば、`tool-reminder.sh` の警告は消える。gate はこれを防げない。警告は注意喚起であり、強制ではない。
 - 拒否後の再提案は、許可の文面で抑えるだけで強制されない。
+- hook が起動できないとき（実行ファイルが見つからない、plugin のデータディレクトリを作れない など）、Claude Code はエラーを記録したうえで Skill を実行する（実測結果 R1）。スクリプト内の fail-closed はこの経路を防げない。
 
 ## 未決
 
 - `ask` を無効にして自動で起動したい利用者向けの opt-out（`AIDD_*` 環境変数）は、要望が出るまで足さない。
 - Codex でモデルから起動できるようにするかは、許可を取る仕組みが見つかってから改めて決める。
+
+## 実測結果
+
+使い捨て plugin（PreToolUse / PostToolUse `^Skill$` と UserPromptSubmit で入力を記録し、対象 skill に `ask` を返す hook）を `claude --plugin-dir` で読み込んで測った。
+
+### 2026-11-17 / Claude Code 2.1.326
+
+- **R1（hook が起動できない場合）**: sandbox 内で実行し、plugin のデータディレクトリ（`~/.claude/plugins/data/<plugin>-inline`）を作れずに hook が `EPERM` で起動失敗した。debug ログに `Hook failed to run (PreToolUse:Skill)` が出たうえで Skill は実行され、本文が読み込まれた。hook の起動失敗は fail-open になる。
+- **R2（項目5のうち headless・項目2の一部）**: `claude -p`（hook 入力の `permission_mode` は `auto`）で、モデルが Skill ツールで対象 skill を呼んだ。PreToolUse hook が `ask` を返すと、確認は出ず、Skill ツールは `permissionDecisionReason` の文をエラーとして返した。skill の本文は読み込まれず、PostToolUse は発火しなかった。headless では `ask` が拒否として働く。
+- **R3（項目6の一部）**: モデルに `gateprobe:probe-review` と名前を指定して呼ばせた場合、`tool_input.skill` は `gateprobe:probe-review`（plugin 名つき）だった。接頭辞なしの名前を受け付けるかはまだ測っていない。
+
+未実測: 項目1、2（対話セッション）、3（対話の auto mode）、4、5（bypassPermissions・allow ルール）、6（接頭辞なし）、7。`bypassPermissions` での nested session の起動は、このセッションの auto mode の分類器に拒否されたため、ユーザーが手で測る。
