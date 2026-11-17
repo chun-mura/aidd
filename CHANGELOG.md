@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.53.0 (2026-11-17)
+
+- `autonomous-review` をモデルからも起動できるようにした。`gh pr create` 前の警告と `issue-implement` がこの skill を案内しているのに、`disable-model-invocation: true` のためモデルは従えず、ユーザーが手で打つまでフローが止まっていたため。代わりに `hooks/scripts/skill-gate.sh` を足し、モデルが Skill ツールで起動する前に必ず `ask` でユーザーの許可を取る。許可は SKILL.md の文面ではなく hook で強制する。対話の default / auto / bypassPermissions、allow ルール、サブエージェントのどれでも確認が届き、headless (`-p`、bypass を含む) では拒否として働くことを実測した。ユーザーが手で打った起動には確認は出ない。名前は接頭辞・先頭の `/`・大文字小文字をならして照合する (接頭辞なしの名前が hook に届くことを実測したため)。判定を出してから件数を `~/.claude/aidd/skill-gate.json` に記録し、記録の失敗で判定を落とさない (起動に失敗した hook は Claude Code が素通りさせることを実測したため)
+- Cursor はこのフラグを解釈し、`preToolUse` の `ask` は無視するが `deny` は効くことを実測した。そこで Cursor ではモデルによる `skills/autonomous-review/SKILL.md` の `Read` を拒否し、`/autonomous-review` を手で打つよう案内する。`harness-adapter.sh` は、Cursor のすべての Read が通るため、`autonomous-review` を含まない入力では python を起動せずに終わる。Codex は `openai.yaml` で暗黙起動を止めたまま
+- `tool-reminder.sh`: レビュー証跡の警告に「ユーザーが実行を断った場合は、このブランチでは再び起動せず、PR 本文に未実施と書く」を足した。断っても証跡は残らず、警告 → 起動 → 確認が `gh pr create` のたびに繰り返されるため
+- Codex: `hooks.json` の `^Skill$` エントリが変わったので、`/hooks` で信頼し直すこと
+- hook が無効な環境 (`disableAllHooks` など) と hook が起動できない場合は、確認なしで起動しうる。設計と実測は `docs/superpowers/specs/2026-11-14-autonomous-review-auto-invocation-design.md`
+
 ## 0.52.0 (2026-11-07)
 
 - `/aidd:eval` の手順4で、キー外の指摘を人が1件ずつ分類するのをやめ、判定エージェント2体に分類させるようにした。人が確認するのは、判定が割れたものと誤検出だけになる。素の Opus 5.5 との比較 eval (#75) でベースラインが1回あたり29〜34件の指摘を出し、1件ずつの分類は回らなかったため。誤検出の判定には本文の行の引用を必須にした。あわせて、総トークン・最終報告の指摘件数・ノイズ率を指標に加えた。比較で design-review 側のコストとノイズを記録しておらず、比べられなかったため。design-review・refuter・arbiter のプロンプトは変えていない (#74)

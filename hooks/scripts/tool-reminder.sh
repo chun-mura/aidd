@@ -373,6 +373,7 @@ def warn_review_before_pr(args, directory):
     add(contexts,
         f"aidd: ブランチ {head} は {base} に対してコードを変更しているが、.aidd/autonomous-review/ にこのブランチの証跡が無い。"
         f"PR を出す前に /aidd:autonomous-review --base {base} --head {head} を実行すること。"
+        "ユーザーが実行を断った場合は、このブランチでは再び起動せず、PR 本文に autonomous-review は未実施と書くこと。"
         f"変更ファイル ({len(files)} 件): {listing}。"
         "意図しないファイルが含まれていれば、別ブランチのコミットの混入を疑う。")
 

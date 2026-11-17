@@ -73,3 +73,11 @@ if grep -F -- 'git worktree remove --force' "$command_file"; then
   exit 1
 fi
 grep -F -- '拡張子は `.txt`' "$command_file"
+# The model may start this skill; skill-gate.sh asks the user first. Codex still cannot.
+frontmatter=$(sed -n '2,/^---$/p' "$command_file")
+if printf '%s\n' "$frontmatter" | grep -F -- 'disable-model-invocation'; then
+  echo "autonomous-review is model-invocable behind skill-gate.sh" >&2
+  exit 1
+fi
+printf '%s\n' "$frontmatter" | grep -F -- "auto-merge eligibility"
+grep -F -- 'allow_implicit_invocation: false' "$repo_root/skills/autonomous-review/agents/openai.yaml"
