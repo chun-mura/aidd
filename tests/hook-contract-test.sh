@@ -1250,7 +1250,7 @@ gate '{"hook_event_name":"PreToolUse","tool_name":"Skill","note":"autonomous-rev
 # Without python3 the gate still asks for the named skill.
 nopy_bin="$tmp_dir/nopy-bin"
 mkdir -p "$nopy_bin"
-for tool in bash cat grep dirname mkdir date mv rm printf; do
+for tool in bash cat grep dirname mkdir date mv rm printf tr; do
   src=$(command -v "$tool" 2>/dev/null || true)
   [ -n "$src" ] && [ "${src#/}" != "$src" ] && ln -sf "$src" "$nopy_bin/$tool"
 done
@@ -1349,3 +1349,6 @@ start=$(date +%s)
 skill_payload aidd:autonomous-review | AIDD_TEST_STATE_DIR="$lock_dir" bash "$skill_gate" | expect_gate ask
 [ $(( $(date +%s) - start )) -lt 3 ]
 wait "$locker"
+# R2-1: the fail-closed Read check must not depend on line breaks inside valid JSON.
+gate '{"tool_name"
+: "Read", "tool_input": null, "note": "autonomous-review"}' | expect_gate deny

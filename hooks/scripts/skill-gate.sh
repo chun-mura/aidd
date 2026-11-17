@@ -69,7 +69,7 @@ if [ "$status" -eq 0 ]; then
   fi
 elif printf '%s' "$payload" | grep -qi 'autonomous-review'; then
   # A Read can only come from Cursor, which ignores ask, so failing closed there means deny.
-  if printf '%s' "$payload" | grep -q '"tool_name"[[:space:]]*:[[:space:]]*"Read"'; then
+  if printf '%s' "$payload" | tr -d '\r\n' | grep -q '"tool_name"[[:space:]]*:[[:space:]]*"Read"'; then
     printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$DENY_REASON"
   else
     printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"%s"}}\n' "$ASK_REASON"
