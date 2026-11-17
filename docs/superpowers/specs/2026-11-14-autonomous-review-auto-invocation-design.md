@@ -14,7 +14,7 @@
 - Claude Code の対話セッションでは `disable-model-invocation` を外し、起動の直前に hook で許可を取る。
 - 許可は SKILL.md の文面ではなく hook で強制する。文面の指示はモデルが破りうる。
 - gate は fail-closed にする。入力を解釈できないときに許可なしで通さない。
-- Claude Code では実行環境で分岐しない。`ask` は対話の default・auto・bypassPermissions・allow ルール・サブエージェントのどれでもユーザーに届き、headless（`-p`、auto）では拒否として働く（実測 R2・R5〜R8）。`-p` と bypassPermissions の組み合わせは未実測で、aidd-autopilot のような無人実行で起動しないと言えるのは、その実測（項目8）が済んでからである。
+- Claude Code では実行環境で分岐しない。`ask` は対話の default・auto・bypassPermissions・allow ルール・サブエージェントのどれでもユーザーに届き、headless（`-p`）では auto・bypassPermissions・`--dangerously-skip-permissions` のどれでも拒否として働く（実測 R2・R5〜R8・R13）。aidd-autopilot のような無人実行で、Issue 本文に誘導されて起動することはない。
 - Codex は対象外とし、今の挙動（ユーザー起動のみ）を残す。Codex の暗黙起動は Skill ツールを通らず、gate を掛けられないため。`openai.yaml` の `allow_implicit_invocation: false` で止まる。
 - Cursor では、モデルの起動を `deny` で止め、手で打つよう案内する。SKILL.md の frontmatter は Cursor と共有で、Cursor はこのフラグを解釈するため、外すとモデルから起動できるようになる（R10）。Cursor の `preToolUse` は `ask` を無視するが `deny` は効き、モデルの skill 読み込みは SKILL.md の `Read` として届く。ユーザーが手で打った起動は `Read` を通らない（R11・R12）。手で打つこと自体を、ユーザーの許可とみなす。
 
@@ -155,11 +155,14 @@ Codex の信頼し直し: この変更は `hooks.json` の既存の `^Skill$` �
 - **R9（項目6）**: 接頭辞なしで呼ばせると、`tool_input.skill` は `probe-review` だった（hook は判定の前に受け取る）。完全一致の照合ならすり抜けていた。拒否したので、Skill ツールがその名前を解決できるかは測っていない。正規化した照合は残す。
 - **R10（項目7、Cursor）**: `.cursor/skills/` に、フラグなしの `probe-on` と `disable-model-invocation: true` の `probe-off` を置いた。Agent に使える skill の一覧を聞くと `probe-on` だけが出た。**Cursor はこのフラグを解釈する。**「run the probe off」と頼むと、モデルは `probe-on` の SKILL.md を読んだあと、ワークスペースを検索して `probe-off` の SKILL.md を直接読み、その指示に従った。これは skill としての起動ではなく、ファイルの読み取りである。Cursor の skill の読み込みも UI 上は「Explored SKILL.md」と表示された。
 
+- **R13（項目8）**: `claude -p --permission-mode bypassPermissions` と `claude -p --dangerously-skip-permissions` のそれぞれで、モデルに Skill ツールで対象 skill を呼ばせた（ユーザーが実行）。hook 入力の `permission_mode` はどちらも `bypassPermissions`。hook が `ask` を返すと、Skill ツールは理由の文をエラーとして返し、本文は読み込まれず、PostToolUse は発火しなかった。headless では bypass でも `ask` は拒否として働く。
+
 ### 実測から分かったこと
 
 - 項目1〜6の前提は成り立った。Claude Code では、対話・auto・bypass・allow ルール・サブエージェントのどれでも `ask` がユーザーに届き、headless では拒否として働く。確認が届かない環境を見分けて `deny` にする分岐（方針の4つ目）は不要になる。
 - 項目7は成り立たなかった。フラグを外すと Cursor ではモデルが起動できる。ただし R11・R12 により、Cursor でもモデルの起動だけを `deny` で止められる。Cursor は `ask` を使えないので、手で打つ案内に縮退する（方針の Cursor の項）。
-- 2回目の design-review で、項目5の `-p` と bypassPermissions の組み合わせが測られていないと分かった。項目8として残る。
+- 2回目の design-review で、項目5の `-p` と bypassPermissions の組み合わせが測られていないと分かり、項目8として測った（R13）。拒否として働くので、分岐は要らない。
+- 以上で、実装前に測る項目は残っていない。
 
 ### 2026-11-17 / Cursor（実測用 `.cursor/hooks.json` で preToolUse・beforeReadFile・beforeSubmitPrompt を記録）
 
