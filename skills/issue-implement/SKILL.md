@@ -39,7 +39,7 @@ GitHub issue を1本、着手から完了報告まで進めてください。使
 - 採否の判断が残る (実装方式の候補が複数あり、どれを採るかで後戻りの費用が変わる)
 - 触るファイル数が多い (目安: `/aidd:issue-split` と同じ5ファイル超)
 
-**設計レーン**: `/aidd:design-doc` で設計書を作り、`/aidd:design-review` にかける。反復の終了条件は `review-loop` skill に従う。design-doc が規模超過を報告したら、実装に入らず `/aidd:issue-split` を提案して止める。
+**設計レーン**: `/aidd:design-doc` で設計書を作り、`/aidd:design-review` にかける。反復の終了条件は `review-loop` skill に従う。design-doc が規模超過を報告したら、実装に入らず `/aidd:issue-split <設計書のパス> <この issue の番号>` を提案して止める (番号を渡さないと、issue-split は親を推測で結び付けないため、子がこの issue のサブ issue に登録されない)。
 
 **直行レーン**: 設計書を作らずに4へ進む。直行と判定した理由 (上のどれにも当たらない根拠) を完了報告に1行残す。
 

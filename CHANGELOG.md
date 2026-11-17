@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.53.2 (2026-11-18)
+
+- `issue-implement`: 設計レーンで規模超過になったときに提案する `/aidd:issue-split` に、設計書のパスとこの issue の番号を渡すようにした。issue-split は親を推測で結び付けないので、番号が無いと子がこの issue のサブ issue に登録されず、`issue-select` も親を「open の子を持つ親」として候補から外せなかったため
+
 ## 0.53.1 (2026-11-17)
 
 - `skill-gate.sh`: Cursor の Read の拒否を、パスの文字列ではなくファイルの同一性 (`os.path.samefile`) で判定するようにした。macOS の既定のファイルシステムは大文字小文字を区別しないため、`skills/Autonomous-Review/skill.md` のような綴りで同じ SKILL.md を読むと拒否が外れていた。python が判定できないときの fail-closed は、Read なら `deny` を返す (Cursor は `ask` を無視するため、`ask` では素通りになっていた)。件数の記録はロックを待たない (判定を出したあとにロック待ちで hook がタイムアウトすると、hook の失敗として扱われうるため)。いずれも PR #80 のマージ後に回した `/aidd:autonomous-review` の指摘
