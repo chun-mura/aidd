@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.53.1 (2026-11-17)
+
+- `skill-gate.sh`: Cursor の Read の拒否を、パスの文字列ではなくファイルの同一性 (`os.path.samefile`) で判定するようにした。macOS の既定のファイルシステムは大文字小文字を区別しないため、`skills/Autonomous-Review/skill.md` のような綴りで同じ SKILL.md を読むと拒否が外れていた。python が判定できないときの fail-closed は、Read なら `deny` を返す (Cursor は `ask` を無視するため、`ask` では素通りになっていた)。件数の記録はロックを待たない (判定を出したあとにロック待ちで hook がタイムアウトすると、hook の失敗として扱われうるため)。いずれも PR #80 のマージ後に回した `/aidd:autonomous-review` の指摘
+
 ## 0.53.0 (2026-11-17)
 
 - `autonomous-review` をモデルからも起動できるようにした。`gh pr create` 前の警告と `issue-implement` がこの skill を案内しているのに、`disable-model-invocation: true` のためモデルは従えず、ユーザーが手で打つまでフローが止まっていたため。代わりに `hooks/scripts/skill-gate.sh` を足し、モデルが Skill ツールで起動する前に必ず `ask` でユーザーの許可を取る。許可は SKILL.md の文面ではなく hook で強制する。対話の default / auto / bypassPermissions、allow ルール、サブエージェントのどれでも確認が届き、headless (`-p`、bypass を含む) では拒否として働くことを実測した。ユーザーが手で打った起動には確認は出ない。名前は接頭辞・先頭の `/`・大文字小文字をならして照合する (接頭辞なしの名前が hook に届くことを実測したため)。判定を出してから件数を `~/.claude/aidd/skill-gate.json` に記録し、記録の失敗で判定を落とさない (起動に失敗した hook は Claude Code が素通りさせることを実測したため)
