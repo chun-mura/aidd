@@ -73,6 +73,8 @@ if grep -F -- 'git worktree remove --force' "$command_file"; then
   exit 1
 fi
 grep -F -- '拡張子は `.txt`' "$command_file"
+grep -F -- '| 観点 (優先度) | テスト (ファイル:テスト名) | 前提を壊して落ちたか | 未実装の理由 |' "$command_file"
+grep -F -- 'must の観点は全件' "$command_file"
 # The model may start this skill; skill-gate.sh asks the user first. Codex still cannot.
 frontmatter=$(sed -n '2,/^---$/p' "$command_file")
 if printf '%s\n' "$frontmatter" | grep -F -- 'disable-model-invocation'; then

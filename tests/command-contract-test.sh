@@ -8,6 +8,7 @@ refuter="$repo_root/agents/refuter.md"
 eval_command="$repo_root/skills/eval/SKILL.md"
 review_loop="$repo_root/skills/review-loop/SKILL.md"
 adr_command="$repo_root/skills/adr/SKILL.md"
+issue_implement="$repo_root/skills/issue-implement/SKILL.md"
 
 grep -F -- '--depth=standard|deep' "$design_review"
 grep -F -- '既定は `--depth=standard`' "$design_review"
@@ -36,6 +37,8 @@ grep -F -- '全ソースの最大番号 +1' "$adr_command"
 grep -F -- 'git symbolic-ref --quiet refs/remotes/origin/HEAD' "$adr_command"
 grep -F -- 'refs/remotes/origin/' "$adr_command"
 grep -F -- '検討した代替案' "$adr_command"
+grep -F -- '| 観点 (優先度) | テスト (ファイル:テスト名) | 前提を壊して落ちたか | 未実装の理由 |' "$issue_implement"
+grep -F -- 'must の観点は全件' "$issue_implement"
 
 # incident-retro picks the first matching tier, so the ADR tier must come before the rule
 # tier (a design decision also reads as a rule with judgment), and deferred work is folded
