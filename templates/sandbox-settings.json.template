@@ -5,7 +5,13 @@
       "Bash(gh extension *)",
       "Bash(gh alias *)",
       "Bash(gh pr checkout *)",
-      "Bash(gh repo clone *)"
+      "Bash(gh repo clone *)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.config/gh/**)",
+      "Read(~/.netrc)",
+      "Read(~/.git-credentials)",
+      "Read(~/.config/git/credentials)"
     ]
   },
   "sandbox": {
