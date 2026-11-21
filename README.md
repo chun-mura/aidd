@@ -38,7 +38,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 
 `/aidd:issue-implement` などをローカルで動かすと、エージェントは利用者の権限で Bash と `gh` を実行する。次の3つで書き込み範囲・通信先・GitHub の権限を絞る。
 
-1. **sandbox を有効にする**: `templates/sandbox-settings.json.template` の内容を利用プロジェクトの `.claude/settings.json` (自分だけなら `.claude/settings.local.json`) にマージする。
+1. **sandbox を有効にする**: `templates/sandbox-settings.json.template` の内容を利用プロジェクトの `.claude/settings.json` (自分だけなら `.claude/settings.local.json`) にマージする。効いているかは、Claude に `touch ~/sandbox-probe` を実行させて `Operation not permitted` で失敗することで確かめる (公式の確認手順。`!` から自分で打つと sandbox の外で動くので確認にならない)。
    - Bash の書き込みは作業ディレクトリと `$TMPDIR` に限られる (sandbox の既定)。`Write` / `Edit` も `permissions.blockWritesOutsideWorkingDirectories` で作業ディレクトリの外を拒否する (Claude Code v2.1.314 以降)
    - Bash の通信は `allowedDomains` (GitHub と npm・PyPI のレジストリ) だけが確認なしで通る。ほかのホストは許可モードに応じて確認か拒否になり、`bypassPermissions` モードでは確認なしで通る。確認ではなく拒否にしたいときは `"sandbox": {"network": {"strictAllowlist": true}}` を `~/.claude/settings.json` に書く (プロジェクトの設定ファイルでは効かない)。このときプロジェクトの `allowedDomains` は無視されるので、雛形の `allowedDomains` も `~/.claude/settings.json` に移す。使うレジストリが違えば `allowedDomains` を書き換える。`github.com` のような広いドメインを許すと、そこへデータを送り出す経路は残る (公式の Security limitations)
    - `~/.ssh`・`~/.aws`・`~/.config/gh`・`~/.netrc`・git の credential store (`~/.git-credentials`・`~/.config/git/credentials`) は sandbox 内のコマンドから読めない。認証情報の既定の拒否リストは無いので、ほかの認証情報のパスは利用側で足す。SSH の鍵が読めないため、git の remote は HTTPS にする
