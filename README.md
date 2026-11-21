@@ -47,7 +47,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 2. **`gh` には対象リポジトリだけの fine-grained PAT を渡す**: macOS では `gh` が sandbox 内で TLS の検証に失敗しうるため、雛形は `gh *` を `excludedCommands` に入れており、`gh` は sandbox の外で動く。`gh` の権限は token で絞る。
    - GitHub の Settings > Developer settings > Personal access tokens > Fine-grained tokens で token を作る。有効期限を付け、Repository access は「Only select repositories」で対象リポジトリだけを選ぶ。Permissions は aidd の skill が使う Issues・Pull requests・Contents だけにし、読むだけなら read、issue へのコメント・PR 作成・push をさせる項目だけ write にする
    - Claude Code を起動するシェルで `GH_TOKEN` に入れる。`GH_TOKEN` は `gh auth login` で保存した認証より優先される。token は `.claude/settings.json` の `env` やコミットされるファイルに書かない
-   - `GH_TOKEN` が空のまま起動すると、`gh` は `gh auth login` で保存した認証 (利用者の全権限) で動く。`gh` は sandbox の外で動くため、`~/.config/gh` の読み取り拒否はこれを止めない。下の例は `GH_TOKEN` が空なら起動しない。`gh auth status` の出力に `(GH_TOKEN)` と出れば token が使われている
+   - `GH_TOKEN` が空のまま起動すると、`gh` は `GITHUB_TOKEN` があればそれを、無ければ `gh auth login` で保存した認証 (利用者の全権限) を使う。`gh` は sandbox の外で動くため、`~/.config/gh` の読み取り拒否はこれを止めない。下の例は `GH_TOKEN` が空なら起動しない。`gh auth status` の出力に `(GH_TOKEN)` と出れば token が使われている
 
      ```bash
      # paste the token; it is neither echoed nor kept in shell history, and claude starts only with it exported
