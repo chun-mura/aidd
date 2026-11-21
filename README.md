@@ -50,8 +50,8 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
    - `GH_TOKEN` が空のまま起動すると、`gh` は `gh auth login` で保存した認証 (利用者の全権限) で動く。`gh` は sandbox の外で動くため、`~/.config/gh` の読み取り拒否はこれを止めない。下の例は `GH_TOKEN` が空なら起動しない。`gh auth status` の出力に `(GH_TOKEN)` と出れば token が使われている
 
      ```bash
-     read -rs GH_TOKEN && export GH_TOKEN   # paste the token; it is neither echoed nor kept in shell history
-     [ -n "$GH_TOKEN" ] && claude           # refuse to start without the token
+     # paste the token; it is neither echoed nor kept in shell history, and claude starts only with it exported
+     read -rs GH_TOKEN && [ -n "$GH_TOKEN" ] && export GH_TOKEN && claude
      ```
 
 3. **完全な隔離が必要なら aidd-autopilot を使う**: 上の設定は利用者のマシンとアカウントの上での制限にとどまる。コンテナ隔離・egress 許可リスト・fine-grained PAT で skill を動かすなら aidd-autopilot (issue のラベルを契機に、隔離した Docker コンテナで headless の Claude Code を動かす) を使う。
