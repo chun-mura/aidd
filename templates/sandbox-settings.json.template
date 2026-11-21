@@ -28,7 +28,9 @@
         { "path": "~/.ssh", "mode": "deny" },
         { "path": "~/.aws", "mode": "deny" },
         { "path": "~/.config/gh", "mode": "deny" },
-        { "path": "~/.netrc", "mode": "deny" }
+        { "path": "~/.netrc", "mode": "deny" },
+        { "path": "~/.git-credentials", "mode": "deny" },
+        { "path": "~/.config/git/credentials", "mode": "deny" }
       ]
     }
   }
