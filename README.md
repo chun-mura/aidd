@@ -34,6 +34,27 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 
 更新の配信は `plugin.json` の `version` に固定される (version を上げない限りメンバーに更新が届かない)。リリース時は必ず version を上げて CHANGELOG に記録すること (運用ルール3)。メンバー側は `/plugin update aidd` で追従する。
 
+### ローカルで権限を絞って使う (Claude Code)
+
+`/aidd:issue-implement` などをローカルで動かすと、エージェントは利用者の権限で Bash と `gh` を実行する。次の3つで書き込み範囲・通信先・GitHub の権限を絞る。
+
+1. **sandbox を有効にする**: `templates/sandbox-settings.json.template` の内容を利用プロジェクトの `.claude/settings.json` (自分だけなら `.claude/settings.local.json`) にマージする。
+   - Bash の書き込みは作業ディレクトリと `$TMPDIR` に限られる (sandbox の既定)。`Write` / `Edit` も `permissions.blockWritesOutsideWorkingDirectories` で作業ディレクトリの外を拒否する (Claude Code v2.1.314 以降)
+   - Bash の通信は `allowedDomains` (GitHub と npm・PyPI のレジストリ) だけが確認なしで通る。ほかのホストは許可モードに応じて確認か拒否になる。確認ではなく拒否にしたいときは `"sandbox": {"network": {"strictAllowlist": true}}` を `~/.claude/settings.json` に書く (プロジェクトの設定ファイルでは効かない)。使うレジストリが違えば `allowedDomains` を書き換える
+   - `~/.ssh`・`~/.aws`・`~/.config/gh`・`~/.netrc` は sandbox 内のコマンドから読めない。認証情報の既定の拒否リストは無いので、ほかの認証情報のパスは利用側で足す。SSH の鍵が読めないため、git の remote は HTTPS にする
+   - sandbox が使えない環境では起動を止め (`failIfUnavailable`)、エージェントによる sandbox の外での再実行を許さない (`allowUnsandboxedCommands: false`)。sandbox の外で動かす必要があるコマンドは `excludedCommands` に足す。足したコマンドは利用者の全権限で動く
+   - sandbox がかかるのは Bash のコマンドだけ。`Read` ツールで読ませたくないファイルは `settings.json.template` のように `permissions.deny` に書く
+2. **`gh` には対象リポジトリだけの fine-grained PAT を渡す**: macOS では `gh` が sandbox 内で TLS の検証に失敗しうるため、雛形は `gh *` を `excludedCommands` に入れており、`gh` は sandbox の外で動く。`gh` の権限は token で絞る。
+   - GitHub の Settings > Developer settings > Personal access tokens > Fine-grained tokens で token を作る。有効期限を付け、Repository access は「Only select repositories」で対象リポジトリだけを選ぶ。Permissions は aidd の skill が使う Issues・Pull requests・Contents だけにし、読むだけなら read、issue へのコメント・PR 作成・push をさせる項目だけ write にする
+   - Claude Code を起動するシェルで `GH_TOKEN` に入れる。`GH_TOKEN` は `gh auth login` で保存した認証より優先される。token は `.claude/settings.json` の `env` やコミットされるファイルに書かない
+
+     ```bash
+     read -rs GH_TOKEN && export GH_TOKEN   # paste the token; it is neither echoed nor kept in shell history
+     claude
+     ```
+
+3. **完全な隔離が必要なら aidd-autopilot を使う**: 上の設定は利用者のマシンとアカウントの上での制限にとどまる。コンテナ隔離・egress 許可リスト・fine-grained PAT で skill を動かすなら aidd-autopilot (issue のラベルを契機に、隔離した Docker コンテナで headless の Claude Code を動かす) を使う。
+
 ### Codex CLI (hooks・skills・custom agents)
 
 ```bash
@@ -196,6 +217,7 @@ hooks は上記スクリプトをセッション中に自動実行する。フ�
 |---------|------|
 | `CLAUDE.md.template` | プロジェクト概要・技術スタック・コマンド・AI運用をまとめるテンプレート。コメントの置き場所 (How はコード / What はテスト / Why はコミットログ / Why not はコメント) を規約として同梱 |
 | `settings.json.template` | Claude Code 権限設定の基本構成テンプレート |
+| `sandbox-settings.json.template` | ローカル実行で権限を絞るときに `.claude/settings.json` にマージする。Bash を sandbox に入れ、通信先を GitHub と主要レジストリに、書き込みを作業ディレクトリに限り、認証情報ファイルの読み取りを拒否する (手順は「ローカルで権限を絞って使う」) |
 | `team-settings.json.template` | チーム導入用。利用プロジェクトの `.claude/settings.json` にマージすると aidd が自動提案される |
 | `design-perspectives.md.template` | `.aidd/design-perspectives.md` の出発点。可観測性・プロジェクト固有観点 (design-review の Agent 4 が読む) |
 | `asset-overlap-prompt-hook.json.template` | 資産の重複を厳格に止めたい利用側向けの prompt 型 PreToolUse hook (既定では無効。`.claude/settings.json` の `hooks` にマージして有効化)。`.claude/{hooks,skills,commands,rules,agents}/` への Write をモデルが aidd の資産一覧と照らし、役割が重なれば拒否する。`scripts/generate-asset-index.py` が生成する |

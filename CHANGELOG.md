@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.55.0 (2026-11-21)
+
+- `templates/sandbox-settings.json.template` を足し、README に「ローカルで権限を絞って使う」を書いた。aidd の skill をローカルで動かすと、エージェントは利用者の権限のまま Bash と `gh` を実行し、`gh auth login` の認証もそのまま渡るため、事故が怖いという声があったため (#84)。雛形は Bash を sandbox に入れ (`failIfUnavailable`・`allowUnsandboxedCommands: false`)、確認なしの通信先を GitHub と npm・PyPI に限り、`~/.ssh`・`~/.aws`・`~/.config/gh`・`~/.netrc` の読み取りを拒否し、`Write` / `Edit` の作業ディレクトリ外への書き込みを拒否する。`gh` は macOS の sandbox で TLS の検証に失敗しうるので sandbox の外に出し、代わりに対象リポジトリだけの fine-grained PAT を `GH_TOKEN` で渡す手順を案内した。完全な隔離が要るときは aidd-autopilot を案内する。`settings.json.template` に混ぜなかったのは、`failIfUnavailable` が sandbox の使えない環境で起動を止めるため。`/aidd:doctor` での検出と、`rm -rf`・force push などの破壊的な操作をどこで止めるかは今回の対象外
+
 ## 0.54.0 (2026-11-21)
 
 - `issue-implement` の完了報告と `autonomous-review` の `report.md` に、観点とテストの対応表 (観点 (優先度) / テスト (ファイル:テスト名) / 前提を壊して落ちたか / 未実装の理由) を書かせるようにした。must の観点は全件、should / could はテストを書いたものだけ、既存テストでカバー済みならそのテスト名を書く。これまで観点は `docs/test-perspectives/` に残っても、どの must がどのテストで守られているか、書かなかった観点とその理由、前提を壊して落ちたかの確認結果が報告に残らず、人は観点ファイルとテストコードを突き合わせるしかなかったため (#87)。`tests/command-contract-test.sh` は `issue-implement` の文言も検査するようにした
