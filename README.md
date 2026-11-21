@@ -47,10 +47,11 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 2. **`gh` には対象リポジトリだけの fine-grained PAT を渡す**: macOS では `gh` が sandbox 内で TLS の検証に失敗しうるため、雛形は `gh *` を `excludedCommands` に入れており、`gh` は sandbox の外で動く。`gh` の権限は token で絞る。
    - GitHub の Settings > Developer settings > Personal access tokens > Fine-grained tokens で token を作る。有効期限を付け、Repository access は「Only select repositories」で対象リポジトリだけを選ぶ。Permissions は aidd の skill が使う Issues・Pull requests・Contents だけにし、読むだけなら read、issue へのコメント・PR 作成・push をさせる項目だけ write にする
    - Claude Code を起動するシェルで `GH_TOKEN` に入れる。`GH_TOKEN` は `gh auth login` で保存した認証より優先される。token は `.claude/settings.json` の `env` やコミットされるファイルに書かない
+   - `GH_TOKEN` が空のまま起動すると、`gh` は `gh auth login` で保存した認証 (利用者の全権限) で動く。`gh` は sandbox の外で動くため、`~/.config/gh` の読み取り拒否はこれを止めない。下の例は `GH_TOKEN` が空なら起動しない。`gh auth status` の出力に `(GH_TOKEN)` と出れば token が使われている
 
      ```bash
      read -rs GH_TOKEN && export GH_TOKEN   # paste the token; it is neither echoed nor kept in shell history
-     claude
+     [ -n "$GH_TOKEN" ] && claude           # refuse to start without the token
      ```
 
 3. **完全な隔離が必要なら aidd-autopilot を使う**: 上の設定は利用者のマシンとアカウントの上での制限にとどまる。コンテナ隔離・egress 許可リスト・fine-grained PAT で skill を動かすなら aidd-autopilot (issue のラベルを契機に、隔離した Docker コンテナで headless の Claude Code を動かす) を使う。
