@@ -1,6 +1,12 @@
 {
   "permissions": {
-    "blockWritesOutsideWorkingDirectories": true
+    "blockWritesOutsideWorkingDirectories": true,
+    "deny": [
+      "Bash(gh extension *)",
+      "Bash(gh alias *)",
+      "Bash(gh pr checkout *)",
+      "Bash(gh repo clone *)"
+    ]
   },
   "sandbox": {
     "enabled": true,
