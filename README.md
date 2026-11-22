@@ -129,7 +129,7 @@ Claude Code に入れた aidd と、この Cursor 用プラグインは併用し
 
 | Skill | 用途 | Claude Code | Codex | Cursor |
 |---|---|---|---|---|
-| `design-review/` | 設計や実装方針を多観点レビュー。既定の `--depth=standard` は必要時だけ refuter / arbiter を起動し、反証済み指摘を直接報告する。`--depth=deep` は品質重視の完全経路。再レビューでは `--review-delta=<変更範囲>` で差分と周辺文脈に絞る。`--verify-sources` で外部情報源検証を追加。信頼境界を跨ぐ設計では security-reviewer (STRIDE) を条件起動 (`--security` / `--no-security` で強制・抑止)。構造の観点でコンポーネントごとのコード上の配置の記載と、既存の構造から外れる理由も見る。永続化を含む設計では、スキーマを緩める選択 (JSON 型など) の理由と代替案、検索条件のインデックスの前提、上限の無い全件ロードも見る | `/aidd:design-review` | `$aidd:design-review` | `/design-review` |
+| `design-review/` | 設計や実装方針を多観点レビュー。既定の `--depth=standard` は必要時だけ refuter / arbiter を起動し、反証済み指摘を直接報告する。`--depth=deep` は品質重視の完全経路。再レビューでは `--review-delta=<変更範囲>` で差分と周辺文脈に絞る。`--verify-sources` で外部情報源検証を追加。信頼境界を跨ぐ設計では security-reviewer (STRIDE) を条件起動 (`--security` / `--no-security` で強制・抑止)。構造の観点でコンポーネントごとのコード上の配置の記載と、既存の構造から外れる理由も見る。永続化を含む設計では、スキーマを緩める選択 (JSON 型など) の理由と代替案、検索条件のインデックスの前提、上限の無い全件ロードも見る。同時に読み書きされる状態が設計書から読み取れる場合は、競合・二重実行・破損への対策を見る。機微情報をファイル・ログ・キャッシュに保存する設計でも security-reviewer を起動する | `/aidd:design-review` | `$aidd:design-review` | `/design-review` |
 | `eval/` | design-review パイプラインの精度測定。`tests/eval/` のゴールデンセット (シード欠陥入り設計書 + 正解キー) にレビューを実行し、検出率・反証誤棄却・偽指摘の棄却率・デコイ誤検出・ノイズ率・総トークン等を採点して `tests/eval/results/` に記録する (aidd リポジトリ自身で実行) | `/aidd:eval` | `$aidd:eval` | `/eval` |
 | `autonomous-review/` | ローカル差分または `--base` / `--head` で指定した2ブランチ間の差分を、既定の Codex read-only 異種AIレビュー（`--reviewer claude` で同一モデル自己レビュー）、差分の性質に応じた観点別レビュー (エラーハンドリング / セキュリティ / 横展開) の条件付き追加、現物反証、品質ゲート、リスク判定で最大3ラウンド検査し、`deferred` は追跡先 (issue 番号 or `review-dismissed.md`) の確定を終了条件にし、ロジックを変えた場合は `report.md` に観点とテストの対応表を書き、自動マージ可否だけを判定する。未指定の `--base` / `--head` / `--reviewer` は AskUserQuestion で決める。`--reviewer claude` 時は最終判定が常に `human_required`。push・PR作成・マージは行わない。Claude Code ではモデルも起動できるが、起動の前に `skill-gate.sh` が必ずユーザーに許可を求める (Codex は手で起動したときだけ、Cursor はモデルの起動を拒否する) | `/aidd:autonomous-review` | `$aidd:autonomous-review` | `/autonomous-review` |
 | `issue-split/` | 設計を独立マージ可能なPR単位 (縦切り・5ファイル以内目安) に分割し、承認後に GitHub issue 化 (作成前に `gh issue list --search` で重複を確認。元の issue が引数か設計書で明示されていれば、新規作成分をそのサブ issue に登録。分割案の依存を blocked by として登録し、読み直して確認)。design-doc が規模超過を検知すると提案 | `/aidd:issue-split` | `$aidd:issue-split` | `/issue-split` |
@@ -138,7 +138,7 @@ Claude Code に入れた aidd と、この Cursor 用プラグインは併用し
 | `asset-audit/` | 利用側プロジェクトの `.claude/` と `CLAUDE.md` の棚卸し。retro と同じ型を利用側の資産に当て、一定期間発火しない hook・参照先の消えた記述・上流に吸収された規則・2箇所にある同じ基準・観測1件からの一般化を削除・改訂候補に、`error` 行を持つ hook を修正候補にする。候補が0件なら基準を疑う。人だけが起動する (`disable-model-invocation`) | `/aidd:asset-audit` | `$aidd:asset-audit` | `/asset-audit` |
 | `incident-retro/` | セッションの事故の棚卸し。再発防止の置き場をコード (今直さないなら issue) → hook → ADR (決定とその理由) → `CLAUDE.md` / `AGENTS.md` / Cursor の rules / memory (リポジトリを移っても効くか) → コマンドの順に決め、一般則にする前にその規則で壊れるものを1件挙げさせる。ADR・issue は `/aidd:adr`・`/aidd:issue-split` に委ねる。人だけが起動する (`disable-model-invocation`) | `/aidd:incident-retro` | `$aidd:incident-retro` | `/incident-retro` |
 | `adr/` | アーキテクチャ決定記録を docs/adr/NNNN-<slug>.md に作成。1 ADR = 1 決定。採番はローカルに加えローカル／リモートの全ブランチを見て衝突を避ける | `/aidd:adr` | `$aidd:adr` | `/adr` |
-| `design-doc/` | 要件から設計書を生成し docs/design/ に保存。構成は design-review の6観点と1対1対応。構成と責務にコンポーネントごとのコード上の配置を書く。永続化を含む設計では、データフローの節にデータモデル (スキーマを緩める選択の理由と代替案) と主要な経路のインデックスの前提・読む件数の上限を書かせる | `/aidd:design-doc` | `$aidd:design-doc` | `/design-doc` |
+| `design-doc/` | 要件から設計書を生成し docs/design/ に保存。構成は design-review の6観点と1対1対応。構成と責務にコンポーネントごとのコード上の配置を書く。永続化を含む設計では、データフローの節にデータモデル (スキーマを緩める選択の理由と代替案) と主要な経路のインデックスの前提・読む件数の上限を書かせる。同時に読み書きされる状態があれば、データフローの節に競合・二重実行・破損への対策を書かせる | `/aidd:design-doc` | `$aidd:design-doc` | `/design-doc` |
 | `design-sync/` | 設計書と実装の乖離を検知し、status を最新化する | `/aidd:design-sync` | `$aidd:design-sync` | `/design-sync` |
 | `doctor/` | aidd/superpowers の導入状態・バージョン整合・hooks 実行可否・Codex custom agents の導入を診断する。項目1–2（`claude plugin list` と `installed_plugins.json`）は Claude Code 以外ではスキップして「Claude Code のみ」と書く | `/aidd:doctor` | `$aidd:doctor` | `/doctor` |
 | `infra-audit/` | 利用側プロジェクトの静的解析(複雑度制御)・重複コード検出(jscpd/knip)・多OS CI の導入状況を診断する。doctor が aidd 自身を診断するのに対し、こちらは利用側プロジェクトの品質ガードを対象とする | `/aidd:infra-audit` | `$aidd:infra-audit` | `/infra-audit` |
@@ -153,7 +153,7 @@ Claude Code に入れた aidd と、この Cursor 用プラグインは併用し
 | `refuter.md` | レビュー指摘の反証専任エージェント (sonnet)。high/mid 指摘を現物に照らして積極的に反証し、耐えた指摘だけを昇格させる。design-review・review-loop から起動 |
 | `reviewer.md` | 成果物の検収用エージェント (sonnet)。PR全体のレビューは pr-review-toolkit の担当 |
 | `scout.md` | 軽量読み取り調査エージェント (haiku)、ファイル検索・コードベース偵察用 |
-| `security-reviewer.md` | 信頼境界を跨ぐ設計への STRIDE ベース脅威レビュー (sonnet)。design-review が条件起動。攻撃経路を構成できる懸念のみ high/mid で報告 |
+| `security-reviewer.md` | 信頼境界を跨ぐ設計 (機微情報をファイル・ログ・キャッシュに保存する設計を含む) への STRIDE ベース脅威レビュー (sonnet)。design-review が条件起動。攻撃経路を構成できる懸念のみ high/mid で報告 |
 | `source-verifier.md` | 設計書の外部検証可能な主張を信頼できる情報源と突き合わせる (sonnet, WebSearch/WebFetch)。design-review の `--verify-sources` 専用 |
 | `.codex/agents/aidd-*.toml` | 上の6定義の Codex 用写し。必須キーは `name` / `description` / `developer_instructions` だけ。`scripts/generate-codex-agents.py` が生成し、`scripts/install-codex-agents.sh` が利用側へコピーする |
 
