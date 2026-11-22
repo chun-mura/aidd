@@ -45,7 +45,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
      - コマンドごとに `$TMPDIR` の下を使う (`npm --cache "$TMPDIR/npm-cache" ...`、`PIP_CACHE_DIR="$TMPDIR/pip-cache" pip ...`): 共有のキャッシュに触れないが、セッションをまたいで再利用されない
      - `sandbox.filesystem.allowWrite` に `~/.npm` などを足す: キャッシュが残るが、sandbox 内のコマンドがほかのプロジェクトと共有するキャッシュを書き換えられるようになる
    - macOS では、OS の証明書ストアで TLS を検証する pip (truststore) が sandbox 内で `OSStatus -26276` で失敗することがある。`PIP_USE_DEPRECATED=legacy-certs` を付けると pip 同梱の証明書で検証する
-   - `~/.ssh`・`~/.aws`・`~/.config/gh`・`~/.netrc`・git の credential store (`~/.git-credentials`・`~/.config/git/credentials`) は sandbox 内のコマンドから読めない。認証情報の既定の拒否リストは無いので、ほかの認証情報のパスは利用側で足す。SSH の鍵が読めないため、git の remote は HTTPS にする。ただし macOS では credential helper の `osxkeychain` が sandbox 内で使えず、HTTPS の `git push` も失敗することがある
+   - `~/.ssh`・`~/.aws`・`~/.config/gh`・`~/.netrc`・git の credential store (`~/.git-credentials`・`~/.config/git/credentials`) は sandbox 内のコマンドから読めない。認証情報の既定の拒否リストは無いので、ほかの認証情報のパスは利用側で足す。SSH の鍵が読めないため、git の remote は HTTPS にし、push の認証は手順2の credential helper で `GH_TOKEN` から渡す (macOS では、継承した `osxkeychain` の helper が sandbox 内で使えず、push が失敗することがある)
    - sandbox が使えない環境では起動を止め (`failIfUnavailable`)、エージェントによる sandbox の外での再実行を許さない (`allowUnsandboxedCommands: false`)。sandbox の外で動かす必要があるコマンドは `excludedCommands` に足す。足したコマンドは利用者の全権限で動く
    - sandbox がかかるのは Bash のコマンドだけ。`Read` ツールには効かないので、雛形は同じ認証情報のパスを `permissions.deny` の `Read(...)` でも拒否している。ほかに `Read` ツールで読ませたくないファイルも `permissions.deny` に書く
 2. **`gh` には対象リポジトリだけの fine-grained PAT を渡す**: macOS では `gh` が sandbox 内で TLS の検証に失敗しうるため、雛形は `gh *` を `excludedCommands` に入れ、`gh` を sandbox の外で動かす。`gh` の権限は token で絞る。
@@ -62,6 +62,15 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
      # paste the token; it is neither echoed nor kept in shell history, and claude starts only with it exported
      read -rs GH_TOKEN && [ -n "$GH_TOKEN" ] && export GH_TOKEN && claude
      ```
+
+   - `git push` (HTTPS) にも同じ token を使う。利用プロジェクトで1回だけ次を実行する。1行目の空の値は、継承した helper (`osxkeychain`、`gh auth setup-git` が足す `gh auth git-credential` など) を github.com についてだけリセットする。2行目の helper は `get` のときに環境変数 `GH_TOKEN` を読んで返すだけで、token をファイルに書かず、`store` / `erase` では何も出力しない
+
+     ```bash
+     git config --local credential.https://github.com.helper ''
+     git config --local --add credential.https://github.com.helper '!f() { if [ "$1" = get ] && [ -n "$GH_TOKEN" ]; then echo username=x-access-token; echo "password=$GH_TOKEN"; fi; }; f'
+     ```
+
+     `gh auth setup-git` は使わない。push は sandbox の中で動くので、helper として呼ばれる `gh` が雛形の拒否した `~/.config/gh` を読めずに失敗する
 
 3. **完全な隔離が必要なら aidd-autopilot を使う**: 上の設定は利用者のマシンとアカウントの上での制限にとどまる。コンテナ隔離・egress 許可リスト・fine-grained PAT で skill を動かすなら aidd-autopilot (issue のラベルを契機に、隔離した Docker コンテナで headless の Claude Code を動かす) を使う。
 
