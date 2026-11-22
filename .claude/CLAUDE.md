@@ -35,7 +35,7 @@ There is no `package.json`/Makefile/test runner. The contract tests are plain ba
 
 ```bash
 bash tests/autonomous-review-contract-test.sh  # grep-asserts required phrases in skills/autonomous-review/SKILL.md
-bash tests/command-contract-test.sh      # grep-asserts exact phrases exist in skills/design-review/SKILL.md, agents/reviewer.md, agents/refuter.md, skills/eval/SKILL.md, skills/review-loop/SKILL.md, skills/adr/SKILL.md, skills/incident-retro/SKILL.md, skills/asset-audit/SKILL.md, skills/issue-implement/SKILL.md, skills/design-doc/SKILL.md
+bash tests/command-contract-test.sh      # grep-asserts exact phrases exist in skills/design-review/SKILL.md, agents/reviewer.md, agents/refuter.md, skills/eval/SKILL.md, skills/review-loop/SKILL.md, skills/adr/SKILL.md, skills/incident-retro/SKILL.md, skills/asset-audit/SKILL.md, skills/issue-implement/SKILL.md, skills/design-doc/SKILL.md, skills/test-perspectives/SKILL.md
 bash tests/hook-contract-test.sh         # feeds fake hook-event JSON into hooks/scripts/*.sh via stdin, asserts output; also runs generate-asset-index.py --check
 bash tests/hook-log-test.sh              # exercises templates/aidd-hook-log.sh (pass-through, signals, per-hook markers)
 bash tests/redundancy-contract-test.sh   # asserts removed assets stay removed and de-duplication boundaries hold
@@ -49,7 +49,7 @@ tests outside the sandbox (or with a writable temp dir) rather than treating tha
 These are **not** a general-purpose test framework — some grep for literal strings that must appear in specific
 prompt files; `hook-contract`, `hook-log` and `session-start` execute the scripts. If you edit
 `skills/design-review/SKILL.md`, `agents/reviewer.md`, `agents/refuter.md`, `skills/eval/SKILL.md`, `skills/adr/SKILL.md`,
-`skills/incident-retro/SKILL.md`, `skills/autonomous-review/SKILL.md`, `skills/issue-implement/SKILL.md`, `skills/design-doc/SKILL.md`, `skills/asset-audit/SKILL.md` (also executed by
+`skills/incident-retro/SKILL.md`, `skills/autonomous-review/SKILL.md`, `skills/issue-implement/SKILL.md`, `skills/design-doc/SKILL.md`, `skills/test-perspectives/SKILL.md`, `skills/asset-audit/SKILL.md` (also executed by
 `hook-log-test.sh`), `skills/review-loop/SKILL.md`, `templates/design-perspectives.md.template`,
 `templates/CLAUDE.md.template`, `templates/aidd-hook-log.sh`, `hooks/hooks.json`, `hooks/scripts/*.sh`,
 `scripts/generate-asset-index.py`, `scripts/generate-codex-agents.py`, `scripts/install-codex-agents.sh`,
