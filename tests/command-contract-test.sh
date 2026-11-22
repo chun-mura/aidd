@@ -28,6 +28,12 @@ grep -F -- 'ノイズ率' "$eval_command"
 grep -F -- '--review-delta' "$design_review"
 grep -F -- '差分と必要な周辺文脈' "$design_review"
 grep -F -- '全体再レビュー' "$design_review"
+# Agent 2 covers the data model and the design-level part of performance (#85).
+# N+1 is decided in the implementation, so the perspective must exclude it explicitly.
+grep -F -- 'スキーマを緩める選択に、理由と検討した代替案' "$design_review"
+grep -F -- 'インデックスの前提' "$design_review"
+grep -F -- '件数の上限なく全件を読む経路' "$design_review"
+grep -F -- 'N+1 などクエリの実装で決まることは扱わない' "$design_review"
 grep -F -- '初回を含めて最大3ラウンド' "$review_loop"
 grep -F -- 'deferred mid' "$review_loop"
 grep -F -- '`/aidd:issue-split`' "$review_loop"
