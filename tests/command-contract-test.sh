@@ -32,6 +32,12 @@ grep -F -- '全体再レビュー' "$design_review"
 # Agent 2 covers the data model and the design-level part of performance (#85).
 # N+1 is decided in the implementation, so the perspective must exclude it explicitly.
 grep -F -- 'スキーマを緩める選択に、理由と検討した代替案' "$design_review"
+# design-doc asks for a rationale only for schema-loosening choices, so the review must
+# not ask for one on ordinary type choices (#93).
+grep -F -- 'それ以外の型の選択には根拠の記載を求めない' "$design_review"
+if grep -Fq -- '型の選択と正規化に根拠があるか' "$design_review"; then
+  exit 1
+fi
 grep -F -- 'インデックスの前提' "$design_review"
 grep -F -- '件数の上限なく全件を読む経路' "$design_review"
 grep -F -- 'N+1 などクエリの実装で決まることは扱わない' "$design_review"
@@ -49,6 +55,10 @@ grep -F -- 'must の観点は全件' "$issue_implement"
 # issue-implement checks the diff against the placement that design-doc writes, so both
 # sides of that contract must stay.
 grep -F -- 'コンポーネントごとにコード上の配置 (ディレクトリ・ファイル) を書く' "$design_doc"
+# design-review Agent 1 checks that placement too, so a design doc that omits it does not
+# pass review and leave issue-implement without a placement to check against (#95).
+grep -F -- 'コンポーネントごとにコード上の配置 (ディレクトリ・ファイル) が書かれているか' "$design_review"
+grep -F -- '既存の構造から外れる配置に理由が書かれているか' "$design_review"
 grep -F -- '設計書の「構成と責務」に書かれた配置と照らす' "$issue_implement"
 grep -F -- '責務の集中は行数ではなく、この責務の割り当てで判定する' "$issue_implement"
 grep -F -- 'どのコンポーネントにも割り当てていない責務' "$issue_implement"
