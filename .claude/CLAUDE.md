@@ -152,7 +152,7 @@ This is the most structurally complex asset — read the file itself before modi
    Agent 1 (structure), Agent 2 (data/error handling), Agent 3 (pragmatism/YAGNI/ops), Agent 4 (project-specific,
    only if consumer has `.aidd/design-perspectives.md` — never carries security perspectives), Agent 5
    (`aidd:source-verifier`, only with `--verify-sources`), Agent 6 (`aidd:security-reviewer`, STRIDE, only if the
-   design crosses a trust boundary — decided semantically by the main loop, not by keyword match; forced/suppressed
+   design crosses a trust boundary or stores sensitive data in files, logs, or caches — decided semantically by the main loop, not by keyword match; forced/suppressed
    by `--security`/`--no-security`).
    Only a small target (1 file, or a summary under 100 lines) may shortcut to a direct in-context review — except
    when `--verify-sources` is set, which always forces the full parallel path (to guarantee Agent 5 runs). A large
