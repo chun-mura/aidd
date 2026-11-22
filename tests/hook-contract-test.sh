@@ -1466,3 +1466,194 @@ wait "$locker"
 # R2-1: the fail-closed Read check must not depend on line breaks inside valid JSON.
 gate '{"tool_name"
 : "Read", "tool_input": null, "note": "autonomous-review"}' | expect_gate deny
+
+# --- Learnings ledger: git commit is denied when a staged or named .aidd/learnings/ file fails
+# scripts/learnings.py (docs/superpowers/specs/2026-11-22-learnings-ledger-design.md) ----------
+ledger_repo="$tmp_dir/ledger-repo"
+git init -q --template= -b main "$ledger_repo"
+echo base > "$ledger_repo/app.sh"
+git -C "$ledger_repo" add app.sh
+git -C "$ledger_repo" commit -qm 'chore: base'
+mkdir -p "$ledger_repo/.aidd/learnings"
+# ledger_file NAME FACT: writes an otherwise valid observation.
+ledger_file() {
+  python3 -c '
+import json, sys
+json.dump({"schema_version": 1, "source": "incident-retro", "scope": "tool", "status": "observed",
+           "signature": "git stash", "fact": sys.argv[2], "evidence": ["#1"],
+           "session": "0123456789ab"}, open(sys.argv[1], "w"))
+' "$ledger_repo/.aidd/learnings/$1" "$2"
+}
+good_ledger=20261122T010000Z-0000000a.json
+bad_ledger=20261122T010000Z-0000000b.json
+ledger_file "$good_ledger" 'A plain observation.'
+ledger_file "$bad_ledger" 'Reported by leaky-person@example.com today.'
+
+# Nothing from the ledger staged or named: the commit is not denied, whether or not the ledger
+# is enabled, and the reply is the same either way.
+echo change >> "$ledger_repo/app.sh"
+git -C "$ledger_repo" add app.sh
+plain_off=$(hook PreToolUse "$ledger_repo" 'git commit -m x')
+[ "$(printf '%s\n' "$plain_off" | decision_of)" = none ]
+git -C "$ledger_repo" config aidd.learnings true
+plain_on=$(hook PreToolUse "$ledger_repo" 'git commit -m x')
+[ "$plain_on" = "$plain_off" ]
+git -C "$ledger_repo" config --unset aidd.learnings
+
+# A staged file that passes is not denied; one that fails is, even with the ledger disabled.
+git -C "$ledger_repo" add ".aidd/learnings/$good_ledger"
+[ "$(hook PreToolUse "$ledger_repo" 'git commit -m x' | decision_of)" = none ]
+git -C "$ledger_repo" add ".aidd/learnings/$bad_ledger"
+out=$(hook PreToolUse "$ledger_repo" 'git commit -m x')
+[ "$(printf '%s\n' "$out" | decision_of)" = deny ]
+printf '%s\n' "$out" | grep -F ".aidd/learnings/$bad_ledger"
+printf '%s\n' "$out" | grep -F 'email address'
+# The reason names the rule, never the value.
+if printf '%s\n' "$out" | grep -Fq 'leaky-person'; then
+  echo "ledger denial echoed the rejected value" >&2
+  exit 1
+fi
+# The check reads the index, not the working tree: fixing the file without restaging still fails.
+ledger_file "$bad_ledger" 'Fixed in the working tree only.'
+[ "$(hook PreToolUse "$ledger_repo" 'git commit -m x' | decision_of)" = deny ]
+git -C "$ledger_repo" add ".aidd/learnings/$bad_ledger"
+[ "$(hook PreToolUse "$ledger_repo" 'git commit -m x' | decision_of)" = none ]
+# Loading the check writes nothing into the plugin (hooks write only under ~/.claude/aidd/).
+[ ! -e "$repo_root/scripts/__pycache__" ]
+# PostToolUse never denies.
+if hook PostToolUse "$ledger_repo" 'git commit -m x' | grep -Fq '"permissionDecision"'; then
+  echo "PostToolUse returned a permission decision" >&2
+  exit 1
+fi
+git -C "$ledger_repo" commit -qm 'docs: ledger'
+
+# Files named by git add / git commit in the same command are checked before they are staged:
+# a direct path, the directory or a parent, a glob, a pathspec after --, git -C, and from a
+# subdirectory.
+ledger_file "$bad_ledger" 'Reported by leaky-person@example.com today.'
+for command in \
+  "git add .aidd/learnings/$bad_ledger && git commit -m x" \
+  'git add .aidd/learnings && git commit -m x' \
+  'git add .aidd && git commit -m x' \
+  'git add .aidd/learnings/*.json && git commit -m x' \
+  "git commit -m x -- .aidd/learnings/$bad_ledger" \
+  "git -C .aidd add learnings/$bad_ledger; git commit -m x"; do
+  [ "$(hook PreToolUse "$ledger_repo" "$command" | decision_of)" = deny ] || { echo "not denied: $command" >&2; exit 1; }
+done
+mkdir -p "$ledger_repo/src"
+[ "$(hook PreToolUse "$ledger_repo/src" "git add ../.aidd/learnings/$bad_ledger && git commit -m x" | decision_of)" = deny ]
+# git add without a commit is not judged; naming an unrelated path is not denied.
+[ -z "$(hook PreToolUse "$ledger_repo" "git add .aidd/learnings/$bad_ledger")" ]
+[ "$(hook PreToolUse "$ledger_repo" 'git add app.sh && git commit -m x' | decision_of)" = none ]
+
+# Without the check script the dispatcher cannot judge the ledger: deny ledger commits only.
+lonely="$tmp_dir/lonely/hooks/scripts"
+mkdir -p "$lonely"
+cp "$dispatcher" "$lonely/tool-reminder.sh"
+git -C "$ledger_repo" add ".aidd/learnings/$bad_ledger"
+lonely_hook() {
+  python3 -c '
+import json, sys
+print(json.dumps({"hook_event_name": "PreToolUse", "cwd": sys.argv[1], "session_id": "s",
+                  "tool_name": "Bash", "tool_input": {"command": sys.argv[2]}}))
+' "$1" "$2" | AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$lonely/tool-reminder.sh"
+}
+out=$(lonely_hook "$ledger_repo" 'git commit -m x')
+[ "$(printf '%s\n' "$out" | decision_of)" = deny ]
+printf '%s\n' "$out" | grep -F 'scripts/learnings.py'
+git -C "$ledger_repo" restore --staged ".aidd/learnings/$bad_ledger"
+[ "$(lonely_hook "$ledger_repo" 'git commit -m x' | decision_of)" = none ]
+
+# A check that raises (RecursionError here) denies the ledger commit and keeps the other verdicts.
+mkdir -p "$tmp_dir/lonely/scripts"
+cat > "$tmp_dir/lonely/scripts/learnings.py" <<'PYEOF'
+def check_document(name, raw):
+    raise RecursionError("simulated")
+
+
+def display_name(name):
+    return name
+PYEOF
+git -C "$ledger_repo" add ".aidd/learnings/$bad_ledger"
+out=$(lonely_hook "$ledger_repo" 'git commit -a -m x')
+[ "$(printf '%s\n' "$out" | decision_of)" = deny ]
+printf '%s\n' "$out" | grep -F '検査が途中で失敗した'
+printf '%s\n' "$out" | grep -F 'git commit -a'
+git -C "$ledger_repo" restore --staged ".aidd/learnings/$bad_ledger"
+
+# The staged and the working-tree version of a named file are both checked.
+git -C "$ledger_repo" add ".aidd/learnings/$bad_ledger"
+ledger_file "$bad_ledger" 'Fixed in the working tree only.'
+out=$(hook PreToolUse "$ledger_repo" "git commit -m x -- .aidd/learnings/$bad_ledger")
+[ "$(printf '%s\n' "$out" | decision_of)" = deny ]
+printf '%s\n' "$out" | grep -F "$bad_ledger (staged)"
+git -C "$ledger_repo" restore --staged ".aidd/learnings/$bad_ledger"
+ledger_file "$bad_ledger" 'Reported by leaky-person@example.com today.'
+
+# Named files are resolved by git as pathspecs (top-level magic from a subdirectory, a quoted glob).
+[ "$(hook PreToolUse "$ledger_repo/src" "git add ':/.aidd/learnings' && git commit -m x" | decision_of)" = deny ]
+[ "$(hook PreToolUse "$ledger_repo" "git add '*.json' && git commit -m x" | decision_of)" = deny ]
+
+# The staged blob is checked byte for byte: trailing whitespace counts toward the size limit.
+big_ledger=20261122T010000Z-0000000c.json
+python3 -c '
+import json, sys
+body = json.dumps({"schema_version": 1, "source": "incident-retro", "scope": "tool", "status": "observed",
+                   "signature": "git stash", "fact": "A plain observation.", "evidence": [],
+                   "session": "0123456789ab"})
+open(sys.argv[1], "w").write(body + " " * 5000)
+' "$ledger_repo/.aidd/learnings/$big_ledger"
+git -C "$ledger_repo" add ".aidd/learnings/$big_ledger"
+out=$(hook PreToolUse "$ledger_repo" 'git commit -m x')
+[ "$(printf '%s\n' "$out" | decision_of)" = deny ]
+printf '%s\n' "$out" | grep -F 'larger than'
+git -C "$ledger_repo" rm -q --cached ".aidd/learnings/$big_ledger"
+rm "$ledger_repo/.aidd/learnings/$big_ledger"
+
+# A file whose name breaks the pattern is denied without echoing the name.
+cp "$ledger_repo/.aidd/learnings/$good_ledger" "$ledger_repo/.aidd/learnings/leakyname.json"
+git -C "$ledger_repo" add .aidd/learnings/leakyname.json
+out=$(hook PreToolUse "$ledger_repo" 'git commit -m x')
+[ "$(printf '%s\n' "$out" | decision_of)" = deny ]
+if printf '%s\n' "$out" | grep -Fq 'leakyname'; then
+  echo "ledger denial echoed a non-conforming file name" >&2
+  exit 1
+fi
+git -C "$ledger_repo" rm -q --cached .aidd/learnings/leakyname.json
+rm "$ledger_repo/.aidd/learnings/leakyname.json"
+
+# A git failure while listing ledger files is not "no ledger files": a wrapper first on PATH fails
+# only `git diff --cached` (AIDD_FAIL=diff) or only `git ls-files` (AIDD_FAIL=ls-files).
+failing_bin="$tmp_dir/failing-git"
+mkdir -p "$failing_bin"
+real_git=$(command -v git)
+cat > "$failing_bin/git" <<EOF
+#!/bin/bash
+case " \$* " in
+  *" diff --cached "*) [ "\${AIDD_FAIL-}" = diff ] && exit 128 ;;
+  *" ls-files "*) [ "\${AIDD_FAIL-}" = ls-files ] && exit 128 ;;
+esac
+exec "$real_git" "\$@"
+EOF
+chmod +x "$failing_bin/git"
+failing_hook() {  # failing_hook MODE CWD COMMAND
+  local mode=$1
+  shift
+  python3 -c '
+import json, sys
+print(json.dumps({"hook_event_name": "PreToolUse", "cwd": sys.argv[1], "session_id": "s",
+                  "tool_name": "Bash", "tool_input": {"command": sys.argv[2]}}))
+' "$1" "$2" | PATH="$failing_bin:$PATH" AIDD_FAIL="$mode" AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$dispatcher"
+}
+# The wrapper passes everything through when nothing is set to fail.
+[ "$(failing_hook none "$ledger_repo" 'git commit -m x' | decision_of)" = none ]
+out=$(failing_hook diff "$ledger_repo" 'git commit -m x')
+[ "$(printf '%s\n' "$out" | decision_of)" = deny ]
+printf '%s\n' "$out" | grep -F 'git で列挙できなかった'
+out=$(failing_hook ls-files "$ledger_repo" 'git add app.sh && git commit -m x')
+[ "$(printf '%s\n' "$out" | decision_of)" = deny ]
+printf '%s\n' "$out" | grep -F 'git で列挙できなかった'
+# ls-files runs only for named paths: a commit naming nothing is not affected by its failure.
+[ "$(failing_hook ls-files "$ledger_repo" 'git commit -m x' | decision_of)" = none ]
+# Without a commit in the command nothing is listed, so a failing git does not matter.
+[ -z "$(failing_hook diff "$ledger_repo" 'git add app.sh')" ]

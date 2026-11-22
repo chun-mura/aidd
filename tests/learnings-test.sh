@@ -1,0 +1,421 @@
+#!/bin/bash
+# Contract test for scripts/learnings.py: the ledger check must reject what could leak and pass
+# ordinary observations (docs/superpowers/specs/2026-11-22-learnings-ledger-design.md).
+set -euo pipefail
+
+repo_root=$(cd "$(dirname "$0")/.." && pwd)
+script="$repo_root/scripts/learnings.py"
+# An explicit template keeps TMPDIR honored (macOS mktemp -d alone ignores it).
+tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/aidd-learnings-test.XXXXXX")
+tmp_dir=$(cd "$tmp_dir" && pwd -P)
+trap 'rm -rf "$tmp_dir"' EXIT
+
+# --- check_document: one table of inputs that must pass and inputs that must be rejected -------
+python3 -I - "$script" <<'PYEOF'
+import copy, importlib.util, json, sys
+sys.dont_write_bytecode = True
+
+spec = importlib.util.spec_from_file_location("learnings", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+
+NAME = ".aidd/learnings/20261122T031500Z-1a2b3c4d.json"
+BASE = {
+    "schema_version": 1,
+    "source": "incident-retro",
+    "scope": "tool",
+    "status": "observed",
+    "signature": "git stash",
+    "fact": "git stash in a shared worktree hid another session's edits; they were restored by hand.",
+    "evidence": ["1287eb5", "#116", "hooks/scripts/tool-reminder.sh"],
+    "session": "0123456789ab",
+}
+
+
+def doc(**changes):
+    data = copy.deepcopy(BASE)
+    for key, value in changes.items():
+        if value is None:
+            data.pop(key, None)
+        else:
+            data[key] = value
+    return data
+
+
+def errors(data, name=NAME, raw=None):
+    text = raw if raw is not None else json.dumps(data, ensure_ascii=False)
+    return mod.check_document(name, text.encode("utf-8"))
+
+
+# Token-shaped strings are assembled here so the repository never holds one.
+fake = {
+    "ghp": "gh" + "p_" + "Ab3dE5gH7jK9mN1pQ3sT5vX7zA9cE1gH3jK5",
+    "pat": "github" + "_pat_" + "11ABCDEFG0" + "x" * 30,
+    "sk": "s" + "k-" + "ant-" + "Q7w8E9r0T1y2U3i4O5p6",
+    "akia": "AK" + "IA" + "ABCDEFGHIJKLMNOP",
+    "xox": "xo" + "xb-" + "1234567890-abcdefghij",
+    "pem": "-----BEGIN " + "PRIVATE KEY-----",
+    "entropy": "Zq8" + "Lm2Rt7Vx4Bn9Kc3Wp6Hy1",
+}
+
+failures = []
+
+
+def expect_pass(label, data, name=NAME):
+    got = errors(data, name)
+    if got:
+        failures.append(f"should pass: {label}: {got}")
+
+
+def expect_reject(label, data, name=NAME, raw=None):
+    got = errors(data, name, raw)
+    if not got:
+        failures.append(f"should reject: {label}")
+    # The reason must never echo the offending value (it may be the secret itself).
+    for value in fake.values():
+        if any(value in e for e in got):
+            failures.append(f"reason echoes the value: {label}")
+
+
+# Inputs that must pass, including the usual false-positive traps.
+expect_pass("baseline", BASE)
+expect_pass("full 40-char SHA", doc(evidence=["0123456789abcdef0123456789abcdef01234567"]))
+expect_pass("empty evidence", doc(evidence=[]))
+expect_pass("PR number and relative path", doc(evidence=["#7", "src/app.ts", ".aidd/learnings/20261122T031500Z-1a2b3c4d.json"]))
+expect_pass("tool name signature", doc(signature="Edit"))
+expect_pass("flags in signature", doc(signature="gh pr create --fill -d"))
+for text in [
+    "/aidd:incident-retro was run twice; A/B and and/or are fine.",
+    "Output went to /dev/null and the hook wrote under ~/.claude/aidd/ as designed.",
+    "foo.test.ts and app.ts failed under Node.js after the change.",
+    "The check ran at 12:30:45 UTC and the npm scope @types/node resolved.",
+    "Commit 0123abc reverted it, and 1287eb5 restored it.",
+    "Release-v2.3.4-RC1-Build2026 shipped; MyComponent2Test.spec.tsx passed.",
+    "AIDD_REQUIRED_LABEL_PREFIX was unset, so the gate stayed off.",
+    "sha256_digest_for_v2_release, x86_64-apple-darwin25 and python3-urllib3-2-0-7 are names.",
+    "claude-opus-5-5-20261122 and generateAssetIndex2 and src/components/Button2/index.tsx too.",
+    "The ghp_ prefix alone is mentioned here without a value.",
+    "ファイル 20261122T031500Z-1a2b3c4d を読んだ。",
+    "日本語の事実も200字以内なら通る。" * 5,
+]:
+    expect_pass(f"fact: {text[:40]}", doc(fact=text))
+expect_pass("fact of exactly 200 chars", doc(fact="あ" * 200))
+for status in ("observed", "applied", "declined"):
+    expect_pass(f"status {status}", doc(status=status))
+for scope in ("project", "tool", "aidd"):
+    expect_pass(f"scope {scope}", doc(scope=scope))
+for source in ("incident-retro", "auto-memory", "autonomous-review"):
+    expect_pass(f"source {source}", doc(source=source))
+
+# Each pattern must reject on its own: the reason names that pattern's rule, so a case that a
+# neighbouring pattern also catches still fails when its own pattern breaks.
+for label, rule, text in [
+    ("absolute path", "absolute path", "It failed in /Users/someone/project/app.sh after the edit."),
+    ("windows path", "absolute path", "It failed in C:\\work\\app after the edit."),
+    ("email", "email address", "Reported by someone@mailhost.zz during review."),
+    ("url", "URL", "See https://example.invalid/page for the log."),
+    ("www", "URL", "See www.sample for the log."),
+    ("ipv4", "IP address", "The runner reached 10.0.12.34 directly."),
+    ("ipv6", "IP address", "The runner reached fe80::1ff:fe23:4567 directly."),
+    ("fqdn", "host name", "The job called build.example.com and timed out."),
+    ("internal host", "host name", "The job called db01.internal and timed out."),
+    ("ghp token", "token prefix", f"The value {fake['ghp']} leaked."),
+    ("fine-grained pat", "token prefix", f"The value {fake['pat']} leaked."),
+    ("sk token", "token prefix", f"The value {fake['sk']} leaked."),
+    ("aws key", "token prefix", f"The value {fake['akia']} leaked."),
+    ("slack token", "token prefix", f"The value {fake['xox']} leaked."),
+    ("pem header", "token prefix", f"The file began with {fake['pem']}."),
+    ("high entropy", "high-entropy", f"The value {fake['entropy']} leaked."),
+    ("uuid", "UUID", "Record 123e4567-e89b-12d3-a456-426614174000 was touched."),
+    ("long hex", "long hex", "Digest " + "ab12" * 16 + " matched."),
+    ("company ja", "company name", "株式会社サンプルの案件で起きた。"),
+    ("company kabu", "company name", "(株)サンプルの案件で起きた。"),
+    ("company en", "company name", "It happened on the Sample Inc. project."),
+    ("company llc", "company name", "It happened on the Sample LLC project."),
+]:
+    got = errors(doc(fact=text))
+    if not any(rule in e for e in got):
+        failures.append(f"should reject with {rule}: fact {label}: {got}")
+    expect_reject(f"fact {label}", doc(fact=text))
+
+# The patterns apply to every string field, not only fact.
+expect_reject("token in signature", doc(signature="git " + fake["ghp"]))
+expect_reject("email in evidence", doc(evidence=["someone@example.com"]))
+
+# Schema.
+expect_reject("missing key", doc(session=None))
+expect_reject("extra key", doc(author="someone"))
+# Key names are input too: the reason counts them and never names them.
+for label, raw in [
+    ("unknown key name", json.dumps(doc(leakykeyname=1))),
+    ("duplicate key name", json.dumps(doc(leakykeyname=1))[:-1] + ', "leakykeyname": 2}'),
+]:
+    got = errors(None, raw=raw)
+    if not got or any("leakykeyname" in e for e in got):
+        failures.append(f"key name echoed or not rejected: {label}: {got}")
+expect_reject("wrong schema_version", doc(schema_version=2))
+expect_reject("bool schema_version", doc(schema_version=True))
+expect_reject("unknown source", doc(source="manual"))
+expect_reject("unknown scope", doc(scope="global"))
+expect_reject("unknown status", doc(status="promoted"))
+expect_reject("fact too long", doc(fact="あ" * 201))
+expect_reject("empty fact", doc(fact=""))
+expect_reject("newline in fact", doc(fact="line one\nline two"))
+expect_reject("fact not a string", doc(fact=["x"]))
+expect_reject("signature with a path", doc(signature="git add src/app.ts"))
+expect_reject("signature with a value", doc(signature="git commit --message=fix"))
+expect_reject("signature with a quote", doc(signature="git commit -m 'fix'"))
+expect_reject("signature with uppercase subcommand", doc(signature="git Main"))
+expect_reject("signature too many words", doc(signature="git a b c d e f g h"))
+expect_reject("empty signature", doc(signature=""))
+expect_reject("url in evidence", doc(evidence=["https://example.invalid/pull/1"]))
+expect_reject("absolute path in evidence", doc(evidence=["/etc/hosts"]))
+expect_reject("home path in evidence", doc(evidence=["~/notes.txt"]))
+expect_reject("parent path in evidence", doc(evidence=["../other/file"]))
+expect_reject("free text in evidence", doc(evidence=["see the chat"]))
+expect_reject("too many evidence items", doc(evidence=["#1"] * 11))
+expect_reject("evidence not a list", doc(evidence="#1"))
+expect_reject("session not hashed", doc(session="session-a"))
+expect_reject("session uppercase", doc(session="0123456789AB"))
+expect_reject("not an object", None, raw="[1, 2]")
+expect_reject("invalid json", None, raw="{")
+expect_reject("duplicate key", None, raw=json.dumps(BASE)[:-1] + ', "fact": "again"}')
+expect_reject("oversized file", None, raw=json.dumps(doc(fact="a")) + " " * 5000)
+
+# Deep nesting is rejected, never raised (older Pythons raise RecursionError here), and so is
+# any other failure inside the JSON parser.
+expect_reject("deeply nested", None, raw="[" * 2000 + "]" * 2000)
+real_loads = mod.json.loads
+try:
+    def boom(*args, **kwargs):
+        raise RecursionError("simulated")
+    mod.json.loads = boom
+    expect_reject("parser raises", BASE)
+finally:
+    mod.json.loads = real_loads
+
+# Invisible characters are rejected outright; compatibility forms are normalized before the
+# patterns run; values written straight against Japanese text are still found.
+for label, text in [
+    ("zero-width", "a" + "\u200b" + "b"),
+    ("line separator", "a" + "\u2028" + "b"),
+    ("bidi control", "a" + "\u202e" + "b"),
+    ("byte order mark", "a" + "\ufeff" + "b"),
+]:
+    got = errors(doc(fact=text))
+    if not any("invisible" in e for e in got):
+        failures.append(f"should reject invisible: {label}: {got}")
+fullwidth = "".join(chr(ord(c) + 0xFEE0) for c in fake["ghp"])
+for label, rule, text in [
+    ("full-width token", "token prefix", f"値は{fullwidth}でした。"),
+    ("ip next to kana", "IP address", "接続先は10.0.12.34でした。"),
+    ("path next to kana", "absolute path", "場所は/Users/someone/projectでした。"),
+    ("host next to kana", "host name", "接続先はbuild.example.comでした。"),
+    ("email next to kana", "email address", "連絡先someone@mailhost.zzまで。"),
+    ("company next to kana", "company name", "サンプルInc.の案件。"),
+    ("ipv6 loopback", "IP address", "It listened on ::1 only."),
+    ("ipv6 trailing compression", "IP address", "It bound to fe80:: first."),
+    ("absolute path with Japanese directories", "absolute path", "設定は/ユーザー/作業/設定.json にあった。"),
+    ("32 hex in fact", "long hex", "Digest " + "0123456789abcdef" * 2 + " matched."),
+    ("40-char SHA in fact", "long hex", "Commit " + "0123456789abcdef" * 2 + "01234567 reverted it."),
+    ("separated random", "high-entropy", "Value " + "-".join(["Zq8L", "m2Rt", "7Vx4", "Bn9K", "c3Wp", "6Hy1"]) + " leaked."),
+]:
+    got = errors(doc(fact=text))
+    if not any(rule in e for e in got):
+        failures.append(f"should reject with {rule}: {label}: {got}")
+expect_pass("std namespaces and times", doc(fact="std::fs and Foo::Bar ran at 12:30:45."))
+expect_pass("Japanese slashes in prose", doc(fact="読み/書き/実行の権限と、設定/作業/ファイルの順を確かめた。"))
+expect_pass("ratios and dates", doc(fact="成功は 3/4 で、11/22 に再現した。"))
+
+# Names that break the file-name pattern are not echoed.
+if mod.display_name(".aidd/learnings/leaky-name.json") != mod.display_name(".aidd/learnings/other.json"):
+    failures.append("display_name echoes a non-conforming name")
+if mod.display_name(NAME) != NAME:
+    failures.append("display_name hides a conforming name")
+
+# File names.
+expect_reject("bad file name", BASE, name=".aidd/learnings/note.json")
+expect_reject("nested file", BASE, name=".aidd/learnings/promotions/20261122T031500Z-1a2b3c4d.json")
+expect_reject("non-json file", BASE, name=".aidd/learnings/README.md")
+
+if failures:
+    print("\n".join(failures))
+    sys.exit(1)
+PYEOF
+
+# --- CLI: add (default off, writes only checked observations), check, candidates ------------
+export GIT_CONFIG_NOSYSTEM=1 HOME="$tmp_dir/home"
+mkdir -p "$HOME"
+export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
+repo="$tmp_dir/repo"
+git init -q --template= -b main "$repo"
+git -C "$repo" commit -q --allow-empty -m 'chore: base'
+
+observation() {  # observation SIGNATURE [FACT]
+  python3 -c '
+import json, sys
+print(json.dumps({"source": "incident-retro", "scope": "tool", "status": "observed",
+                  "signature": sys.argv[1], "fact": sys.argv[2], "evidence": ["#1"]}))
+' "$1" "${2:-A plain observation for the test.}"
+}
+
+# Disabled by default: nothing is written and the exit code says so.
+set +e
+out=$(observation 'git stash' | python3 -I "$script" add --repo "$repo" --session-id s1 2>&1)
+status=$?
+set -e
+[ "$status" -eq 3 ]
+printf '%s\n' "$out" | grep -F 'git config aidd.learnings true'
+[ ! -e "$repo/.aidd/learnings" ]
+
+git -C "$repo" config aidd.learnings true
+
+# A rejected observation is not written; the reason names the rule, not the value.
+set +e
+out=$(observation 'git stash' 'Reported by someone@example.com today.' | \
+  python3 -I "$script" add --repo "$repo" --session-id s1 2>&1)
+status=$?
+set -e
+[ "$status" -eq 1 ]
+if printf '%s\n' "$out" | grep -Fq 'someone@example.com'; then
+  echo "add echoed the rejected value" >&2
+  exit 1
+fi
+[ -z "$(ls -A "$repo/.aidd/learnings" 2>/dev/null)" ]
+
+# A passing observation is written under a generated name, with the session hashed.
+path=$(observation 'git stash' | python3 -I "$script" add --repo "$repo" --session-id s1)
+printf '%s\n' "$path" | grep -Eq '^\.aidd/learnings/[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}\.json$'
+python3 -I - "$repo/$path" <<'PYEOF'
+import hashlib, json, sys
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+assert data["schema_version"] == 1, data
+assert data["session"] == hashlib.sha256(b"s1").hexdigest()[:12], data
+assert "s1" not in json.dumps(data), data
+PYEOF
+python3 -I "$script" check --repo "$repo" "$repo/$path"
+
+# Callers may not set schema_version or session themselves.
+set +e
+python3 -c 'import json; print(json.dumps({"source": "incident-retro", "scope": "tool", "status": "observed", "signature": "git stash", "fact": "x", "evidence": [], "session": "0123456789ab"}))' | \
+  python3 -I "$script" add --repo "$repo" --session-id s1 >/dev/null 2>&1
+status=$?
+set -e
+[ "$status" -eq 1 ]
+
+# check rejects a bad file and exits 1.
+bad="$repo/.aidd/learnings/20261122T000000Z-00000000.json"
+python3 -c 'import json,sys; json.dump({"schema_version": 1}, open(sys.argv[1], "w"))' "$bad"
+set +e
+python3 -I "$script" check --repo "$repo" "$bad" >/dev/null
+status=$?
+set -e
+[ "$status" -eq 1 ]
+rm "$bad"
+
+# candidates counts merged observations and the ones written in this session only.
+# An own unmerged observation plus this session is still one session.
+python3 -I "$script" candidates --repo "$repo" --session-id s1 --signature 'git stash' > "$tmp_dir/c1"
+[ ! -s "$tmp_dir/c1" ]
+# Someone else's unmerged observation (s1, seen from session s2) is not counted.
+python3 -I "$script" candidates --repo "$repo" --session-id s2 --signature 'git stash' > "$tmp_dir/c2"
+[ ! -s "$tmp_dir/c2" ]
+
+# Once merged into the default branch it counts. A merged observation that fails the check is
+# not counted, and is reported on stderr by name only.
+python3 -c '
+import json, sys
+json.dump({"schema_version": 1, "source": "incident-retro", "scope": "tool", "status": "observed",
+           "signature": "gh pr view", "fact": "Reported by someone@mailhost.zz today.",
+           "evidence": [], "session": "aaaaaaaaaaaa"}, open(sys.argv[1], "w"))
+' "$repo/.aidd/learnings/20261122T000000Z-00000001.json"
+git -C "$repo" add .aidd/learnings
+git -C "$repo" commit -qm 'docs: ledger'
+python3 -I "$script" candidates --repo "$repo" --session-id s2 --signature 'git stash' \
+  --signature 'gh pr view' > "$tmp_dir/c3" 2> "$tmp_dir/c3.err"
+grep -F '"signature": "git stash"' "$tmp_dir/c3"
+grep -F '"sessions": 2' "$tmp_dir/c3"
+if grep -Fq 'gh pr view' "$tmp_dir/c3"; then
+  echo "an observation that fails the check was counted" >&2
+  exit 1
+fi
+grep -F '1 observation(s) on the default branch fail the check' "$tmp_dir/c3.err"
+grep -F '.aidd/learnings/20261122T000000Z-00000001.json' "$tmp_dir/c3.err"
+if grep -Fq 'someone' "$tmp_dir/c3.err"; then
+  echo "candidates echoed a rejected value" >&2
+  exit 1
+fi
+
+# On a branch: the default branch's observations count, plus this session's working-tree ones,
+# without double-counting a file present in both.
+git -C "$repo" switch -q -c work
+observation 'git stash' | python3 -I "$script" add --repo "$repo" --session-id s3 >/dev/null
+python3 -I "$script" candidates --repo "$repo" --session-id s3 > "$tmp_dir/c4" 2>/dev/null
+grep -F '"sessions": 2' "$tmp_dir/c4"
+[ "$(python3 -c 'import json,sys; print(len(json.loads(open(sys.argv[1]).readline())["files"]))' "$tmp_dir/c4")" -eq 2 ]
+# Without a session, only merged observations count.
+python3 -I "$script" candidates --repo "$repo" > "$tmp_dir/c5" 2>/dev/null
+[ ! -s "$tmp_dir/c5" ]
+# --all lists every counted signature, including single-session ones.
+python3 -I "$script" candidates --repo "$repo" --all > "$tmp_dir/c6" 2>/dev/null
+grep -F '"signature": "git stash"' "$tmp_dir/c6"
+grep -F '"sessions": 1' "$tmp_dir/c6"
+
+# A working-tree observation that fails the check is reported (its session cannot be read);
+# a valid one from another session is left out silently.
+python3 -c '
+import json, sys
+json.dump({"schema_version": 1, "source": "incident-retro", "scope": "tool", "status": "observed",
+           "signature": "git stash", "fact": "Reported by someone@mailhost.zz today.",
+           "evidence": [], "session": "bbbbbbbbbbbb"}, open(sys.argv[1], "w"))
+' "$repo/.aidd/learnings/20261122T000000Z-00000002.json"
+observation 'gh pr view' | python3 -I "$script" add --repo "$repo" --session-id s9 >/dev/null
+python3 -I "$script" candidates --repo "$repo" --session-id s3 > /dev/null 2> "$tmp_dir/c7.err"
+grep -F '1 observation(s) on the working tree fail the check' "$tmp_dir/c7.err"
+grep -F '.aidd/learnings/20261122T000000Z-00000002.json' "$tmp_dir/c7.err"
+[ "$(grep -c '^  ' "$tmp_dir/c7.err")" -eq 2 ]  # the merged bad file and this one, nothing else
+if grep -Fq 'someone' "$tmp_dir/c7.err"; then
+  echo "candidates echoed a rejected value" >&2
+  exit 1
+fi
+
+# A default branch named master is found.
+master_repo="$tmp_dir/master-repo"
+git init -q --template= -b master "$master_repo"
+git -C "$master_repo" config aidd.learnings true
+observation 'git stash' | python3 -I "$script" add --repo "$master_repo" --session-id m1 >/dev/null
+git -C "$master_repo" add .aidd/learnings
+git -C "$master_repo" commit -qm 'docs: ledger'
+python3 -I "$script" candidates --repo "$master_repo" --session-id m2 --signature 'git stash' > "$tmp_dir/m1"
+grep -F '"sessions": 2' "$tmp_dir/m1"
+
+# No default branch, or a default branch that cannot be listed: say so and exit 4 (not 0, not
+# the 3 that means disabled), so merged observations are never silently counted as none.
+trunk_repo="$tmp_dir/trunk-repo"
+git init -q --template= -b trunk "$trunk_repo"
+git -C "$trunk_repo" commit -q --allow-empty -m 'chore: base'
+set +e
+python3 -I "$script" candidates --repo "$trunk_repo" --session-id t1 > "$tmp_dir/t1" 2> "$tmp_dir/t1.err"
+status=$?
+set -e
+[ "$status" -eq 4 ]
+[ ! -s "$tmp_dir/t1" ]
+grep -F 'merged observations could not be counted' "$tmp_dir/t1.err"
+
+fake_bin="$tmp_dir/fake-bin"
+mkdir -p "$fake_bin"
+real_git=$(command -v git)
+cat > "$fake_bin/git" <<EOF
+#!/bin/bash
+for arg in "\$@"; do [ "\$arg" = ls-tree ] && exit 128; done
+exec "$real_git" "\$@"
+EOF
+chmod +x "$fake_bin/git"
+set +e
+PATH="$fake_bin:$PATH" python3 -I "$script" candidates --repo "$master_repo" --session-id m2 > "$tmp_dir/t2" 2> "$tmp_dir/t2.err"
+status=$?
+set -e
+[ "$status" -eq 4 ]
+grep -F 'could not list the ledger on the default branch' "$tmp_dir/t2.err"
+
+echo "learnings-test: ok"
