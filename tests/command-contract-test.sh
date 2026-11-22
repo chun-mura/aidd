@@ -103,6 +103,44 @@ if grep -Fq -- '**今すぐ直せない作業**' "$incident_retro"; then
   exit 1
 fi
 
+# doctor's sandbox check only warns (running without the sandbox is allowed), and it must
+# report whether a GitHub token is set without ever printing the token (#96).
+doctor="$repo_root/skills/doctor/SKILL.md"
+grep -F -- '**token の値は表示しない**' "$doctor"
+grep -F -- '結果は WARN にとどめ、FAIL にしない' "$doctor"
+if grep -Eq -- 'echo[^#]*\$\{?(GH|GITHUB)_TOKEN|print\([^)]*environ[^)]*TOKEN' "$doctor"; then
+  echo "doctor prints a token value" >&2
+  exit 1
+fi
+# Run the item 9 snippet against throwaway settings and dummy tokens: it must warn without
+# FAIL, and print neither a token nor a non-boolean sandbox.enabled value.
+doctor_tmp=$(mktemp -d "${TMPDIR:-/tmp}/aidd-doctor-test.XXXXXX")
+trap 'rm -rf "$doctor_tmp"' EXIT
+sed -n '/^# Item 9:/,/^PY$/p' "$doctor" > "$doctor_tmp/item9.sh"
+mkdir -p "$doctor_tmp/cfg" "$doctor_tmp/proj/.claude"
+printf '%s\n' '{"sandbox": {"enabled": {"leak": "SETTINGS_SENTINEL"}, "excludedCommands": ["gh *"]}}' \
+  > "$doctor_tmp/proj/.claude/settings.json"
+# A module in the consumer project must not shadow the standard library (python3 -I).
+printf '%s\n' 'print("SHADOW_SENTINEL")' > "$doctor_tmp/proj/glob.py"
+run_item9() {
+  (cd "$doctor_tmp/proj" && env -u GH_TOKEN -u GITHUB_TOKEN "$@" CLAUDE_CONFIG_DIR="$doctor_tmp/cfg" \
+    CLAUDE_PROJECT_DIR="$doctor_tmp/proj" bash "$doctor_tmp/item9.sh" 2>&1)
+}
+out=$(run_item9)
+grep -Fq -- 'sandbox gh: WARN' <<<"$out" || { echo "doctor item 9 did not print 'sandbox gh: WARN': $out" >&2; exit 1; }
+if grep -Eq -- 'FAIL|SETTINGS_SENTINEL|SHADOW_SENTINEL' <<<"$out"; then
+  echo "doctor item 9 failed or printed a settings value: $out" >&2
+  exit 1
+fi
+out=$(run_item9 GH_TOKEN=DUMMY_TOKEN_SENTINEL)
+grep -Fq -- 'sandbox gh: OK' <<<"$out" || { echo "doctor item 9 did not print 'sandbox gh: OK': $out" >&2; exit 1; }
+out="$out
+$(run_item9 GITHUB_TOKEN=DUMMY_TOKEN_SENTINEL)"
+if grep -Eq -- 'FAIL|DUMMY_TOKEN_SENTINEL' <<<"$out"; then
+  echo "doctor item 9 failed or printed a token: $out" >&2
+  exit 1
+fi
+
 # asset-audit must not silently continue when its state write fails (e.g. under the sandbox),
 # or the SessionStart nudge never stops.
 grep -F -- '書き込みに失敗したら黙って続けない' "$repo_root/skills/asset-audit/SKILL.md"
