@@ -140,6 +140,14 @@ for tok in NO_TOKEN=1 GH_TOKEN=DUMMY_TOKEN_SENTINEL GITHUB_TOKEN=DUMMY_TOKEN_SEN
     || { echo "doctor item 9 did not warn about gh in excludedCommands: $out" >&2; exit 1; }
   leak_check "$out"
 done
+# Other spellings that also exclude gh must not fall through to OK.
+for pat in 'gh' 'gh:*' 'gh*' '/opt/homebrew/bin/gh'; do
+  printf '{"sandbox": {"enabled": true, "excludedCommands": ["%s"]}}\n' "$pat" > "$doctor_tmp/proj/.claude/settings.json"
+  out=$(run_item9 GH_TOKEN=DUMMY_TOKEN_SENTINEL SSL_CERT_FILE=/ENV_VALUE_SENTINEL GH_CONFIG_DIR=/ENV_VALUE_SENTINEL)
+  grep -Fq -- 'sandbox gh: WARN gh is in excludedCommands' <<<"$out" \
+    || { echo "doctor item 9 missed gh excluded as '$pat': $out" >&2; exit 1; }
+  leak_check "$out"
+done
 # gh in the sandbox: OK with a token (and, on macOS, SSL_CERT_FILE and GH_CONFIG_DIR), else WARN
 # naming only the missing variables.
 printf '%s\n' '{"sandbox": {"enabled": true}}' > "$doctor_tmp/proj/.claude/settings.json"
@@ -150,6 +158,10 @@ out=$(run_item9 SSL_CERT_FILE=/ENV_VALUE_SENTINEL GH_CONFIG_DIR=/ENV_VALUE_SENTI
 grep -Fq -- 'sandbox gh: WARN GH_TOKEN not set' <<<"$out" \
   || { echo "doctor item 9 did not warn about a missing token: $out" >&2; exit 1; }
 leak_check "$out"
+# A whitespace-only token is no token.
+out=$(run_item9 'GH_TOKEN= ' SSL_CERT_FILE=/ENV_VALUE_SENTINEL GH_CONFIG_DIR=/ENV_VALUE_SENTINEL)
+grep -Fq -- 'sandbox gh: WARN GH_TOKEN not set' <<<"$out" \
+  || { echo "doctor item 9 took a whitespace-only GH_TOKEN as set: $out" >&2; exit 1; }
 if [ "$(uname -s)" = Darwin ]; then
   out=$(run_item9 GH_TOKEN=DUMMY_TOKEN_SENTINEL)
   grep -Fq -- 'sandbox gh: WARN SSL_CERT_FILE, GH_CONFIG_DIR not set' <<<"$out" \
