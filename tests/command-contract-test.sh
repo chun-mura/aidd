@@ -103,6 +103,16 @@ if grep -Fq -- '**今すぐ直せない作業**' "$incident_retro"; then
   exit 1
 fi
 
+# doctor's sandbox check only warns (running without the sandbox is allowed), and it must
+# report whether a GitHub token is set without ever printing the token (#96).
+doctor="$repo_root/skills/doctor/SKILL.md"
+grep -F -- '**token の値は表示しない**' "$doctor"
+grep -F -- '結果は WARN にとどめ、FAIL にしない' "$doctor"
+if grep -Eq -- 'echo[^#]*\$\{?(GH|GITHUB)_TOKEN|print\([^)]*environ[^)]*TOKEN' "$doctor"; then
+  echo "doctor prints a token value" >&2
+  exit 1
+fi
+
 # asset-audit must not silently continue when its state write fails (e.g. under the sandbox),
 # or the SessionStart nudge never stops.
 grep -F -- '書き込みに失敗したら黙って続けない' "$repo_root/skills/asset-audit/SKILL.md"

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.63.0 (2026-11-22)
+
+- `doctor` に項目9「利用側の sandbox 設定」を足した。managed (`managed-settings.d/*.json`・`managed-settings.json`)・`.claude/settings.local.json` (worktree では main checkout のもの)・`.claude/settings.json`・`~/.claude/settings.json` を優先順位の高い順に読み、`sandbox.enabled` を設定している最も優先順位の高いファイルの値が true でなければ、README の「ローカルで権限を絞って使う (Claude Code)」と `templates/sandbox-settings.json.template` を案内する。`excludedCommands` に `gh` があるのに `GH_TOKEN`・`GITHUB_TOKEN` がどちらも無ければ、`gh` が sandbox の外で `gh auth login` の保存済みの認証 (全権限になりうる) で動くと知らせ、fine-grained PAT を `GH_TOKEN` で渡す手順を案内する。token は有無だけを見て値を表示しない。0.55.0 で雛形と手順を入れたが、入れていない利用者には効かず、入れていないことに気づく手段も無かったため (#96)。sandbox を使わない運用もありうるので結果は WARN にとどめ、FAIL にしない。読めない JSON は WARN を出して飛ばし、サーバー配信・MDM の managed settings はファイルから読めないので `/status` で確かめるよう添える。Claude Code 以外ではスキップする。利用側の品質ガードを見る `infra-audit` ではなく doctor に置いたのは、これが aidd の skill を安全に動かす前提の確認だから。`tests/command-contract-test.sh` は、token の値を表示しないことと WARN にとどめることを検査する
+
 ## 0.62.0 (2026-11-22)
 
 - `tool-reminder.sh`: 既定ブランチ (定義は下の項目) への force push (`--force`・`-f`・`--force-with-lease`・`+<refspec>`・`--mirror`・`--force --all`・`+:`・`heads/<既定>` のような短い書き方・`--force-w` のような長いオプションの省略形、refspec を省いて `remote.<name>.push` と `push.default` (`upstream` なら上流のブランチ) で決まる送り先が既定ブランチの場合。`remote.<name>.mirror` の push、ローカルに無い既定ブランチを `--prune` で消す push (`:` を含む) も拒否する。`--dry-run` の後の `--no-dry-run` は dry-run を取り消すものとして扱う。パターンの refspec はここにある送り元から既定ブランチに届くときだけ止め、`^<ref>` で除いたものは止めない) と、既定ブランチのリモート削除 (`push --delete`・`push <remote> :<branch>`) を拒否する。既定ブランチの上に積んだほかの人の作業を確実に失うため。作業ブランチへの force push と `-n` / `--dry-run` は止めない。既存の拒否と同じく `&&` / `;`・`cd`・`git -C`・ラッパーを見分け、`AIDD_DISABLE_GIT_SAFETY=1` で止められる (#97)

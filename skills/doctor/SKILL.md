@@ -1,6 +1,6 @@
 ---
 name: doctor
-description: aidd/superpowers の導入状態・バージョン整合・hooks 実行可否・Codex custom agents の導入を診断する
+description: aidd/superpowers の導入状態・バージョン整合・hooks 実行可否・Codex custom agents の導入・利用側の sandbox 設定を診断する
 disable-model-invocation: true
 ---
 
@@ -10,7 +10,7 @@ aidd プラグインの動作環境を診断してください。各チェック
 
 **チェック項目**:
 
-項目1–2は Claude Code 以外では実行せず、結果を「Claude Code のみ」と書く。未確認の Codex / Cursor 導入パスは書かない。
+項目1–2と9は Claude Code 以外では実行せず、結果を「Claude Code のみ」と書く。未確認の Codex / Cursor 導入パスは書かない。
 
 1. **superpowers 導入**: `claude plugin list --json` に `superpowers@` で始まり `enabled: true` のエントリがあるか (plugin.json の dependencies 宣言により通常は自動導入されるはずだが、古い Claude Code や依存解決エラーを検知する)
 2. **バージョン整合**: `.claude-plugin/plugin.json` の `version` と、`~/.claude/plugins/installed_plugins.json` に記録された aidd のインストール済みバージョンを比較する。ズレていれば `push + /plugin update aidd` 忘れの可能性を指摘する
@@ -20,11 +20,14 @@ aidd プラグインの動作環境を診断してください。各チェック
 6. **adapter の素通り**: `~/.claude/aidd/adapter-skips.json` がある場合、直近の素通り理由と件数を表示する (`harness` / `event` / `tool_name` / `reason` / `count` / `last_seen`)。無い場合はスキップ
 7. **Cursor fixture の版**: `adapter-skips.json` に記録された `harness_version` (`cursor_version`) が、設計書 `docs/superpowers/specs/2026-10-27-multi-harness-hooks-design.md` の実測版 (`2026.10.22-27dcf5f`) と違う場合、fixture を取り直すよう促す。記録が無い場合はスキップ
 8. **Codex custom agents**: `scripts/install-codex-agents.sh --check` で、`~/.codex/agents/` の TOML がプラグイン正本と一致するか見る。未導入・版ずれなら同スクリプトの実行を促す。インストーラが見つからない場合はスキップせず WARN にする。Codex のプラグイン導入だけでは TOML は届かない
+9. **利用側の sandbox 設定**: 利用側プロジェクトで aidd の skill を権限を絞って動かせる状態かを見る。読む設定ファイルは優先順位の高い順に managed (macOS `/Library/Application Support/ClaudeCode/`、Linux・WSL `/etc/claude-code/`、Windows `C:\Program Files\ClaudeCode\` の `managed-settings.d/*.json` と `managed-settings.json`)、`.claude/settings.local.json` (worktree では main checkout のもの)、`.claude/settings.json`、`~/.claude/settings.json` (`CLAUDE_CONFIG_DIR` があればその下)。無いファイルは飛ばし、JSON として読めないファイルは WARN を出して飛ばす。どちらも残りの判定を止めない。結果は WARN にとどめ、FAIL にしない (sandbox を使わない運用もありうる)
+   - `sandbox.enabled` を、それを設定している最も優先順位の高いファイルの値で判定する。true でなければ「sandbox 未設定」とし、README の「ローカルで権限を絞って使う (Claude Code)」と `templates/sandbox-settings.json.template` を案内する。サーバー配信・MDM・レジストリの managed settings はファイルから読めないので、WARN のときは `/status` の `Setting sources` で確かめるよう添える
+   - `excludedCommands` (全ファイルの和) に `gh` か `gh ` で始まるもの (`gh *` など) があるのに、環境変数 `GH_TOKEN` と `GITHUB_TOKEN` がどちらも空なら、「`gh` は sandbox の外で `gh auth login` の保存済みの認証 (利用者の全権限になりうる) で動く」と知らせ、README の手順2 (対象リポジトリだけの fine-grained PAT を `GH_TOKEN` で渡す) を案内する。**token の値は表示しない**。有無だけを見て、値を echo・print しない。`sandbox.credentials.envVars` で token を隠していると、ここからは無いように見える
 
 各項目を実行するには Bash tool で以下相当のコマンドを使う:
 
 ```bash
-# 項目1–2は Claude Code のみ。Claude Code 以外では実行せず、各項目を「Claude Code のみ」と書く。
+# 項目1–2と9は Claude Code のみ。Claude Code 以外では実行せず、各項目を「Claude Code のみ」と書く。
 claude plugin list --json 2>/dev/null | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
@@ -81,6 +84,60 @@ if [ -z "$script" ]; then
 else
   bash "$script" --check || true
 fi
+# Item 9: report only whether a token is set; never print its value.
+proj="${CLAUDE_PROJECT_DIR:-$PWD}"
+common_dir=$(git -C "$proj" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
+main_root="$proj"
+[ "$(basename "$common_dir")" = ".git" ] && main_root=$(dirname "$common_dir")
+AIDD_PROJ="$proj" AIDD_MAIN_ROOT="$main_root" python3 - <<'PY'
+import glob, json, os, sys
+proj, main_root = os.environ["AIDD_PROJ"], os.environ["AIDD_MAIN_ROOT"]
+user_dir = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+if sys.platform == "darwin":
+    managed_dir = "/Library/Application Support/ClaudeCode"
+elif sys.platform == "win32":
+    managed_dir = r"C:\Program Files\ClaudeCode"
+else:
+    managed_dir = "/etc/claude-code"
+# Highest precedence first; a later managed drop-in overrides an earlier one.
+files = [("managed", p) for p in sorted(glob.glob(os.path.join(managed_dir, "managed-settings.d", "*.json")), reverse=True)]
+files += [("managed", os.path.join(managed_dir, "managed-settings.json")),
+          ("local", os.path.join(main_root, ".claude", "settings.local.json")),
+          ("project", os.path.join(proj, ".claude", "settings.json")),
+          ("user", os.path.join(user_dir, "settings.json"))]
+enabled, source, excluded = None, None, []
+for scope, path in files:
+    if not os.path.isfile(path):
+        continue
+    try:
+        data = json.load(open(path, encoding="utf-8"))
+    except Exception:
+        data = None
+    if not isinstance(data, dict):
+        print("sandbox: WARN %s is not valid JSON; skipped" % path)
+        continue
+    sb = data.get("sandbox")
+    if not isinstance(sb, dict):
+        continue
+    if source is None and "enabled" in sb:
+        enabled, source = sb["enabled"], "%s (%s)" % (scope, path)
+    if isinstance(sb.get("excludedCommands"), list):
+        excluded += [c for c in sb["excludedCommands"] if isinstance(c, str)]
+if enabled is True:
+    print("sandbox: OK enabled in %s" % source)
+else:
+    reason = "enabled=%s in %s" % (json.dumps(enabled), source) if source else "sandbox.enabled is not set"
+    print("sandbox: WARN not enabled (%s); see README \"ローカルで権限を絞って使う (Claude Code)\" and "
+          "templates/sandbox-settings.json.template. Server/MDM managed settings are not read here: "
+          "check Setting sources in /status" % reason)
+if not any(c.strip() == "gh" or c.strip().startswith("gh ") for c in excluded):
+    print("sandbox gh: skip (gh is not in excludedCommands)")
+elif os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"):
+    print("sandbox gh: OK gh runs outside the sandbox with a token from the environment")
+else:
+    print("sandbox gh: WARN gh runs outside the sandbox with the saved gh auth login credentials "
+          "(may be full access); pass a fine-grained PAT in GH_TOKEN (README step 2)")
+PY
 ```
 
-**出力**: 項目ごとに `OK` / `WARN` / `FAIL` と、`WARN`・`FAIL` には具体的な対処手順を1行で付ける。項目1–2を Claude Code 以外でスキップしたときは `Claude Code のみ` と書く。最後に総合サマリ (問題数) を1行で出す。
+**出力**: 項目ごとに `OK` / `WARN` / `FAIL` と、`WARN`・`FAIL` には具体的な対処手順を1行で付ける。項目1–2と9を Claude Code 以外でスキップしたときは `Claude Code のみ` と書く。最後に総合サマリ (問題数) を1行で出す。
