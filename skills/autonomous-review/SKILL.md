@@ -54,7 +54,7 @@ argument-hint: "[対象] [--base <branch>] [--head <branch>] [--reviewer codex|c
 
 | キー | 型 | 必須 | 意味 |
 |------|----|------|------|
-| `schema_version` | number | 必須 | このスキーマの版。現行は `2` (`1` からの変更: `rounds` の要素に `snapshot` を追加し、`worktree` を品質ゲート用だけにした) |
+| `schema_version` | number | 必須 | このスキーマの版。現行は `3` (`2` からの変更: `perspective_reviews` の `perspective` に `sibling_coverage` を追加した。`1` から `2` への変更: `rounds` の要素に `snapshot` を追加し、`worktree` を品質ゲート用だけにした) |
 | `run_id` | string | 必須 | 実行ID |
 | `status` | string | 必須 | `started` / `reviewing` / `gating` / `auto_merge_eligible` / `human_required` / `failed` |
 | `target` | string | 必須 | `[対象]` または対象モードの説明 |
@@ -64,7 +64,7 @@ argument-hint: "[対象] [--base <branch>] [--head <branch>] [--reviewer codex|c
 | `reviewer` | string | 必須 | `codex` / `claude` |
 | `reviewer_version` | string / null | 必須 | レビュー担当の版 (`codex --version` の出力など)。取得できなければ `null` |
 | `reviewer_command` | string / null | 必須 | 実際に実行したコマンド行。自己レビュー時は `null` |
-| `perspective_reviews` | array | 必須 | 観点別レビュー。要素は `{ "perspective": "error_handling" \| "security", "applicable": bool, "reason": string, "executed": bool, "agent": string \| null }` |
+| `perspective_reviews` | array | 必須 | 観点別レビュー。要素は `{ "perspective": "error_handling" \| "security" \| "sibling_coverage", "applicable": bool, "reason": string, "executed": bool, "agent": string \| null }` |
 | `worktree` | object | 必須 | 2ブランチ比較の品質ゲート用 worktree。`{ "isolated": bool, "path": string \| null, "created": bool, "removed": bool }`。一時worktreeを使わない場合も `isolated: false` で記録する |
 | `rounds` | array | 必須 | 各ラウンドの `{ "round": number, "reviewer_verdict": string, "finding_ids": array, "fixed_ids": array, "snapshot": object \| null }`。`snapshot` は codex 用スナップショットの `{ "path": string \| null, "commit": string, "diff_applied": bool, "created": bool, "removed": bool }` で、自己レビュー時は `null` |
 | `findings` | array | 必須 | 指摘の配列。件数だけの要約に置き換えてはならない。要素はレビュー担当のJSON契約 (`id` / `severity` / `file` / `line` / `title` / `claim` / `evidence` / `verification`) に、`decision` (`confirmed` / `false_positive` / `deferred`)、`decision_reason`、`tracking` を加えたもの |
@@ -114,6 +114,7 @@ argument-hint: "[対象] [--base <branch>] [--head <branch>] [--reviewer codex|c
 4. 差分の性質に応じて観点別レビューを追加で実行する。単一のレビュー担当は観点が構造的に欠けるため、2 のレビュー担当が `approved` / 0 findings を返した場合も該当する観点別レビューを省略しない。該当判定は差分の意味を見て行い、該当理由・実行有無・結果を `state.json` の `perspective_reviews` と `report.md` に記録する。
    - エラーハンドリング観点: 差分に例外捕捉 (`try` / `catch` / `except` / `rescue`)、既定値へのフォールバック (`??` / `||` / `or` による代替値)、空配列・`null`・`undefined` の返却、再送出しないログ出力のいずれかが含まれる場合、`aidd:reviewer` に「握り潰されたエラー、沈黙するフォールバック、本番で沈黙して壊れる経路」の観点だけを割り当てて実行する。
    - セキュリティ観点: 差分が信頼境界を跨ぐ場合 (外部入力、認証・認可、秘密情報、公開エンドポイント、権限設定)、`aidd:security-reviewer` を実行する。
+   - 横展開観点: 差分が守りの処理 (認可・所有の確認、入力の検証、ログに出す値の形、例外の扱い) を足す・直す・共通の関数に切り出す場合、`aidd:reviewer` に「同じ形の呼び出し元と兄弟の処理 (同じ種類のエンドポイント・ハンドラ・action) に同じ処理が当たっているか」の観点だけを割り当てて実行する。
    - 追加レビューにも 3 と同じJSON契約を要求し、得られた指摘は主レビューの指摘と同じ経路で 5 の現物検証にかける。
    - 該当する観点別レビューを実行できなかった場合は、理由を記録して `human_required` とする。
 5. 各有効な指摘を `aidd:refuter` の方針で現物検証し、`confirmed`、`false_positive`、`deferred` のいずれかに判定する。指摘が矛盾する、根拠が不足する、仕様判断が必要である場合は修正せず `deferred` にする。`deferred` にした指摘は「今は直さない」であって「直さなくてよい」ではないため、下の「deferred の追跡」に従って追跡先を確定する。

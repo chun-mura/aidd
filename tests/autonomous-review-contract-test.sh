@@ -29,6 +29,7 @@ grep -F -- '"verdict": "approved" | "changes_requested"' "$command_file"
 grep -F -- 'JSON以外の出力' "$command_file"
 grep -F -- '最大3ラウンド' "$command_file"
 grep -F -- 'aidd:refuter' "$command_file"
+grep -F -- '横展開観点' "$command_file"
 grep -F -- '.aidd/review-dismissed.md' "$command_file"
 grep -F -- 'build / lint / format / typecheck / test' "$command_file"
 grep -F -- 'ShellCheck' "$command_file"
@@ -67,7 +68,8 @@ grep -F -- 'Bash ツールの `timeout` パラメータ' "$command_file"
 grep -F -- 'codex login status < /dev/null' "$command_file"
 grep -F -- '--output-last-message' "$command_file"
 grep -F -- '`proceeding` を含む警告は失敗ではない' "$command_file"
-grep -F -- '現行は `2`' "$command_file"
+grep -F -- '現行は `3`' "$command_file"
+grep -F -- '"security" \| "sibling_coverage"' "$command_file"
 if grep -F -- 'git worktree remove --force' "$command_file"; then
   echo "codex must not run from a git worktree: the shared object store still exposes .aidd/" >&2
   exit 1
