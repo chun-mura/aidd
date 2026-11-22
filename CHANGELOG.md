@@ -13,6 +13,10 @@
 - `sandbox-settings.json.template`: sandbox の外の `gh` で任意のコマンドを動かせる経路 (`gh config set browser` などの設定と `gh browse`・`--web` / `-w`) と、GitHub 以外のホストへ送れる `gh api --hostname`、`gh pr merge` を `permissions.deny` に足した。docker / kubectl / gcloud / Azure CLI / GnuPG / cargo / gem / Terraform の認証情報を読み取り拒否に足した。設定も入る `~/.yarnrc.yml`・`~/.m2/settings.xml`・`~/.gradle/gradle.properties` はビルドが壊れうるので README の候補にとどめた (#98)
 - README: 既定ブランチを実際に守るのは GitHub の ruleset (削除の禁止・force push の禁止・PR 必須) で、hook と雛形はミスを防ぐ層だと明記し、導入手順に ruleset を有効にする手順を足した。push 権限のある token なら `gh api` で ref を直接書き換えられるため。`gh` の deny と hook が止められない形 (オプションの順序、`GH_HOST`・`GH_BROWSER` などの環境変数、`sh -c`・`nice`・`xargs` など未登録のラッパー) を書いた (#97, #98)
 - `tests/hook-contract-test.sh` が、実在しない `HEAD` の向き先・`remote.<name>.push` の対応・`$` / バッククォートを含む送り先の拒否と、作業ブランチへの push を止めないことを検査する (#97)
+- `tool-reminder.sh`: 送り先に `$`・バッククォート・ブレース展開 (`{main,feat}`・`{a..c}`) を含む push の拒否を、オプションの force / delete / prune に加えて、`+<refspec>`・`:<refspec>` で force / delete を指定する形にも当てた。`git push origin +$BRANCH` や `git push -f origin {main,feat}` が既定ブランチを巻き戻せたため。Claude Code が permission の照合の前に外すラッパー (`timeout`・`time`・`nice`・`nohup`・`stdbuf`) を既定で外し、`timeout` の時間と `nice -n` などの値を読み飛ばす。`timeout 30 git push -f origin main` を見逃していたため (#97)
+- `sandbox-settings.json.template`: gh を sandbox の中に戻すまでの当面の対策として、`gh release` 全体・`gh run download`・`gh gist`・`gh api http...`・`gh * release`・`gh * browse` を deny に足した。sandbox の外の gh がローカルの任意のファイルに書き込めたり (`gh release download -O <path> --clobber`)、完全な URL で任意のホストに送れたりしたため (#98)
+- README: ruleset の手順に「Required approvals」を 1 以上にすることと「Require approval of the most recent reviewable push」を足し、1人で開発するリポジトリでは自分の PR をマージできなくなる影響を書いた。「送り先と操作を限るのは token と ruleset」を「操作を限るのは token と ruleset。送り先のホストを限る手段はこの構成には無い」に直した。sandbox の外の gh が任意のファイルに書けること、gh を sandbox の中に戻す対応を別の issue で進めていること、HEAD を別の実在するブランチに付け替えると保護が外れること (既定ブランチが main / master 以外の場合)、`eval` とバッククォートの中のコマンドは hook が止めないことを書いた (#97, #98)
+- `tests/hook-contract-test.sh` が、`+` / `:` の refspec とブレース展開を含む送り先の拒否と、ラッパーを外した判定を検査する (#97)
 
 ## 0.61.0 (2026-11-22)
 
