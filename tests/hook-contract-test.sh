@@ -257,6 +257,10 @@ expect_push allow "$pushes" 'git push --tags -f origin' "git push -f origin 'ref
 # git push takes unambiguous prefixes of long options.
 expect_push deny "$pushes" 'git push --force-w origin main' 'git push --dele origin main' 'git push --mirr origin'
 expect_push allow "$pushes" 'git push --dry -f origin main'
+# The last of -n / --dry-run / --no-dry-run wins, and a value of -o is not a flag.
+expect_push deny "$pushes" 'git push --dry-run --no-dry-run --delete origin main' 'git push -o -n -f origin main' \
+  'git push --push-option -n -f origin main'
+expect_push allow "$pushes" 'git push --no-dry-run --dry-run -f origin main' 'git push -fn origin main'
 git -C "$pushes" switch -q feat
 expect_push allow "$pushes" 'git push --force' 'git push -f origin' 'git push --force origin HEAD'
 # A positional repository wins over --repo.
@@ -270,7 +274,11 @@ expect_push deny "$pushes" "git push -f origin 'refs/heads/release/*:refs/heads/
 git -C "$pushes" update-ref refs/remotes/origin/main HEAD
 expect_push allow "$pushes" "git push --prune origin 'refs/heads/*:refs/heads/*'" 'git push --prune --all origin'
 git -C "$pushes" branch -m main main-x
-expect_push deny "$pushes" "git push --prune origin 'refs/heads/*:refs/heads/*'" 'git push --prune --all origin'
+expect_push deny "$pushes" "git push --prune origin 'refs/heads/*:refs/heads/*'" 'git push --prune --all origin' \
+  'git push --prune origin :'
+# A missing remote-tracking ref does not prove the remote lacks main.
+git -C "$pushes" update-ref -d refs/remotes/origin/main
+expect_push deny "$pushes" "git push --prune origin 'refs/heads/*:refs/heads/*'"
 git -C "$pushes" branch -m main-x main
 git -C "$pushes" config remote.origin.mirror true
 expect_push deny "$pushes" 'git push origin'

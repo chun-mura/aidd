@@ -446,11 +446,30 @@ def full_push_options(args):
     return out
 
 
+def dry_run(args):
+    # The last of -n / --dry-run / --no-dry-run wins; a value of -o / --repo is not a flag.
+    dry, skip = False, False
+    for arg in args:
+        if skip:
+            skip = False
+        elif arg == "--":
+            break
+        elif arg in ("--dry-run", "--no-dry-run"):
+            dry = arg == "--dry-run"
+        elif arg in ("--repo", "--push-option", "--receive-pack", "--exec"):
+            skip = True
+        elif arg.startswith("-") and not arg.startswith("--"):
+            shorts, _, _ = scan([arg], "o")
+            dry = dry or "n" in shorts
+            skip = arg.endswith("o") and "o" in shorts and arg.index("o") == len(arg) - 1
+    return dry
+
+
 def deny_default_branch_push(args, directory):
     args = full_push_options(args)
     shorts, longs, positionals = scan(
         args, "o", ("--repo", "--push-option", "--receive-pack", "--exec"))
-    if "n" in shorts or "--dry-run" in longs:
+    if dry_run(args):
         return
     positionals = [p for p in positionals if p != "--"]
     current = git(directory, "symbolic-ref", "--quiet", "--short", "HEAD")
@@ -493,9 +512,9 @@ def deny_default_branch_push(args, directory):
         return exists(f"refs/heads/{name}")
 
     def pruned(name):
-        # --prune deletes a remote branch with no local counterpart; a remote given as a URL
-        # has no remote-tracking refs, so assume it has the branch.
-        if not re.fullmatch(r"[A-Za-z0-9._-]+", remote):
+        # --prune deletes a remote branch with no local counterpart. A missing remote-tracking
+        # ref proves nothing, so the first default (the remote's HEAD, or main) always counts.
+        if name == defaults[0] or not re.fullmatch(r"[A-Za-z0-9._-]+", remote):
             return True
         return exists(f"refs/remotes/{remote}/{name}")
 
@@ -521,6 +540,8 @@ def deny_default_branch_push(args, directory):
             # ":" pushes every branch that exists on both sides under the same name.
             if (force or plus) and any(local(d) for d in defaults):
                 hit = "git push --force <remote> : / +:"
+            elif prune and any(pruned(d) and not local(d) for d in defaults):
+                hit = "git push --prune (ローカルに無い既定ブランチを消す)"
             continue
         target = dst if colon else src
         reached = False
