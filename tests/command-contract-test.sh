@@ -112,6 +112,34 @@ if grep -Eq -- 'echo[^#]*\$\{?(GH|GITHUB)_TOKEN|print\([^)]*environ[^)]*TOKEN' "
   echo "doctor prints a token value" >&2
   exit 1
 fi
+# Run the item 9 snippet against throwaway settings and dummy tokens: it must warn without
+# FAIL, and print neither a token nor a non-boolean sandbox.enabled value.
+doctor_tmp=$(mktemp -d "${TMPDIR:-/tmp}/aidd-doctor-test.XXXXXX")
+trap 'rm -rf "$doctor_tmp"' EXIT
+sed -n '/^# Item 9:/,/^PY$/p' "$doctor" > "$doctor_tmp/item9.sh"
+mkdir -p "$doctor_tmp/cfg" "$doctor_tmp/proj/.claude"
+printf '%s\n' '{"sandbox": {"enabled": {"leak": "SETTINGS_SENTINEL"}, "excludedCommands": ["gh *"]}}' \
+  > "$doctor_tmp/proj/.claude/settings.json"
+# A module in the consumer project must not shadow the standard library (python3 -I).
+printf '%s\n' 'print("SHADOW_SENTINEL")' > "$doctor_tmp/proj/glob.py"
+run_item9() {
+  (cd "$doctor_tmp/proj" && env -u GH_TOKEN -u GITHUB_TOKEN "$@" CLAUDE_CONFIG_DIR="$doctor_tmp/cfg" \
+    CLAUDE_PROJECT_DIR="$doctor_tmp/proj" bash "$doctor_tmp/item9.sh" 2>&1)
+}
+out=$(run_item9)
+grep -F -- 'sandbox gh: WARN' <<<"$out"
+if grep -Eq -- 'FAIL|SETTINGS_SENTINEL|SHADOW_SENTINEL' <<<"$out"; then
+  echo "doctor item 9 failed or printed a settings value: $out" >&2
+  exit 1
+fi
+out=$(run_item9 GH_TOKEN=DUMMY_TOKEN_SENTINEL)
+grep -F -- 'sandbox gh: OK' <<<"$out"
+out="$out
+$(run_item9 GITHUB_TOKEN=DUMMY_TOKEN_SENTINEL)"
+if grep -Eq -- 'FAIL|DUMMY_TOKEN_SENTINEL' <<<"$out"; then
+  echo "doctor item 9 failed or printed a token: $out" >&2
+  exit 1
+fi
 
 # asset-audit must not silently continue when its state write fails (e.g. under the sandbox),
 # or the SessionStart nudge never stops.
