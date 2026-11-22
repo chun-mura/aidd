@@ -127,13 +127,13 @@ run_item9() {
     CLAUDE_PROJECT_DIR="$doctor_tmp/proj" bash "$doctor_tmp/item9.sh" 2>&1)
 }
 out=$(run_item9)
-grep -F -- 'sandbox gh: WARN' <<<"$out"
+grep -Fq -- 'sandbox gh: WARN' <<<"$out" || { echo "doctor item 9 did not print 'sandbox gh: WARN': $out" >&2; exit 1; }
 if grep -Eq -- 'FAIL|SETTINGS_SENTINEL|SHADOW_SENTINEL' <<<"$out"; then
   echo "doctor item 9 failed or printed a settings value: $out" >&2
   exit 1
 fi
 out=$(run_item9 GH_TOKEN=DUMMY_TOKEN_SENTINEL)
-grep -F -- 'sandbox gh: OK' <<<"$out"
+grep -Fq -- 'sandbox gh: OK' <<<"$out" || { echo "doctor item 9 did not print 'sandbox gh: OK': $out" >&2; exit 1; }
 out="$out
 $(run_item9 GITHUB_TOKEN=DUMMY_TOKEN_SENTINEL)"
 if grep -Eq -- 'FAIL|DUMMY_TOKEN_SENTINEL' <<<"$out"; then

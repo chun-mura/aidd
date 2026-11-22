@@ -128,7 +128,7 @@ for scope, path in files:
     try:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
-    except (OSError, UnicodeDecodeError) as e:
+    except (OSError, UnicodeDecodeError, RecursionError) as e:
         print("sandbox: WARN %s could not be read (%s); skipped" % (path, type(e).__name__))
         continue
     except ValueError:
