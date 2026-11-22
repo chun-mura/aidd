@@ -254,11 +254,27 @@ expect_push deny "$pushes" 'git push -f origin heads/main' 'git push -f origin f
   "git push -f origin 'refs/*:refs/*'" 'git push origin +:' 'git push --force origin :'
 expect_push allow "$pushes" 'git push --tags -f origin' "git push -f origin 'refs/heads/*:refs/heads/*' ^refs/heads/main" \
   'git push origin :' 'git push -f origin heads/feat'
+# git push takes unambiguous prefixes of long options.
+expect_push deny "$pushes" 'git push --force-w origin main' 'git push --dele origin main' 'git push --mirr origin'
+expect_push allow "$pushes" 'git push --dry -f origin main'
 git -C "$pushes" switch -q feat
-expect_push allow "$pushes" 'git push --force' 'git push -f origin' 'git push --force origin HEAD' \
-  'git push --repo=origin -f HEAD:feat'
-expect_push deny "$pushes" 'git push --force origin main' 'git push --repo=origin --force HEAD:main' \
-  'git push --repo origin --delete main'
+expect_push allow "$pushes" 'git push --force' 'git push -f origin' 'git push --force origin HEAD'
+# A positional repository wins over --repo.
+expect_push deny "$pushes" 'git push --force origin main' 'git push --repo=elsewhere -f origin main'
+# A pattern refspec reaches main only through a source ref that exists here.
+git -C "$pushes" branch release/feat
+expect_push allow "$pushes" "git push -f origin 'refs/heads/release/*:refs/heads/*'"
+git -C "$pushes" branch release/main
+expect_push deny "$pushes" "git push -f origin 'refs/heads/release/*:refs/heads/*'"
+# --prune deletes the remote main once there is no local main; remote.<name>.mirror forces.
+git -C "$pushes" update-ref refs/remotes/origin/main HEAD
+expect_push allow "$pushes" "git push --prune origin 'refs/heads/*:refs/heads/*'" 'git push --prune --all origin'
+git -C "$pushes" branch -m main main-x
+expect_push deny "$pushes" "git push --prune origin 'refs/heads/*:refs/heads/*'" 'git push --prune --all origin'
+git -C "$pushes" branch -m main-x main
+git -C "$pushes" config remote.origin.mirror true
+expect_push deny "$pushes" 'git push origin'
+git -C "$pushes" config --unset remote.origin.mirror
 # Without a refspec the destination comes from push.default / remote.<name>.push, not the branch name.
 git -C "$pushes" config branch.feat.remote origin
 git -C "$pushes" config branch.feat.merge refs/heads/main

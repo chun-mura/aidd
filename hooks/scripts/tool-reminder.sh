@@ -423,28 +423,55 @@ def implicit_refspecs(directory, remote, current):
     return [current]
 
 
+PUSH_OPTIONS = ["all", "atomic", "branches", "delete", "dry-run", "exec", "follow-tags", "force",
+                "force-if-includes", "force-with-lease", "mirror", "porcelain", "progress", "prune",
+                "push-option", "quiet", "receive-pack", "recurse-submodules", "repo", "set-upstream",
+                "signed", "tags", "thin", "verbose"]
+PUSH_LONGS = ({f"--{o}" for o in PUSH_OPTIONS} | {f"--no-{o}" for o in PUSH_OPTIONS}
+              | {"--ipv4", "--ipv6", "--verify", "--no-verify"})
+
+
+def full_push_options(args):
+    # git push accepts any unambiguous prefix of a long option (--force-w is --force-with-lease).
+    out = []
+    for i, arg in enumerate(args):
+        if arg == "--":
+            return out + args[i:]
+        name, eq, value = arg.partition("=")
+        if arg.startswith("--") and name not in PUSH_LONGS:
+            found = [o for o in PUSH_LONGS if o.startswith(name)]
+            if len(found) == 1:
+                arg = found[0] + eq + value
+        out.append(arg)
+    return out
+
+
 def deny_default_branch_push(args, directory):
+    args = full_push_options(args)
     shorts, longs, positionals = scan(
         args, "o", ("--repo", "--push-option", "--receive-pack", "--exec"))
     if "n" in shorts or "--dry-run" in longs:
         return
     positionals = [p for p in positionals if p != "--"]
-    force = "f" in shorts or longs & {"--force", "--force-with-lease", "--mirror"}
-    delete = "d" in shorts or "--delete" in longs
-    every = longs & {"--all", "--branches", "--mirror"}
     current = git(directory, "symbolic-ref", "--quiet", "--short", "HEAD")
+    # A positional repository wins over --repo.
     repo = option_values(args, "--repo")
-    # With --repo every positional is a refspec.
-    if repo:
-        remote, refspecs = repo[-1], positionals
-    elif positionals:
+    if positionals:
         remote, refspecs = positionals[0], positionals[1:]
     else:
-        remote, refspecs = push_remote(directory, current), []
+        remote, refspecs = repo[-1] if repo else push_remote(directory, current), []
+    # remote.<name>.mirror makes a plain push a mirror push.
+    if re.fullmatch(r"[A-Za-z0-9._-]+", remote) and git(
+            directory, "config", "--bool", f"remote.{remote}.mirror") == "true":
+        longs.add("--mirror")
+    force = "f" in shorts or longs & {"--force", "--force-with-lease", "--mirror"}
+    delete = "d" in shorts or "--delete" in longs
+    prune = "--prune" in longs
+    every = longs & {"--all", "--branches", "--mirror"}
     implicit = not refspecs and not every and "--tags" not in longs
     if implicit:
         refspecs = implicit_refspecs(directory, remote, current)
-    if not (force or delete or any(r.startswith(("+", ":")) for r in refspecs)):
+    if not (force or delete or prune or any(r.startswith(("+", ":")) for r in refspecs)):
         return
     defaults = default_branch(directory, remote)
 
@@ -459,14 +486,32 @@ def deny_default_branch_push(args, directory):
     def matches(name, ref):
         return bool(ref) and fnmatch.fnmatchcase(f"refs/heads/{name}", full(ref))
 
+    def exists(ref):
+        return bool(ref) and git(directory, "rev-parse", "--verify", "--quiet", ref) is not None
+
     def local(name):
-        return git(directory, "rev-parse", "--verify", "--quiet", f"refs/heads/{name}") is not None
+        return exists(f"refs/heads/{name}")
+
+    def pruned(name):
+        # --prune deletes a remote branch with no local counterpart; a remote given as a URL
+        # has no remote-tracking refs, so assume it has the branch.
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", remote):
+            return True
+        return exists(f"refs/remotes/{remote}/{name}")
+
+    def source(name, src, dst):
+        # The ref a pattern refspec sends to refs/heads/<name> (src and dst have one * each).
+        prefix, _, suffix = full(dst).partition("*")
+        ref = f"refs/heads/{name}"
+        return full(src).replace("*", ref[len(prefix):len(ref) - len(suffix)], 1)
 
     # A negative refspec (^<ref>) takes refs out of the pattern refspecs.
     excluded = {d for d in defaults for r in refspecs if r.startswith("^") and matches(d, r[1:])}
     hit = None
     if "--mirror" in longs or (force and every and any(local(d) for d in defaults)):
         hit = "git push --force --all / --mirror"
+    elif prune and every and any(pruned(d) and not local(d) for d in defaults):
+        hit = "git push --prune (ローカルに無い既定ブランチを消す)"
     for refspec in refspecs:
         if refspec.startswith("^"):
             continue
@@ -477,11 +522,20 @@ def deny_default_branch_push(args, directory):
             if (force or plus) and any(local(d) for d in defaults):
                 hit = "git push --force <remote> : / +:"
             continue
-        pattern = "*" in refspec
         target = dst if colon else src
-        # A pattern sends only the branches that exist here (main / master is a guess).
-        if not any(matches(d, target) and not (pattern and (d in excluded or not local(d)))
-                   for d in defaults):
+        reached = False
+        for d in defaults:
+            if not matches(d, target):
+                continue
+            if "*" not in refspec:
+                reached = True
+            elif d not in excluded:
+                # A pattern sends only the refs that exist here; --prune deletes the rest.
+                if exists(source(d, src, target)):
+                    reached = True
+                elif prune and pruned(d):
+                    hit = "git push --prune (ローカルに無い既定ブランチを消す)"
+        if not reached:
             continue
         if delete or (colon and not src):
             hit = "git push --delete <既定ブランチ> / git push <remote> :<既定ブランチ>"
