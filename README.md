@@ -66,7 +66,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
    - `git push` (HTTPS) にも同じ token を使う。利用プロジェクトで1回だけ次を実行する。1行目の空の値は、継承した helper (`osxkeychain`、`gh auth setup-git` が足す `gh auth git-credential` など) を github.com についてだけリセットする。2行目の helper は `get` のときに環境変数 `GH_TOKEN` を読んで返すだけで、token をファイルに書かず、`store` / `erase` では何も出力しない
 
      ```bash
-     git config --local credential.https://github.com.helper ''
+     git config --local --replace-all credential.https://github.com.helper ''
      git config --local --add credential.https://github.com.helper '!f() { if [ "$1" = get ] && [ -n "$GH_TOKEN" ]; then echo username=x-access-token; echo "password=$GH_TOKEN"; fi; }; f'
      ```
 
