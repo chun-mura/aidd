@@ -9,6 +9,7 @@ eval_command="$repo_root/skills/eval/SKILL.md"
 review_loop="$repo_root/skills/review-loop/SKILL.md"
 adr_command="$repo_root/skills/adr/SKILL.md"
 issue_implement="$repo_root/skills/issue-implement/SKILL.md"
+design_doc="$repo_root/skills/design-doc/SKILL.md"
 
 grep -F -- '--depth=standard|deep' "$design_review"
 grep -F -- '既定は `--depth=standard`' "$design_review"
@@ -45,6 +46,13 @@ grep -F -- 'refs/remotes/origin/' "$adr_command"
 grep -F -- '検討した代替案' "$adr_command"
 grep -F -- '| 観点 (優先度) | テスト (ファイル:テスト名) | 前提を壊して落ちたか | 未実装の理由 |' "$issue_implement"
 grep -F -- 'must の観点は全件' "$issue_implement"
+# issue-implement checks the diff against the placement that design-doc writes, so both
+# sides of that contract must stay.
+grep -F -- 'コンポーネントごとにコード上の配置 (ディレクトリ・ファイル) を書く' "$design_doc"
+grep -F -- '設計書の「構成と責務」に書かれた配置と照らす' "$issue_implement"
+grep -F -- '責務の集中は行数ではなく、この責務の割り当てで判定する' "$issue_implement"
+grep -F -- 'どのコンポーネントにも割り当てていない責務' "$issue_implement"
+grep -F -- '差分の周りの既存の構造を配置とみなし' "$issue_implement"
 
 # incident-retro picks the first matching tier, so the ADR tier must come before the rule
 # tier (a design decision also reads as a rule with judgment), and deferred work is folded
