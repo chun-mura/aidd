@@ -22,7 +22,8 @@ aidd プラグインの動作環境を診断してください。各チェック
 8. **Codex custom agents**: `scripts/install-codex-agents.sh --check` で、`~/.codex/agents/` の TOML がプラグイン正本と一致するか見る。未導入・版ずれなら同スクリプトの実行を促す。インストーラが見つからない場合はスキップせず WARN にする。Codex のプラグイン導入だけでは TOML は届かない
 9. **利用側の sandbox 設定**: 利用側プロジェクトで aidd の skill を権限を絞って動かせる状態かを見る。読む設定ファイルは優先順位の高い順に managed (macOS `/Library/Application Support/ClaudeCode/`、Linux・WSL `/etc/claude-code/`、Windows `C:\Program Files\ClaudeCode\` の `managed-settings.d/*.json` と `managed-settings.json`)、`.claude/settings.local.json` (git のリポジトリではルートのもの、worktree では main checkout のもの。Windows、ルートがホームディレクトリ、ルート・`.git`・`.claude` が自分の所有でない場合は `.claude/settings.json` と同じ場所のもの。旧版が開始ディレクトリに残したものもルートのものの下で読む)、`.claude/settings.json`、`~/.claude/settings.json` (`CLAUDE_CONFIG_DIR` があればその下)。無いファイルは飛ばし、JSON として読めないファイルは WARN を出して飛ばす。どちらも残りの判定を止めない。結果は WARN にとどめ、FAIL にしない (sandbox を使わない運用もありうる)
    - `sandbox.enabled` を、それを設定している最も優先順位の高いファイルの値で判定する。true でなければ「sandbox 未設定」とし、README の「ローカルで権限を絞って使う (Claude Code)」と `templates/sandbox-settings.json.template` を案内する。サーバー配信・MDM・レジストリの managed settings はファイルから読めないので、WARN のときは `/status` の `Setting sources` で確かめるよう添える。起動時の `--settings` (managed の次に優先) もここからは読めないので、`--settings` で sandbox を切り替えていれば結果は実際と違う。見るのは `sandbox.enabled` だけで、sandbox の外へ抜ける `allowUnsandboxedCommands`・`failIfUnavailable` は見ない (OK の行にもそう書く)
-   - `excludedCommands` (全ファイルの和) に `gh` か `gh ` で始まるもの (`gh *` など) があるのに、環境変数 `GH_TOKEN` と `GITHUB_TOKEN` がどちらも空なら、「`gh` は sandbox の外で `gh auth login` の保存済みの認証 (利用者の全権限になりうる) で動く」と知らせ、README の手順2 (対象リポジトリだけの fine-grained PAT を `GH_TOKEN` で渡す) を案内する。**token の値は表示しない**。有無だけを見て、値を echo・print しない。token の権限の範囲は見ないので、OK でも絞れているとは限らない (OK の行に `gh auth status` での確認を添える)。token が環境にあるので、python3 は利用側のファイルを import しないよう `-I` で動かす。`sandbox.credentials.envVars` で token を隠していると、ここからは無いように見える
+   - `excludedCommands` (全ファイルの和) に `gh` を除外するもの (`gh`・`gh *`・`gh:*`・`gh*`・`/opt/homebrew/bin/gh` のようなパス) があれば、「`gh` は sandbox の外で利用者の全権限で動く (任意のファイルへの書き込み・任意のホストへの送信。`GH_TOKEN` が無ければ `gh auth login` の保存済みの認証)」と知らせ、`excludedCommands` から外して README の手順2 (gh を sandbox の中で動かす) に従うよう案内する
+   - `gh` が sandbox の中で動く (`sandbox.enabled` が true で、`excludedCommands` に無い) なら、この Bash の環境変数を見る。`GH_TOKEN` と `GITHUB_TOKEN` がどちらも空 (空白だけを含む) なら、`gh` は認証できないと知らせ、README の手順2 (対象リポジトリだけの fine-grained PAT を `GH_TOKEN` で渡す) を案内する。macOS で `SSL_CERT_FILE` が空なら `gh` は TLS で失敗する (`x509: OSStatus -26276`) と、`GH_CONFIG_DIR` が空なら読み取りを拒否した `~/.config/gh` を読めずに失敗しうると知らせ、雛形の `env` を案内する (プロジェクトの `env` はフォルダを trust するまで効かないことも添える)。変数は名前だけを出し、値は出さない。**token の値は表示しない**。有無だけを見て、値を echo・print しない。token の権限の範囲は見ないので、OK でも絞れているとは限らない (OK の行に `gh auth status` での確認を添える)。token が環境にあるので、python3 は利用側のファイルを import しないよう `-I` で動かす。`sandbox.credentials.envVars` で token を隠していると、ここからは無いように見える
 
 各項目を実行するには Bash tool で以下相当のコマンドを使う:
 
@@ -91,7 +92,7 @@ main_root="$proj"
 [ "$(basename "$common_dir")" = ".git" ] && main_root=$(dirname "$common_dir")
 # -I keeps a json.py or glob.py in the consumer project from loading while the token is in the env.
 AIDD_PROJ="$proj" AIDD_MAIN_ROOT="$main_root" python3 -I - <<'PY'
-import glob, json, os, sys
+import glob, json, os, re, sys
 proj, main_root = os.environ["AIDD_PROJ"], os.environ["AIDD_MAIN_ROOT"]
 user_dir = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
 if sys.platform == "darwin":
@@ -152,14 +153,29 @@ else:
     print("sandbox: WARN not enabled (%s); see README \"ローカルで権限を絞って使う (Claude Code)\" and "
           "templates/sandbox-settings.json.template. Server/MDM managed settings are not read here: "
           "check Setting sources in /status" % reason)
-if not any(c.strip() == "gh" or c.strip().startswith("gh ") for c in excluded):
-    print("sandbox gh: skip (gh is not in excludedCommands)")
-elif os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"):
-    print("sandbox gh: OK gh runs outside the sandbox with a token from the environment "
-          "(its scope is not checked; gh auth status shows which token gh uses)")
+def env_set(name):
+    return bool((os.environ.get(name) or "").strip())
+has_token = env_set("GH_TOKEN") or env_set("GITHUB_TOKEN")
+# Catch "gh", "gh *", "gh:*", "gh*" and a path such as /opt/homebrew/bin/gh.
+if any(re.match(r"(?:\S*/)?gh(?:$|[\s:*])", c.strip()) for c in excluded):
+    print("sandbox gh: WARN gh is in excludedCommands, so it runs outside the sandbox with full access "
+          "(writes any file, sends to any host%s); remove it and follow README step 2"
+          % ("" if has_token else ", and uses the saved gh auth login credentials"))
+elif enabled is not True:
+    print("sandbox gh: skip (sandbox is not enabled)")
 else:
-    print("sandbox gh: WARN gh runs outside the sandbox with the saved gh auth login credentials "
-          "(may be full access); pass a fine-grained PAT in GH_TOKEN (README step 2)")
+    # Names only: a value could be a token or a path the user does not want echoed.
+    missing = [] if has_token else ["GH_TOKEN"]
+    if sys.platform == "darwin":
+        missing += [v for v in ("SSL_CERT_FILE", "GH_CONFIG_DIR") if not env_set(v)]
+    if missing:
+        print("sandbox gh: WARN %s not set; gh in the sandbox has no scoped token (GH_TOKEN), "
+              "fails TLS with x509: OSStatus -26276 on macOS (SSL_CERT_FILE), or cannot read the "
+              "denied ~/.config/gh (GH_CONFIG_DIR). See the env of templates/sandbox-settings.json.template "
+              "and README step 2; project env applies only after the folder is trusted" % ", ".join(missing))
+    else:
+        print("sandbox gh: OK gh runs in the sandbox with a token from the environment "
+              "(its scope is not checked; gh auth status shows which token gh uses)")
 PY
 ```
 
