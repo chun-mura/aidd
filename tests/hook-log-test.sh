@@ -150,7 +150,7 @@ printf '%s' "$input" | CLAUDE_PROJECT_DIR="$tmp_dir/wt" AIDD_TEST_STATE_DIR="$wt
 [ "$(find "$wt_state/projects" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')" -eq 1 ]
 wt_key=$(basename "$(find "$wt_state/projects" -mindepth 1 -maxdepth 1)")
 audit_md="$repo_root/skills/asset-audit/SKILL.md"
-[ "$(grep -cF 'rev-parse --path-format=absolute --git-common-dir' "$audit_md")" -eq 2 ]
+[ "$(grep -cF 'rev-parse --path-format=absolute --git-common-dir' "$audit_md")" -eq 3 ]
 audit_key=$(cd "$tmp_dir/wt" && env -u CLAUDE_PROJECT_DIR bash -c "$(awk '/^project_root=/{p=1} p{print} /^project_key=/{exit}' "$audit_md"); printf '%s' \"\$project_key\"")
 [ "$audit_key" = "$wt_key" ]
 
@@ -171,6 +171,26 @@ EOF
 step2=$(awk '/^\*\*2\./{p=1} p && /^```bash/{q=1; next} q && /^```/{exit} q{print}' "$audit_md")
 (cd "$tmp_dir/wt" && env -u CLAUDE_PROJECT_DIR HOME="$fake_home" AIDD_AUDIT_INTERVAL_DAYS=08 bash -c "$step2") |
   grep -Fx 'lint.jsonl error=1 killed=1 unpaired_start=1'
+
+# The audit's step 1 lists the auto memory of the same repository (shared by its worktrees):
+# each memory file with its type and whether MEMORY.md names it, and never the memory body.
+memory_dir="$fake_home/.claude/projects/$wt_key/memory"
+mkdir -p "$memory_dir"
+printf '%s\n' '- [Data](data.md) - indexed' '- [Gone](gone.md) - file removed' > "$memory_dir/MEMORY.md"
+printf '%s\n' '---' 'name: data' 'metadata:' '  node_type: memory' '  type: project' '---' 'BODY_SENTINEL' > "$memory_dir/data.md"
+printf '%s\n' '---' 'name: a' 'type: feedback' '---' 'BODY_SENTINEL' > "$memory_dir/a.md"
+printf '%s\n' '---' 'type: BODY_SENTINEL' '---' 'type: user' > "$memory_dir/odd.md"
+printf '%s\n' 'BODY_SENTINEL' 'type: user' > "$memory_dir/plain.md"
+step1=$(awk '/^\*\*1\./{p=1} p && /^```bash/{q=1; next} q && /^```/{exit} q{print}' "$audit_md")
+memory_out=$(cd "$tmp_dir/wt" && env -u CLAUDE_PROJECT_DIR -u CLAUDE_CONFIG_DIR HOME="$fake_home" bash -c "$step1")
+[ "$memory_out" = "a.md type=feedback unindexed
+data.md type=project indexed
+odd.md type=other unindexed
+plain.md type=none unindexed" ] || { echo "asset-audit memory listing: $memory_out" >&2; exit 1; }
+# CLAUDE_CONFIG_DIR moves the projects directory; without memory the listing says so.
+memory_out=$(cd "$tmp_dir/wt" && env -u CLAUDE_PROJECT_DIR HOME="$fake_home" CLAUDE_CONFIG_DIR="$tmp_dir/nocfg" bash -c "$step1")
+[ "$memory_out" = "no auto memory at $tmp_dir/nocfg/projects/$wt_key/memory" ] \
+  || { echo "asset-audit memory listing without memory: $memory_out" >&2; exit 1; }
 
 # The hook id becomes a file name, so path characters are neutralized.
 printf '%s' "$input" | run_wrapped '../escape' "$fake_hook" 0 > /dev/null 2>&1

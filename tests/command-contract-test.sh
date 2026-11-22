@@ -248,6 +248,17 @@ fi
 # asset-audit must not silently continue when its state write fails (e.g. under the sandbox),
 # or the SessionStart nudge never stops.
 grep -F -- '書き込みに失敗したら黙って続けない' "$repo_root/skills/asset-audit/SKILL.md"
+# asset-audit covers auto memory (#106) without copying memory bodies into its output, and
+# reads the learnings ledger only through learnings.py candidates, called by absolute path.
+asset_audit="$repo_root/skills/asset-audit/SKILL.md"
+grep -F -- 'memory の本文を出力に写さない' "$asset_audit"
+grep -F -- '索引に無い memory' "$asset_audit"
+grep -F -- 'memory と正典の重複' "$asset_audit"
+grep -F -- '台帳で昇格済みの memory' "$asset_audit"
+grep -F -- '`../../scripts/learnings.py` を解決した**絶対パス**' "$asset_audit"
+grep -F -- '`.aidd/learnings/*.json` を直接読まない' "$asset_audit"
+grep -F -- 'git config --get aidd.learnings' "$asset_audit"
+grep -F -- '終了コード4' "$asset_audit"
 
 # Every eval case has planted false findings (high/mid only), and every planted ID has
 # its refutation evidence in the key, so the refuter's discrimination can be scored.

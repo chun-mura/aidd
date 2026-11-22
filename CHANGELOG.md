@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.67.0 (2026-11-22)
+
+- `asset-audit`: auto memory を棚卸しの対象に加えた。memory には `CLAUDE.md` や hook と重なる記述や、正典に昇格して要らなくなった記述が残るのに、棚卸しの対象に入っていなかったため (#106)。手順1で、このリポジトリの auto memory (`~/.claude/projects/<プロジェクト>/memory/`。worktree を含めて1リポジトリ1つ。`CLAUDE_CONFIG_DIR` に従う) のファイルごとに、名前・種類 (frontmatter の `type`。既知の4種以外は `other`)・索引 `MEMORY.md` に名前があるかを出す。判定基準に「索引に無い memory」(改訂候補)・「memory と正典の重複」(統合候補)・「台帳で昇格済みの memory」(削除候補) を足した。memory には個人的なメモや機密が入りうるので、出力・状態ファイル・委譲先には memory のファイル名・行番号・種類・件数・判定だけを出し、本文を写さない
+- 「台帳で昇格済み」は、知見の台帳 (#104) が有効なとき (`git config aidd.learnings true`) だけ、`scripts/learnings.py candidates` (`--session-id` なし、既定ブランチにマージ済みの観測だけ) が別の session で2回以上と出した `signature` のうち、正典 (`CLAUDE.md`・`.claude/rules/`・hook) に既にその規則があるものとして判定する。昇格の記録 (`.aidd/learnings/promotions/`) はまだ無いので、それを作らずに既存の出力だけで判定した。台帳は skill のディレクトリから解決した絶対パスで呼び、`.aidd/learnings/*.json` を直接読まない。終了コード4 (既定ブランチの観測を数えられない) と台帳が無効なときは「判定不能」とする
+- `tests/hook-log-test.sh` が手順1のコマンドを偽の memory (worktree から本体のキーを引く・索引の名前の部分一致を索引済みとみなさない・frontmatter の外の `type:` を読まない・未知の種類を `other` にする・本文を出さない・memory が無いとき) で実行して検査する。`tests/command-contract-test.sh` に本文を写さないこと・台帳の扱いの文言を足した
+
 ## 0.66.0 (2026-11-23)
 
 - `incident-retro`: 知見の台帳が有効なとき、手順1で Claude Code の auto memory の feedback (`type: feedback`) を読み、台帳の観測の候補にする。auto memory はマシンの中だけにあり、強制力が無く、サブエージェントにも読まれないので、hook や CLAUDE.md にすべき訂正が memory に留まっていたため (#105)。読むのはこのセッションに読み込まれた auto memory のディレクトリだけで、列挙は frontmatter だけを読む snippet で行う (`type` はトップレベルと `metadata:` の下の両方を読む)。`fact` は memory の文を写さず書き直し、memory のパスは `evidence` に入れない。`source: auto-memory` で `scripts/learnings.py add` を通し、承認されたものだけ書く。`session` には、そのメモを書いたセッションの ID (`originSessionId`) を渡すので、取り込み直しても回数が増えない。`originSessionId` が無い memory は取り込まず、件数だけを伝える (ファイルのパスのハッシュを `session` に使うと、パスを推測できる人に照らし合わされうるため)。昇格の回数は #104 のとおり `candidates` の出力だけで数え、取り込んだ観測は PR でマージされてから回数に入る。memory のファイルは書き換えず消さず、正典の書き換えは承認後だけ。`scripts/learnings.py` は変えていない。設計書の #105 の節に理由と残るリスクを書いた
