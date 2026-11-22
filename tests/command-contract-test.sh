@@ -104,7 +104,8 @@ if grep -Fq -- '**今すぐ直せない作業**' "$incident_retro"; then
 fi
 
 # doctor's sandbox check only warns (running without the sandbox is allowed), and it must
-# report whether a GitHub token is set without ever printing the token (#96).
+# report whether a GitHub token is set without ever printing the token (#96). gh belongs inside
+# the sandbox, so gh in excludedCommands is warned about (#115).
 doctor="$repo_root/skills/doctor/SKILL.md"
 grep -F -- '**token の値は表示しない**' "$doctor"
 grep -F -- '結果は WARN にとどめ、FAIL にしない' "$doctor"
@@ -113,7 +114,7 @@ if grep -Eq -- 'echo[^#]*\$\{?(GH|GITHUB)_TOKEN|print\([^)]*environ[^)]*TOKEN' "
   exit 1
 fi
 # Run the item 9 snippet against throwaway settings and dummy tokens: it must warn without
-# FAIL, and print neither a token nor a non-boolean sandbox.enabled value.
+# FAIL, and print neither a token, an env value, nor a non-boolean sandbox.enabled value.
 doctor_tmp=$(mktemp -d "${TMPDIR:-/tmp}/aidd-doctor-test.XXXXXX")
 trap 'rm -rf "$doctor_tmp"' EXIT
 sed -n '/^# Item 9:/,/^PY$/p' "$doctor" > "$doctor_tmp/item9.sh"
@@ -123,22 +124,37 @@ printf '%s\n' '{"sandbox": {"enabled": {"leak": "SETTINGS_SENTINEL"}, "excludedC
 # A module in the consumer project must not shadow the standard library (python3 -I).
 printf '%s\n' 'print("SHADOW_SENTINEL")' > "$doctor_tmp/proj/glob.py"
 run_item9() {
-  (cd "$doctor_tmp/proj" && env -u GH_TOKEN -u GITHUB_TOKEN "$@" CLAUDE_CONFIG_DIR="$doctor_tmp/cfg" \
-    CLAUDE_PROJECT_DIR="$doctor_tmp/proj" bash "$doctor_tmp/item9.sh" 2>&1)
+  (cd "$doctor_tmp/proj" && env -u GH_TOKEN -u GITHUB_TOKEN -u SSL_CERT_FILE -u GH_CONFIG_DIR "$@" \
+    CLAUDE_CONFIG_DIR="$doctor_tmp/cfg" CLAUDE_PROJECT_DIR="$doctor_tmp/proj" bash "$doctor_tmp/item9.sh" 2>&1)
 }
-out=$(run_item9)
-grep -Fq -- 'sandbox gh: WARN' <<<"$out" || { echo "doctor item 9 did not print 'sandbox gh: WARN': $out" >&2; exit 1; }
-if grep -Eq -- 'FAIL|SETTINGS_SENTINEL|SHADOW_SENTINEL' <<<"$out"; then
-  echo "doctor item 9 failed or printed a settings value: $out" >&2
-  exit 1
-fi
-out=$(run_item9 GH_TOKEN=DUMMY_TOKEN_SENTINEL)
+leak_check() {
+  if grep -Eq -- 'FAIL|SETTINGS_SENTINEL|SHADOW_SENTINEL|DUMMY_TOKEN_SENTINEL|ENV_VALUE_SENTINEL' <<<"$1"; then
+    echo "doctor item 9 failed or printed a settings/env value: $1" >&2
+    exit 1
+  fi
+}
+# gh in excludedCommands runs outside the sandbox, so it warns with or without a token (#115).
+for tok in NO_TOKEN=1 GH_TOKEN=DUMMY_TOKEN_SENTINEL GITHUB_TOKEN=DUMMY_TOKEN_SENTINEL; do
+  out=$(run_item9 "$tok")
+  grep -Fq -- 'sandbox gh: WARN gh is in excludedCommands' <<<"$out" \
+    || { echo "doctor item 9 did not warn about gh in excludedCommands: $out" >&2; exit 1; }
+  leak_check "$out"
+done
+# gh in the sandbox: OK with a token (and, on macOS, SSL_CERT_FILE and GH_CONFIG_DIR), else WARN
+# naming only the missing variables.
+printf '%s\n' '{"sandbox": {"enabled": true}}' > "$doctor_tmp/proj/.claude/settings.json"
+out=$(run_item9 GH_TOKEN=DUMMY_TOKEN_SENTINEL SSL_CERT_FILE=/ENV_VALUE_SENTINEL GH_CONFIG_DIR=/ENV_VALUE_SENTINEL)
 grep -Fq -- 'sandbox gh: OK' <<<"$out" || { echo "doctor item 9 did not print 'sandbox gh: OK': $out" >&2; exit 1; }
-out="$out
-$(run_item9 GITHUB_TOKEN=DUMMY_TOKEN_SENTINEL)"
-if grep -Eq -- 'FAIL|DUMMY_TOKEN_SENTINEL' <<<"$out"; then
-  echo "doctor item 9 failed or printed a token: $out" >&2
-  exit 1
+leak_check "$out"
+out=$(run_item9 SSL_CERT_FILE=/ENV_VALUE_SENTINEL GH_CONFIG_DIR=/ENV_VALUE_SENTINEL)
+grep -Fq -- 'sandbox gh: WARN GH_TOKEN not set' <<<"$out" \
+  || { echo "doctor item 9 did not warn about a missing token: $out" >&2; exit 1; }
+leak_check "$out"
+if [ "$(uname -s)" = Darwin ]; then
+  out=$(run_item9 GH_TOKEN=DUMMY_TOKEN_SENTINEL)
+  grep -Fq -- 'sandbox gh: WARN SSL_CERT_FILE, GH_CONFIG_DIR not set' <<<"$out" \
+    || { echo "doctor item 9 did not warn about SSL_CERT_FILE/GH_CONFIG_DIR: $out" >&2; exit 1; }
+  leak_check "$out"
 fi
 
 # asset-audit must not silently continue when its state write fails (e.g. under the sandbox),

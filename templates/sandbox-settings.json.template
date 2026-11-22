@@ -1,4 +1,9 @@
 {
+  "env": {
+    "SSL_CERT_FILE": "/etc/ssl/cert.pem",
+    "GH_CONFIG_DIR": "/var/empty",
+    "PIP_USE_DEPRECATED": "legacy-certs"
+  },
   "permissions": {
     "blockWritesOutsideWorkingDirectories": true,
     "ask": [
@@ -34,22 +39,14 @@
       "Bash(gh variable *)",
       "Bash(gh ssh-key *)",
       "Bash(gh gpg-key *)",
-      "Bash(gh release *)",
-      "Bash(gh * release *)",
-      "Bash(gh run download *)",
+      "Bash(gh release create*)",
+      "Bash(gh release edit*)",
+      "Bash(gh release upload*)",
+      "Bash(gh release delete*)",
       "Bash(gh gist *)",
       "Bash(gh run delete *)",
       "Bash(gh cache delete *)",
       "Bash(gh codespace *)",
-      "Bash(gh config set *)",
-      "Bash(gh browse*)",
-      "Bash(gh * browse*)",
-      "Bash(gh * --web*)",
-      "Bash(gh * -w*)",
-      "Bash(gh api --hostname*)",
-      "Bash(gh api * --hostname*)",
-      "Bash(gh api http*)",
-      "Bash(gh api * http*)",
       "Bash(gh pr merge*)",
       "Bash(gh * pr merge*)",
       "Read(~/.ssh/**)",
@@ -74,7 +71,6 @@
     "enabled": true,
     "failIfUnavailable": true,
     "allowUnsandboxedCommands": false,
-    "excludedCommands": ["gh *"],
     "network": {
       "allowedDomains": [
         "github.com",
