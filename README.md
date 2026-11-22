@@ -44,9 +44,12 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
    - `~/.ssh`・`~/.aws`・`~/.config/gh`・`~/.netrc`・git の credential store (`~/.git-credentials`・`~/.config/git/credentials`) は sandbox 内のコマンドから読めない。認証情報の既定の拒否リストは無いので、ほかの認証情報のパスは利用側で足す。SSH の鍵が読めないため、git の remote は HTTPS にする
    - sandbox が使えない環境では起動を止め (`failIfUnavailable`)、エージェントによる sandbox の外での再実行を許さない (`allowUnsandboxedCommands: false`)。sandbox の外で動かす必要があるコマンドは `excludedCommands` に足す。足したコマンドは利用者の全権限で動く
    - sandbox がかかるのは Bash のコマンドだけ。`Read` ツールには効かないので、雛形は同じ認証情報のパスを `permissions.deny` の `Read(...)` でも拒否している。ほかに `Read` ツールで読ませたくないファイルも `permissions.deny` に書く
-2. **`gh` には対象リポジトリだけの fine-grained PAT を渡す**: macOS では `gh` が sandbox 内で TLS の検証に失敗しうるため、雛形は `gh *` を `excludedCommands` に入れており、`gh` は sandbox の外で動く。`gh` の権限は token で絞る。
+2. **`gh` には対象リポジトリだけの fine-grained PAT を渡す**: macOS では `gh` が sandbox 内で TLS の検証に失敗しうるため、雛形は `gh *` を `excludedCommands` に入れ、`gh` を sandbox の外で動かす。`gh` の権限は token で絞る。
    - sandbox の外の `gh` はローカルのどのファイルも読んで GitHub に送れる (`--body-file`・`gh api -F key=@<file>`)。拡張やエイリアスを使えば任意のコマンドを、`gh pr checkout` などは作業ツリーへの書き込みを sandbox の外で行える。雛形は aidd の skill が使わない `gh extension`・`gh alias`・`gh pr checkout`・`gh repo clone` を `permissions.deny` で拒否している。`Bash(gh *)` を `permissions.allow` に入れたり、`bypassPermissions` モードで動かしたりしない。TLS の失敗は macOS の sandbox (Seatbelt) で起きるもので、Linux では `excludedCommands` から `gh *` を外せる
-   - `id=$(gh api ...)` のようなコマンド置換・リダイレクト・`cd` を含む呼び出しは、`gh` で始まっていても sandbox の中で動く。macOS で TLS の検証に失敗したら、`gh` だけの呼び出しに分ける
+   - `excludedCommands` は Claude が送る呼び出しの文字列全体と照合される。次の場合は `gh` でも sandbox の中で動き、macOS では `x509: OSStatus -26276` (TLS) か、`~/.config/gh/config.yml: operation not permitted` (雛形の読み取り拒否) で失敗する
+     - `id=$(gh api ...)` のようなコマンド置換、ファイルへのリダイレクト、`cd`、`gh ... | head` のように別のコマンドと繋いだ呼び出し。`gh` だけの呼び出しに分ける
+     - Bash のコマンドを書き換える PreToolUse hook を使っている場合、書き換えた後の文字列が `gh` で始まらないと一致しないことがある (例: RTK は `gh issue list` を `rtk gh issue list` に書き換える)。hook の側で `gh` を書き換えの対象から外す
+     - 組織の managed settings で sandbox が admin-required になっている場合 (`allowUnsandboxedCommands: false` など)。プロジェクトの `excludedCommands` は無視されるので、`~/.claude/settings.json` に書く
    - GitHub の Settings > Developer settings > Personal access tokens > Fine-grained tokens で token を作る。有効期限を付け、Repository access は「Only select repositories」で対象リポジトリだけを選ぶ。Permissions は aidd の skill が使う Issues・Pull requests・Contents だけにし、読むだけなら read、issue へのコメント・PR 作成・push をさせる項目だけ write にする
    - Claude Code を起動するシェルで `GH_TOKEN` に入れる。`GH_TOKEN` は `gh auth login` で保存した認証より優先される。token は `.claude/settings.json` の `env` やコミットされるファイルに書かない
    - `GH_TOKEN` が空のまま起動すると、`gh` は `GITHUB_TOKEN` があればそれを、無ければ `gh auth login` で保存した認証 (利用者の全権限) を使う。`gh` は sandbox の外で動くため、`~/.config/gh` の読み取り拒否はこれを止めない。下の例は `GH_TOKEN` が空なら起動しない。`gh auth status` の出力に `(GH_TOKEN)` と出れば token が使われている
