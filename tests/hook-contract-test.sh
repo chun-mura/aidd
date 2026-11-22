@@ -1563,3 +1563,61 @@ out=$(lonely_hook "$ledger_repo" 'git commit -m x')
 printf '%s\n' "$out" | grep -F 'scripts/learnings.py'
 git -C "$ledger_repo" restore --staged ".aidd/learnings/$bad_ledger"
 [ "$(lonely_hook "$ledger_repo" 'git commit -m x' | decision_of)" = none ]
+
+# A check that raises (RecursionError here) denies the ledger commit and keeps the other verdicts.
+mkdir -p "$tmp_dir/lonely/scripts"
+cat > "$tmp_dir/lonely/scripts/learnings.py" <<'PYEOF'
+def check_document(name, raw):
+    raise RecursionError("simulated")
+
+
+def display_name(name):
+    return name
+PYEOF
+git -C "$ledger_repo" add ".aidd/learnings/$bad_ledger"
+out=$(lonely_hook "$ledger_repo" 'git commit -a -m x')
+[ "$(printf '%s\n' "$out" | decision_of)" = deny ]
+printf '%s\n' "$out" | grep -F '検査が途中で失敗した'
+printf '%s\n' "$out" | grep -F 'git commit -a'
+git -C "$ledger_repo" restore --staged ".aidd/learnings/$bad_ledger"
+
+# The staged and the working-tree version of a named file are both checked.
+git -C "$ledger_repo" add ".aidd/learnings/$bad_ledger"
+ledger_file "$bad_ledger" 'Fixed in the working tree only.'
+out=$(hook PreToolUse "$ledger_repo" "git commit -m x -- .aidd/learnings/$bad_ledger")
+[ "$(printf '%s\n' "$out" | decision_of)" = deny ]
+printf '%s\n' "$out" | grep -F "$bad_ledger (staged)"
+git -C "$ledger_repo" restore --staged ".aidd/learnings/$bad_ledger"
+ledger_file "$bad_ledger" 'Reported by leaky-person@example.com today.'
+
+# Named files are resolved by git as pathspecs (top-level magic from a subdirectory, a quoted glob).
+[ "$(hook PreToolUse "$ledger_repo/src" "git add ':/.aidd/learnings' && git commit -m x" | decision_of)" = deny ]
+[ "$(hook PreToolUse "$ledger_repo" "git add '*.json' && git commit -m x" | decision_of)" = deny ]
+
+# The staged blob is checked byte for byte: trailing whitespace counts toward the size limit.
+big_ledger=20261122T010000Z-0000000c.json
+python3 -c '
+import json, sys
+body = json.dumps({"schema_version": 1, "source": "incident-retro", "scope": "tool", "status": "observed",
+                   "signature": "git stash", "fact": "A plain observation.", "evidence": [],
+                   "session": "0123456789ab"})
+open(sys.argv[1], "w").write(body + " " * 5000)
+' "$ledger_repo/.aidd/learnings/$big_ledger"
+git -C "$ledger_repo" add ".aidd/learnings/$big_ledger"
+out=$(hook PreToolUse "$ledger_repo" 'git commit -m x')
+[ "$(printf '%s\n' "$out" | decision_of)" = deny ]
+printf '%s\n' "$out" | grep -F 'larger than'
+git -C "$ledger_repo" rm -q --cached ".aidd/learnings/$big_ledger"
+rm "$ledger_repo/.aidd/learnings/$big_ledger"
+
+# A file whose name breaks the pattern is denied without echoing the name.
+cp "$ledger_repo/.aidd/learnings/$good_ledger" "$ledger_repo/.aidd/learnings/leakyname.json"
+git -C "$ledger_repo" add .aidd/learnings/leakyname.json
+out=$(hook PreToolUse "$ledger_repo" 'git commit -m x')
+[ "$(printf '%s\n' "$out" | decision_of)" = deny ]
+if printf '%s\n' "$out" | grep -Fq 'leakyname'; then
+  echo "ledger denial echoed a non-conforming file name" >&2
+  exit 1
+fi
+git -C "$ledger_repo" rm -q --cached .aidd/learnings/leakyname.json
+rm "$ledger_repo/.aidd/learnings/leakyname.json"

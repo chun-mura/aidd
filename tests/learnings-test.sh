@@ -89,7 +89,8 @@ for text in [
     "Output went to /dev/null and the hook wrote under ~/.claude/aidd/ as designed.",
     "foo.test.ts and app.ts failed under Node.js after the change.",
     "The check ran at 12:30:45 UTC and the npm scope @types/node resolved.",
-    "Commit 0123456789abcdef0123456789abcdef01234567 reverted it.",
+    "Commit 0123abc reverted it, and 1287eb5 restored it.",
+    "Release-v2.3.4-RC1-Build2026 shipped; MyComponent2Test.spec.tsx passed.",
     "AIDD_REQUIRED_LABEL_PREFIX was unset, so the gate stayed off.",
     "sha256_digest_for_v2_release, x86_64-apple-darwin25 and python3-urllib3-2-0-7 are names.",
     "claude-opus-5-5-20261122 and generateAssetIndex2 and src/components/Button2/index.tsx too.",
@@ -144,6 +145,14 @@ expect_reject("email in evidence", doc(evidence=["someone@example.com"]))
 # Schema.
 expect_reject("missing key", doc(session=None))
 expect_reject("extra key", doc(author="someone"))
+# Key names are input too: the reason counts them and never names them.
+for label, raw in [
+    ("unknown key name", json.dumps(doc(leakykeyname=1))),
+    ("duplicate key name", json.dumps(doc(leakykeyname=1))[:-1] + ', "leakykeyname": 2}'),
+]:
+    got = errors(None, raw=raw)
+    if not got or any("leakykeyname" in e for e in got):
+        failures.append(f"key name echoed or not rejected: {label}: {got}")
 expect_reject("wrong schema_version", doc(schema_version=2))
 expect_reject("bool schema_version", doc(schema_version=True))
 expect_reject("unknown source", doc(source="manual"))
@@ -172,6 +181,53 @@ expect_reject("not an object", None, raw="[1, 2]")
 expect_reject("invalid json", None, raw="{")
 expect_reject("duplicate key", None, raw=json.dumps(BASE)[:-1] + ', "fact": "again"}')
 expect_reject("oversized file", None, raw=json.dumps(doc(fact="a")) + " " * 5000)
+
+# Deep nesting is rejected, never raised (older Pythons raise RecursionError here), and so is
+# any other failure inside the JSON parser.
+expect_reject("deeply nested", None, raw="[" * 2000 + "]" * 2000)
+real_loads = mod.json.loads
+try:
+    def boom(*args, **kwargs):
+        raise RecursionError("simulated")
+    mod.json.loads = boom
+    expect_reject("parser raises", BASE)
+finally:
+    mod.json.loads = real_loads
+
+# Invisible characters are rejected outright; compatibility forms are normalized before the
+# patterns run; values written straight against Japanese text are still found.
+for label, text in [
+    ("zero-width", "a" + "\u200b" + "b"),
+    ("line separator", "a" + "\u2028" + "b"),
+    ("bidi control", "a" + "\u202e" + "b"),
+    ("byte order mark", "a" + "\ufeff" + "b"),
+]:
+    got = errors(doc(fact=text))
+    if not any("invisible" in e for e in got):
+        failures.append(f"should reject invisible: {label}: {got}")
+fullwidth = "".join(chr(ord(c) + 0xFEE0) for c in fake["ghp"])
+for label, rule, text in [
+    ("full-width token", "token prefix", f"値は{fullwidth}でした。"),
+    ("ip next to kana", "IP address", "接続先は10.0.12.34でした。"),
+    ("path next to kana", "absolute path", "場所は/Users/someone/projectでした。"),
+    ("host next to kana", "host name", "接続先はbuild.example.comでした。"),
+    ("email next to kana", "email address", "連絡先someone@mailhost.zzまで。"),
+    ("company next to kana", "company name", "サンプルInc.の案件。"),
+    ("ipv6 loopback", "IP address", "It listened on ::1 only."),
+    ("32 hex in fact", "long hex", "Digest " + "0123456789abcdef" * 2 + " matched."),
+    ("40-char SHA in fact", "long hex", "Commit " + "0123456789abcdef" * 2 + "01234567 reverted it."),
+    ("separated random", "high-entropy", "Value " + "-".join(["Zq8L", "m2Rt", "7Vx4", "Bn9K", "c3Wp", "6Hy1"]) + " leaked."),
+]:
+    got = errors(doc(fact=text))
+    if not any(rule in e for e in got):
+        failures.append(f"should reject with {rule}: {label}: {got}")
+expect_pass("std namespaces and times", doc(fact="std::fs and Foo::Bar ran at 12:30:45."))
+
+# Names that break the file-name pattern are not echoed.
+if mod.display_name(".aidd/learnings/leaky-name.json") != mod.display_name(".aidd/learnings/other.json"):
+    failures.append("display_name echoes a non-conforming name")
+if mod.display_name(NAME) != NAME:
+    failures.append("display_name hides a conforming name")
 
 # File names.
 expect_reject("bad file name", BASE, name=".aidd/learnings/note.json")
@@ -253,34 +309,52 @@ set -e
 [ "$status" -eq 1 ]
 rm "$bad"
 
-# candidates: the same signature in two different sessions is a candidate; one session is not.
+# candidates counts merged observations and the ones written in this session only.
+# An own unmerged observation plus this session is still one session.
 python3 -I "$script" candidates --repo "$repo" --session-id s1 --signature 'git stash' > "$tmp_dir/c1"
 [ ! -s "$tmp_dir/c1" ]
+# Someone else's unmerged observation (s1, seen from session s2) is not counted.
 python3 -I "$script" candidates --repo "$repo" --session-id s2 --signature 'git stash' > "$tmp_dir/c2"
-grep -F '"signature": "git stash"' "$tmp_dir/c2"
-grep -F '"sessions": 2' "$tmp_dir/c2"
+[ ! -s "$tmp_dir/c2" ]
 
-# Observations on the default branch count too, without double-counting the same file.
-git -C "$repo" add .aidd/learnings
-git -C "$repo" commit -qm 'docs: ledger'
-git -C "$repo" switch -q -c work
-git -C "$repo" rm -q -r .aidd/learnings
-git -C "$repo" commit -qm 'chore: drop ledger on the branch'
-observation 'git stash' | python3 -I "$script" add --repo "$repo" --session-id s3 >/dev/null
-python3 -I "$script" candidates --repo "$repo" > "$tmp_dir/c3"
-grep -F '"sessions": 2' "$tmp_dir/c3"
-
-# An observation that fails the check is not counted.
+# Once merged into the default branch it counts. A merged observation that fails the check is
+# not counted, and is reported on stderr by name only.
 python3 -c '
 import json, sys
 json.dump({"schema_version": 1, "source": "incident-retro", "scope": "tool", "status": "observed",
-           "signature": "gh pr create", "fact": "Reported by someone@example.com today.",
+           "signature": "gh pr view", "fact": "Reported by someone@mailhost.zz today.",
            "evidence": [], "session": "aaaaaaaaaaaa"}, open(sys.argv[1], "w"))
 ' "$repo/.aidd/learnings/20261122T000000Z-00000001.json"
-python3 -I "$script" candidates --repo "$repo" --session-id s4 --signature 'gh pr create' > "$tmp_dir/c4"
-if grep -Fq 'gh pr create' "$tmp_dir/c4"; then
+git -C "$repo" add .aidd/learnings
+git -C "$repo" commit -qm 'docs: ledger'
+python3 -I "$script" candidates --repo "$repo" --session-id s2 --signature 'git stash' \
+  --signature 'gh pr view' > "$tmp_dir/c3" 2> "$tmp_dir/c3.err"
+grep -F '"signature": "git stash"' "$tmp_dir/c3"
+grep -F '"sessions": 2' "$tmp_dir/c3"
+if grep -Fq 'gh pr view' "$tmp_dir/c3"; then
   echo "an observation that fails the check was counted" >&2
   exit 1
 fi
+grep -F '1 observation(s) on the default branch fail the check' "$tmp_dir/c3.err"
+grep -F '.aidd/learnings/20261122T000000Z-00000001.json' "$tmp_dir/c3.err"
+if grep -Fq 'someone' "$tmp_dir/c3.err"; then
+  echo "candidates echoed a rejected value" >&2
+  exit 1
+fi
+
+# On a branch: the default branch's observations count, plus this session's working-tree ones,
+# without double-counting a file present in both.
+git -C "$repo" switch -q -c work
+observation 'git stash' | python3 -I "$script" add --repo "$repo" --session-id s3 >/dev/null
+python3 -I "$script" candidates --repo "$repo" --session-id s3 > "$tmp_dir/c4" 2>/dev/null
+grep -F '"sessions": 2' "$tmp_dir/c4"
+[ "$(python3 -c 'import json,sys; print(len(json.loads(open(sys.argv[1]).readline())["files"]))' "$tmp_dir/c4")" -eq 2 ]
+# Without a session, only merged observations count.
+python3 -I "$script" candidates --repo "$repo" > "$tmp_dir/c5" 2>/dev/null
+[ ! -s "$tmp_dir/c5" ]
+# --all lists every counted signature, including single-session ones.
+python3 -I "$script" candidates --repo "$repo" --all > "$tmp_dir/c6" 2>/dev/null
+grep -F '"signature": "git stash"' "$tmp_dir/c6"
+grep -F '"sessions": 1' "$tmp_dir/c6"
 
 echo "learnings-test: ok"

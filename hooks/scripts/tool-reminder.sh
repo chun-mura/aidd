@@ -941,34 +941,39 @@ LEDGER_DENY = ("aidd: 知見の台帳 (.aidd/learnings/) のファイルが検�
                "伏せ字にせず該当する記述を書き直してステージし直すか、git restore --staged <file> で外すこと。")
 LEDGER_UNCHECKED = ("aidd: 知見の台帳 (.aidd/learnings/) のファイルを含むコミットだが、検査スクリプト scripts/learnings.py を"
                     "読み込めないため拒否した (検査せずに通さない)。aidd の導入を /aidd:doctor で確かめること。")
+LEDGER_FAILED = ("aidd: 知見の台帳 (.aidd/learnings/) の検査が途中で失敗したため git commit を拒否した (検査せずに通さない)。"
+                 "git diff --cached --name-only -- .aidd/learnings/ で対象を確かめ、python3 -I <aidd>/scripts/learnings.py check <file> を実行すること。")
 
 
-def ledger_named_files(directory, sub, args, top):
-    """Ledger files that git add / git commit name in this command, read from the working tree
-    (they are not staged yet when PreToolUse runs)."""
-    _, _, positionals = scan(args, *(ADD_OPTIONS if sub == "add" else COMMIT_OPTIONS))
-    ledger = os.path.realpath(os.path.join(top, LEDGER_DIR))
-    found = set()
-    for spec in positionals:
-        if spec == "--":
-            continue
-        path = os.path.join(directory, os.path.expanduser(spec))
-        for match in (glob.glob(path) if glob.has_magic(path) else [path]):
-            match = os.path.realpath(match)
-            if ledger == match or ledger.startswith(match.rstrip(os.sep) + os.sep):
-                match = ledger  # the ledger directory or one of its parents
-            elif not match.startswith(ledger + os.sep):
-                continue
-            if os.path.isdir(match):
-                for root, _, names in os.walk(match):
-                    found.update(os.path.join(root, n) for n in names)
-            elif os.path.isfile(match):
-                found.add(match)
-    return {os.path.relpath(p, os.path.realpath(top)).replace(os.sep, "/"): p for p in found}
+def git_bytes(directory, *args):
+    """git output as bytes, untouched (no strip, no decoding): ledger files are checked byte for byte."""
+    try:
+        result = subprocess.run(["git", "-C", directory, *args], capture_output=True, timeout=10)
+    except Exception:
+        return None
+    return result.stdout if result.returncode == 0 else None
+
+
+def ledger_named_files(directory, sub, args):
+    """Ledger files that git add / git commit name in this command (not staged yet when PreToolUse
+    runs). git resolves the pathspecs itself, so its globbing and magic apply; a pathspec git
+    rejects resolves to nothing (README lists this layer's limits)."""
+    shorts, longs, positionals = scan(args, *(ADD_OPTIONS if sub == "add" else COMMIT_OPTIONS))
+    specs = [p for p in positionals if p != "--"]
+    if not specs:
+        return []
+    command = ["ls-files", "-z", "--full-name", "--cached", "--others"]
+    if not (sub == "add" and ("f" in shorts or "--force" in longs)):
+        command.append("--exclude-standard")
+    out = git_bytes(directory, *command, "--", *specs)
+    names = os.fsdecode(out or b"").split("\0")
+    return [n for n in names if n.startswith(LEDGER_DIR + "/")]
 
 
 def check_ledger(git_calls):
-    """git_calls: (directory, sub, args) of the git add / git commit in this command."""
+    """git_calls: (directory, sub, args) of the git add / git commit in this command. The staged
+    version and the working-tree version of a named file are both checked: either may be what
+    the commit takes."""
     tops = {}
     for directory, sub, args in git_calls:
         top = git(directory, "rev-parse", "--show-toplevel")
@@ -978,19 +983,22 @@ def check_ledger(git_calls):
     for top, calls in tops.items():
         if not any(sub == "commit" for _, sub, _ in calls):
             continue
-        files = {}
-        staged = git(top, "diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR", "--", LEDGER_DIR + "/")
-        for name in filter(None, (staged or "").split("\0")):
-            blob = git(top, "cat-file", "blob", ":" + name)
-            files[name] = blob.encode("utf-8") if blob is not None else None
+        entries = []  # (name, where, bytes or None)
+        staged = git_bytes(top, "diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR", "--", LEDGER_DIR + "/")
+        for name in filter(None, os.fsdecode(staged or b"").split("\0")):
+            entries.append((name, "staged", git_bytes(top, "cat-file", "blob", ":" + name)))
+        named = set()
         for directory, sub, args in calls:
-            for name, path in ledger_named_files(directory, sub, args, top).items():
-                try:
-                    with open(path, "rb") as f:
-                        files[name] = f.read(8192)
-                except OSError:
-                    files[name] = None
-        if not files:
+            named.update(ledger_named_files(directory, sub, args))
+        for name in sorted(named):
+            try:
+                with open(os.path.join(top, name), "rb") as f:
+                    entries.append((name, "working tree", f.read(8192)))
+            except FileNotFoundError:
+                continue  # staging a deletion leaks nothing
+            except OSError:
+                entries.append((name, "working tree", None))
+        if not entries:
             continue
         if module is None:
             module = load_learnings()
@@ -998,10 +1006,10 @@ def check_ledger(git_calls):
                 add(denials, LEDGER_UNCHECKED)
                 return
         problems = []
-        for name in sorted(files):
-            errors = module.check_document(name, files[name]) if files[name] is not None else ["could not read the file"]
+        for name, where, raw in entries:
+            errors = module.check_document(name, raw) if raw is not None else ["could not read the file"]
             if errors:
-                problems.append(f"{name}: " + "; ".join(errors))
+                problems.append(f"{module.display_name(name)} ({where}): " + "; ".join(errors))
         if problems:
             add(denials, LEDGER_DENY + "\n" + "\n".join(problems))
 
@@ -1010,15 +1018,16 @@ def load_learnings():
     try:
         import importlib.util
         sys.dont_write_bytecode = True  # no __pycache__ in the plugin: hooks write only under ~/.claude/aidd/
-        spec =importlib.util.spec_from_file_location("aidd_learnings", LEARNINGS_SCRIPT)
+        spec = importlib.util.spec_from_file_location("aidd_learnings", LEARNINGS_SCRIPT)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        return module if callable(getattr(module, "check_document", None)) else None
+        needed = ("check_document", "display_name")
+        return module if all(callable(getattr(module, n, None)) for n in needed) else None
     except Exception:
         return None
 
 
-JAPANESE_NUDGE ="aidd: GitHub issue/PR のタイトルと本文は日本語で書くこと (コード識別子・コマンド・コミットメッセージは英語のまま)。既に日本語なら変更不要。"
+JAPANESE_NUDGE = "aidd: GitHub issue/PR のタイトルと本文は日本語で書くこと (コード識別子・コマンド・コミットメッセージは英語のまま)。既に日本語なら変更不要。"
 PUSH_NUDGE = "aidd: push したブランチに open PR がある場合 (gh pr view で確認)、追加コミットが PR の範囲・内容を変えたなら gh pr edit でタイトルと概要を最新化すること (日本語)。変えていなければ何もしない。"
 
 ledger_calls = []
@@ -1059,7 +1068,10 @@ for argv, directory in simple_commands(command):
             require_label(args)
 
 if any(sub == "commit" for _, sub, _ in ledger_calls):
-    check_ledger(ledger_calls)
+    try:
+        check_ledger(ledger_calls)
+    except Exception:  # RecursionError and anything else: deny, and keep the other verdicts
+        add(denials, LEDGER_FAILED)
 
 if denials or contexts:
     output = {"hookEventName": hook_event}

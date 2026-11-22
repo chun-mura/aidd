@@ -178,16 +178,46 @@ Claude Code に入れた aidd と、この Cursor 用プラグインは併用し
 | `docs/test-perspectives/` | `/aidd:test-perspectives` の出力先。hook が6時間以内の更新有無を見る |
 | `.aidd/design-perspectives.md` | `/aidd:design-review` のプロジェクト固有観点 (任意)。`cp templates/design-perspectives.md.template .aidd/design-perspectives.md` で可観測性・ドメイン固有の観点から始められる |
 | `.aidd/issue-priority.md` | issue-priority スキルの優先度ラベル名・段数 (並べた順で上位から下位)・追加の軸 (任意)。無ければ既定の `priority:P0`〜`P3` |
-| `.aidd/learnings/<YYYYMMDDTHHMMSSZ>-<16進8桁>.json` | 知見の台帳 (任意、**既定で無効**)。`/aidd:incident-retro` が事故の観測を1観測1ファイルで書き、同じ `signature` が別のセッションで2回以上あれば昇格候補として示す (2回ルールをチームで数える)。コミットして PR で共有する。clone ごとに `git config aidd.learnings true` で有効にする (`.git/config` に入るのでコミットされず、fork にも引き継がれない)。項目 (`schema_version` 1、すべて必須、ほかのキーは拒否): `schema_version`・`source` (`incident-retro` / `auto-memory` / `autonomous-review`)・`scope` (`project` / `tool` / `aidd`)・`status` (`observed` / `applied` / `declined`)・`signature` (コマンド名・ツール名とサブコマンド・フラグだけ)・`fact` (200字以内の事実。唯一の自由記述)・`evidence` (コミット SHA・`#番号`・リポジトリ相対パスだけ)・`session` (セッション ID の SHA-256 の先頭12桁)。作成者名は持たない |
+| `.aidd/learnings/<YYYYMMDDTHHMMSSZ>-<16進8桁>.json` | 知見の台帳 (任意、**既定で無効**)。`/aidd:incident-retro` が事故の観測を1観測1ファイルで書き、同じ `signature` が別のセッションで2回以上あれば昇格候補として示す (2回ルールをチームで数える。数えるのは既定ブランチにマージ済みの観測と今回のセッションで書いた観測だけ)。コミットして PR で共有する。clone ごとに `git config aidd.learnings true` で有効にする (`.git/config` に入るのでコミットされず、fork にも引き継がれない)。項目 (`schema_version` 1、すべて必須、ほかのキーは拒否): `schema_version`・`source` (`incident-retro` / `auto-memory` / `autonomous-review`)・`scope` (`project` / `tool` / `aidd`)・`status` (`observed` / `applied` / `declined`)・`signature` (コマンド名・ツール名とサブコマンド・フラグだけ)・`fact` (200字以内の事実。唯一の自由記述)・`evidence` (コミット SHA・`#番号`・リポジトリ相対パスだけ)・`session` (セッション ID の SHA-256 の先頭12桁)。作成者名は持たない |
 
 **知見の台帳に機密を入れない4層** (詳細は `docs/superpowers/specs/2026-11-22-learnings-ledger-design.md`):
 
 1. 項目の制限 (上の表)
-2. 書く時点の検査: incident-retro は `scripts/learnings.py add` を通してだけ書く。スキーマと、絶対パス・メール・URL・IP・FQDN・token の接頭辞・高エントロピー文字列・UUID・会社名の手がかり (`株式会社`・`Inc.` など) の正規表現にかけ、該当すれば伏せ字にせず拒否する
-3. コミット時の検査: `tool-reminder.sh` が `git commit` の前に、ステージ済みの台帳ファイルと、同じコマンドの `git add` / `git commit` が名指しした台帳ファイルを同じ検査にかけ、通らなければ拒否する (有効化の有無に関係なく動く)。Claude を通さないコミットは止められないので、台帳を有効にするリポジトリでは CI で gitleaks などの秘密検出を動かす (雛形は未提供)
+2. 書く時点の検査: incident-retro は `scripts/learnings.py add` を通してだけ書く。NFKC で正規化したうえで、スキーマと、絶対パス・メール・URL・IP・FQDN・token の接頭辞・高エントロピー文字列・UUID・長い16進・会社名の手がかり (`株式会社`・`Inc.` など) の正規表現にかけ、制御文字・書式文字 (ゼロ幅・双方向制御)・行や段落の区切り文字を含むものも含めて、該当すれば伏せ字にせず拒否する
+3. コミット時の検査 (`tool-reminder.sh`): **よくある形での不注意を防ぐ層**で、すべてのコミットを止めるものではない。Claude Code が実行する `git commit` の前に、ステージ済みの台帳ファイルと、同じコマンドの `git add` / `git commit` が名指しした台帳ファイル (pathspec は git 自身に解決させる) の両方の版を同じ検査にかけ、通らなければ拒否する (有効化の有無に関係なく動く)。次の経路では効かない、または効くとは限らない:
+   - git が解決できない、またはこの層が読み取れない pathspec の書き方と `--pathspec-from-file`
+   - git のエイリアス (`git -c alias.*` を含む)、`GIT_INDEX_FILE`、`--git-dir` / `--work-tree`、`bash -c` などコマンドを文字列で渡す形
+   - 名指ししないステージ (`add -p`・`add -u`・`commit -a`。後の2つは別の判定が拒否する)
+   - `git commit` 以外でコミットを作る操作 (merge・cherry-pick・rebase・am・revert)、低レベルのコマンド (`update-index`・`commit-tree` など)
+   - Claude Code を通さないコミット (人の手・ほかのツール)。Codex・Cursor の adapter 経由で同じように効くかは未検証
 4. PR での人のレビュー: 顧客名・業務の固有名・社内ホスト名だけの名前は正規表現で捕まらない。これが最後の防衛線になる。マージ後に消すには履歴の書き換えが要る
 
-顧客案件のリポジトリで台帳に何を入れてよいかは、各組織の情報の取り扱いの規程に従って決める。Codex・Cursor の adapter 経由でコミット時の検査が同じように効くかは未検証。
+**検査が捕まえるのは不注意で入ったものだけで、意図して隠した値は捕まえない。**
+
+**有効にする前の前提**: 3層目が止められない経路を補うため、台帳を有効にする前に、台帳のすべてのファイルに `learnings.py check` をかける CI を利用側リポジトリに入れ、既定ブランチの ruleset で必須のチェックにする。例 (GitHub Actions。`ref` は導入している aidd のコミット SHA に固定する):
+
+```yaml
+name: learnings-ledger
+on: [pull_request, push]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: chun-mura/aidd
+          ref: <aidd のコミット SHA>
+          path: .aidd-plugin
+      - name: Check every ledger file
+        run: |
+          git ls-files -z -- .aidd/learnings/ \
+            | xargs -0 -r python3 -I .aidd-plugin/scripts/learnings.py check
+```
+
+あわせて gitleaks などの秘密検出も CI で動かす (雛形は未提供)。
+
+**顧客案件・NDA の対象のリポジトリ**では、台帳を有効にする前に情報管理の責任者の確認を取る。台帳の中身 (`fact` など) は、incident-retro の実行時に生成 AI に入力される。
 
 ## インデックス
 
@@ -202,7 +232,7 @@ Claude Code に入れた aidd と、この Cursor 用プラグインは併用し
 | `issue-select/` | open issue から今着手できる分を選ぶ。進行中の作業 (未 push の実装済みブランチを含む) を先に見て、本文の冒頭と決定済み ADR を確かめ、open のサブ issue を持つ親を子に置き換え、open の issue に blocked by されているものを外し、人の手続きが要るもの・衝突する組み合わせ (同じ画面・共有部品・同じモデル・同じテストファイルの新規作成・マイグレーション・ADR 採番) を外す。ラベルは絞り込みと、付いている優先度ラベルでの並べ替えにだけ使い、優先度の基準は持たない (判定と付与は `aidd:issue-priority` skill の役割)。提案で止める | `/aidd:issue-select` | `$aidd:issue-select` | `/issue-select` |
 | `retro/` | aidd 資産の棚卸し。利用実績・hooks/skills の摩擦・陳腐化を洗い出す (対象は aidd 自身の資産のみ) | `/aidd:retro` | `$aidd:retro` | `/retro` |
 | `asset-audit/` | 利用側プロジェクトの `.claude/` と `CLAUDE.md` の棚卸し。retro と同じ型を利用側の資産に当て、一定期間発火しない hook・参照先の消えた記述・上流に吸収された規則・2箇所にある同じ基準・観測1件からの一般化を削除・改訂候補に、`error` 行を持つ hook を修正候補にする。候補が0件なら基準を疑う。人だけが起動する (`disable-model-invocation`) | `/aidd:asset-audit` | `$aidd:asset-audit` | `/asset-audit` |
-| `incident-retro/` | セッションの事故の棚卸し。再発防止の置き場をコード (今直さないなら issue) → hook → ADR (決定とその理由) → `CLAUDE.md` / `AGENTS.md` / Cursor の rules / memory (リポジトリを移っても効くか) → コマンドの順に決め、一般則にする前にその規則で壊れるものを1件挙げさせる。ADR・issue は `/aidd:adr`・`/aidd:issue-split` に委ねる。知見の台帳 (`.aidd/learnings/`、既定で無効) を有効にしたリポジトリでは、同じ `signature` が別のセッションで2回目以上の事故を昇格候補として示し、承認された観測を検査 (`scripts/learnings.py`) に通ったものだけ台帳に書く。人だけが起動する (`disable-model-invocation`) | `/aidd:incident-retro` | `$aidd:incident-retro` | `/incident-retro` |
+| `incident-retro/` | セッションの事故の棚卸し。再発防止の置き場をコード (今直さないなら issue) → hook → ADR (決定とその理由) → `CLAUDE.md` / `AGENTS.md` / Cursor の rules / memory (リポジトリを移っても効くか) → コマンドの順に決め、一般則にする前にその規則で壊れるものを1件挙げさせる。ADR・issue は `/aidd:adr`・`/aidd:issue-split` に委ねる。知見の台帳 (`.aidd/learnings/`、既定で無効) を有効にしたリポジトリでは、同じ `signature` が別のセッションで2回目以上 (既定ブランチにマージ済みの観測と今回のセッションの観測で数える) の事故を昇格候補として示し、承認された観測を検査 (`scripts/learnings.py`) に通ったものだけ台帳に書く。人だけが起動する (`disable-model-invocation`) | `/aidd:incident-retro` | `$aidd:incident-retro` | `/incident-retro` |
 | `adr/` | アーキテクチャ決定記録を docs/adr/NNNN-<slug>.md に作成。1 ADR = 1 決定。採番はローカルに加えローカル／リモートの全ブランチを見て衝突を避ける | `/aidd:adr` | `$aidd:adr` | `/adr` |
 | `design-doc/` | 要件から設計書を生成し docs/design/ に保存。構成は design-review の6観点と1対1対応。構成と責務にコンポーネントごとのコード上の配置を書く。永続化を含む設計では、データフローの節にデータモデル (スキーマを緩める選択の理由と代替案) と主要な経路のインデックスの前提・読む件数の上限を書かせる。同時に読み書きされる状態があれば、データフローの節に競合・二重実行・破損への対策を書かせる | `/aidd:design-doc` | `$aidd:design-doc` | `/design-doc` |
 | `design-sync/` | 設計書と実装の乖離を検知し、status を最新化する | `/aidd:design-sync` | `$aidd:design-sync` | `/design-sync` |
@@ -240,7 +270,7 @@ Claude Code に入れた aidd と、この Cursor 用プラグインは併用し
 |---------|------|
 | `session-start.sh` | SessionStart で aidd 資産の使いどころと「実装を左右する不明点は、このセッションが実際に持つ手段で確認する (対話なら AskUserQuestion、監督下なら親への返答)」を注入。`/aidd:asset-audit` の最終実施日 (未実施なら `aidd-hook-log.sh` が最初の hook の記録を始めた日) から一定期間 (既定30日) が過ぎたプロジェクトでだけ、棚卸しを促す1文を足す。superpowers 未導入を検知して警告 |
 | `usage-log.sh` | 起動を2経路で記録し、aidd コマンド使用数・最終利用時刻を `~/.claude/aidd/usage.json` に残す (`/aidd:retro` が読む): 行頭が `/aidd:<name>` のプロンプト (UserPromptSubmit) と、Skill ツール経由の起動 (PreToolUse、サブエージェント内の起動もここに入る)。文中で名前に触れただけのプロンプトは計上しない。実在するコマンド・skill 名だけを計上し、旧版が残した `prompt_log` は起動時に削除する |
-| `tool-reminder.sh` | `git commit` 前の test-perspectives 確認、`gh pr/issue create・edit` 前の日本語確認、`gh pr create` 前のレビュー証跡の確認、`git push` 後の PR 同期確認、`git commit` 後の HEAD の件名 (Conventional Commits 形式) と本文の有無の検査を1本で処理 (ここまでは非ブロック。コミットの検査はコマンド文字列でなく確定後の HEAD を SHA ごとに1回だけ読み、規約を採るリポジトリだけで行う。後続のコマンドが失敗した場合 (PostToolUseFailure) もコミットは検査する)。加えて、未コミットの作業を失う git 操作 (`stash`・`reset --hard`・パスを指定した `checkout` (`checkout -- <path>` / `checkout .` / `checkout <path>` / `checkout HEAD <path>`)・`checkout -f`・`switch -f` / `--discard-changes`・`--staged` だけでない `restore`・`-n` の無い `clean`) と指名しないステージ (`add -A` / `-u`、`.` / `./` / `..` / `:/` のように作業ディレクトリやルートを指すパス、`commit -a`) を拒否する。既定ブランチ (push 先のリモートの `HEAD` が指す実在のブランチと、常に `main` / `master`) への force push (`--force`・`-f`・`--force-with-lease`・`+<refspec>`・`--mirror`・`--force --all`・`+:`・`heads/<既定>` のような短い書き方・`--force-w` のような省略形。refspec を省いた場合は `remote.<name>.push` と `push.default` で決まる送り先が既定ブランチなら) と既定ブランチのリモート削除 (`push --delete`・`push <remote> :<branch>`) も拒否し (送り先に `$`・バッククォートを含む force / delete / prune の push も、判定できないので拒否する)、作業ブランチへの force push と `-n` / `--dry-run` は止めない (どの操作をどこで止めるかは「破壊的な操作をどこで止めるか」)。主ツリーを別のセッションが直近に使っているときは相手ごとに1回だけ worktree への移動を促し (拒否はしない。`session_id` は resume / compact の前後で同じと保証されていない)、`git commit` は、ステージ済みか同じコマンドの `git add` / `git commit` が名指しした知見の台帳 (`.aidd/learnings/`) のファイルが検査 (`scripts/learnings.py`) に通らなければ拒否する (台帳の有効化に関係なく動き、台帳のファイルを含まないコミットでは何もしない。検査スクリプトを読み込めなければ台帳を含むコミットだけを拒否する)。`gh issue create` は同じセッションで直近に同じリポジトリ (`-R` / `--repo`、無ければ cwd の `origin`) に対して `gh issue list --search` を実行していなければ拒否する。`AIDD_REQUIRED_LABEL_PREFIX` を設定すると、その接頭辞のラベルが無い `gh issue create` も拒否する。コマンドは引用符・`&&` / `;` の連結・`#` のコメント・`if` / `then` / `do` などの制御構文・`cd`・`git -C`・前置のラッパー (`rtk` など) を見分けて判定し、1回の起動で当たった判定は JSON 1つにまとめて返す。コマンドに `git` / `gh` の語が無ければ python を起動せずに終わる。レビュー証跡の確認は、`--head` のブランチ (未指定なら cwd のブランチ) が基点ブランチに対してコードを変更しているのに、どの worktree の `.aidd/autonomous-review/` にもそのブランチの `state.json` が無いときだけ、変更ファイルの一覧つきで警告する (docs だけの変更では鳴らさない) |
+| `tool-reminder.sh` | `git commit` 前の test-perspectives 確認、`gh pr/issue create・edit` 前の日本語確認、`gh pr create` 前のレビュー証跡の確認、`git push` 後の PR 同期確認、`git commit` 後の HEAD の件名 (Conventional Commits 形式) と本文の有無の検査を1本で処理 (ここまでは非ブロック。コミットの検査はコマンド文字列でなく確定後の HEAD を SHA ごとに1回だけ読み、規約を採るリポジトリだけで行う。後続のコマンドが失敗した場合 (PostToolUseFailure) もコミットは検査する)。加えて、未コミットの作業を失う git 操作 (`stash`・`reset --hard`・パスを指定した `checkout` (`checkout -- <path>` / `checkout .` / `checkout <path>` / `checkout HEAD <path>`)・`checkout -f`・`switch -f` / `--discard-changes`・`--staged` だけでない `restore`・`-n` の無い `clean`) と指名しないステージ (`add -A` / `-u`、`.` / `./` / `..` / `:/` のように作業ディレクトリやルートを指すパス、`commit -a`) を拒否する。既定ブランチ (push 先のリモートの `HEAD` が指す実在のブランチと、常に `main` / `master`) への force push (`--force`・`-f`・`--force-with-lease`・`+<refspec>`・`--mirror`・`--force --all`・`+:`・`heads/<既定>` のような短い書き方・`--force-w` のような省略形。refspec を省いた場合は `remote.<name>.push` と `push.default` で決まる送り先が既定ブランチなら) と既定ブランチのリモート削除 (`push --delete`・`push <remote> :<branch>`) も拒否し (送り先に `$`・バッククォートを含む force / delete / prune の push も、判定できないので拒否する)、作業ブランチへの force push と `-n` / `--dry-run` は止めない (どの操作をどこで止めるかは「破壊的な操作をどこで止めるか」)。主ツリーを別のセッションが直近に使っているときは相手ごとに1回だけ worktree への移動を促し (拒否はしない。`session_id` は resume / compact の前後で同じと保証されていない)、`git commit` は、ステージ済みか同じコマンドの `git add` / `git commit` が名指しした知見の台帳 (`.aidd/learnings/`) のファイルが検査 (`scripts/learnings.py`) に通らなければ拒否する (よくある形での不注意を防ぐ層で、効かない経路は「利用側プロジェクトのディレクトリ規約」の4層の節にある。台帳の有効化に関係なく動き、台帳のファイルを含まないコミットでは何もしない。検査スクリプトを読み込めない・検査が途中で失敗したときは台帳を含むコミットを拒否する)。`gh issue create` は同じセッションで直近に同じリポジトリ (`-R` / `--repo`、無ければ cwd の `origin`) に対して `gh issue list --search` を実行していなければ拒否する。`AIDD_REQUIRED_LABEL_PREFIX` を設定すると、その接頭辞のラベルが無い `gh issue create` も拒否する。コマンドは引用符・`&&` / `;` の連結・`#` のコメント・`if` / `then` / `do` などの制御構文・`cd`・`git -C`・前置のラッパー (`rtk` など) を見分けて判定し、1回の起動で当たった判定は JSON 1つにまとめて返す。コマンドに `git` / `gh` の語が無ければ python を起動せずに終わる。レビュー証跡の確認は、`--head` のブランチ (未指定なら cwd のブランチ) が基点ブランチに対してコードを変更しているのに、どの worktree の `.aidd/autonomous-review/` にもそのブランチの `state.json` が無いときだけ、変更ファイルの一覧つきで警告する (docs だけの変更では鳴らさない) |
 | `skill-gate.sh` | モデルが Skill ツールで `autonomous-review` を起動する前に、PreToolUse で `ask` を返してユーザーの許可を取る (名前は接頭辞・先頭の `/`・大文字小文字の違いをならして照合する)。対話の default / auto / bypassPermissions、allow ルール、サブエージェントのどれでも確認がユーザーに届き、headless (`-p`) では拒否として働く。ユーザーが手で打った起動は Skill ツールを通らないので確認は出ない。判定を出してから件数を記録し、入力を解釈できなくても `autonomous-review` を含めば `ask` を返す。Cursor では adapter 経由で、この plugin の `skills/autonomous-review/SKILL.md` の `Read` を拒否する。hook が起動できないときや hook が無効な環境 (`disableAllHooks` など) では確認なしで起動しうる (hook の起動失敗は Claude Code が素通りさせる) |
 | `write-guard.sh` | Write・Edit・NotebookEdit の PreToolUse を1本で処理する。対象はまだ存在しないファイルだけで、既存ファイルと対象外のパスでは何も出さずに終わる。サンドボックスの読み取り拒否によく入る名前 (`.env*`・`*.pem`・`*secret*`・`*credential*` など) のファイルを新しく作ろうとしたら拒否する (作った後に git・テスト・シェルから読めなくなるため)。Claude Code には読み取り拒否の既定リストが無いので、パターンは `AIDD_UNREADABLE_NAME_PATTERNS` で利用側の設定に合わせて差し替える。あわせて、`.claude/{hooks,skills,commands,rules,agents}/` (プロジェクト側・`~/.claude/` 側の両方) に新しい資産を作ろうとしたら、同梱の `hooks/asset-index.json` から aidd の資産一覧 (名前と description) を additionalContext で渡し、役割が重なるならそれを使うか aidd への要望として起票するよう促す。重なりの判断はモデルに任せ、aidd の command・skill・agent と同名のときだけ拒否する (command・agent は種類のディレクトリ直下のファイルだけ比べる。`commands/adr/new.md` は `/adr:new` になり、agent の名前は frontmatter で決まるため)。既存の資産と既存 skill 内のファイルは対象外。`AIDD_ASSET_OVERLAP_PLUGINS` で指定した他のプラグインの資産も、そのディレクトリの `.claude-plugin/plugin.json` から実行時に読んで一覧に加える (同梱の一覧には入れない。`<plugin>:<name>` の名前空間で利用側の同名の資産と共存するため、案内だけで拒否しない) |
 | `harness-adapter.sh` | Codex の `apply_patch` と Cursor の Shell / Write / Read / SessionStart を、既存スクリプトが読める形に揃えて呼び、返事を各ハーネスの形に戻す。判定ロジックは持たない。失敗しても exit 0 で素通りし、理由は `adapter-skips.json` に件数だけ残す。Cursor の Read は `autonomous-review` を含むものだけ python を起動して `skill-gate.sh` に渡す |
