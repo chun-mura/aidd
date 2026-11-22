@@ -248,9 +248,28 @@ expect_push allow "$pushes" 'git push origin main' 'git push' 'git push origin H
   'git push --force origin feat' 'git push -f origin HEAD:feat' 'git push origin +feat' 'git push --force-with-lease origin feat' \
   'git push --delete origin feat' 'git push origin :feat' 'git push -n -f origin main' 'git push --dry-run --force origin main' \
   'git push -o main -f origin feat' 'git push origin feat:main' 'echo "git push -f origin main"'
+# The remote resolves heads/main to refs/heads/main; ":" pushes same-named branches; a pattern
+# refspec reaches main unless a negative refspec takes it out; --tags alone pushes only tags.
+expect_push deny "$pushes" 'git push -f origin heads/main' 'git push -f origin feat:heads/main' \
+  "git push -f origin 'refs/*:refs/*'" 'git push origin +:' 'git push --force origin :'
+expect_push allow "$pushes" 'git push --tags -f origin' "git push -f origin 'refs/heads/*:refs/heads/*' ^refs/heads/main" \
+  'git push origin :' 'git push -f origin heads/feat'
 git -C "$pushes" switch -q feat
-expect_push allow "$pushes" 'git push --force' 'git push -f origin' 'git push --force origin HEAD'
-expect_push deny "$pushes" 'git push --force origin main'
+expect_push allow "$pushes" 'git push --force' 'git push -f origin' 'git push --force origin HEAD' \
+  'git push --repo=origin -f HEAD:feat'
+expect_push deny "$pushes" 'git push --force origin main' 'git push --repo=origin --force HEAD:main' \
+  'git push --repo origin --delete main'
+# Without a refspec the destination comes from push.default / remote.<name>.push, not the branch name.
+git -C "$pushes" config branch.feat.remote origin
+git -C "$pushes" config branch.feat.merge refs/heads/main
+git -C "$pushes" config push.default upstream
+expect_push deny "$pushes" 'git push -f' 'git push -f origin'
+expect_push allow "$pushes" 'git push'
+git -C "$pushes" config push.default simple
+git -C "$pushes" config remote.origin.push '+refs/heads/feat:refs/heads/main'
+expect_push deny "$pushes" 'git push'
+git -C "$pushes" config --unset remote.origin.push
+git -C "$pushes" config --unset branch.feat.merge
 # The remote's HEAD wins over the main / master guess.
 git -C "$pushes" update-ref refs/remotes/origin/trunk HEAD
 git -C "$pushes" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/trunk
