@@ -23,7 +23,7 @@
 | キー | 型・値 | 内容 |
 |---|---|---|
 | `schema_version` | 整数 `1` | スキーマの版 |
-| `source` | `incident-retro` / `auto-memory` / `autonomous-review` | 書いた経路。今書くのは `incident-retro` だけで、残りは #105・#108 のために予約する |
+| `source` | `incident-retro` / `auto-memory` / `autonomous-review` | 書いた経路。`incident-retro` (事故) と `auto-memory` (#105。incident-retro が auto memory の feedback を取り込む) を書く。`autonomous-review` は #108 のために予約する |
 | `scope` | `project` / `tool` / `aidd` | 知見が効く範囲。このリポジトリだけ / 共通の道具 (git・gh・Claude Code) の挙動 / aidd の資産。#107 は `tool`・`aidd` を還流の候補にする |
 | `status` | `observed` / `applied` / `declined` | 記録した時点の扱い。対策を見送った / 承認されて反映した / ユーザーが断った。書いたあとは変えない |
 | `signature` | 文字列 (80字以下、8語以下) | コマンド名 (またはツール名) とフラグとサブコマンドだけ。例 `git stash`、`gh pr create --fill`、`Edit`。引数の値・パス・ブランチ名を入れない。昇格の判定はこの文字列の完全一致で数える |
@@ -101,7 +101,12 @@ hook が書いてよいのは `~/.claude/aidd/` だけという方針は変え�
 
 ## #105〜#108 との境界
 
-- #105 (auto memory の取り込み): `source: auto-memory` で `add` を呼ぶ。検査とファイルの形はそのまま使う。
+- #105 (auto memory の取り込み): `source: auto-memory` で `add` を呼ぶ。検査とファイルの形はそのまま使い、`learnings.py` は変えない。
+  - 読むのは、そのセッションに読み込まれた auto memory のディレクトリにある `type: feedback` のファイルだけ (ほかのプロジェクトの memory は読まない)。列挙は frontmatter だけを読む snippet で行い、本文は列挙したものだけ読む。`fact` は memory の文を写さず書き直し、memory のパスは `evidence` に入れない。memory のファイルは書き換えない・消さない (削除候補は #106)。書く前に AskUserQuestion で承認を取る。
+  - `session` には、そのメモを書いたセッションの ID (frontmatter の `originSessionId`) を渡す。メモ1件を「そのセッションでの1回」と数え、同じメモを次の実行で取り込み直しても回数が増えず、同じセッションで incident-retro が記録した同じ事故とも1回にまとまる。`originSessionId` が無ければ `auto-memory:<ファイルの絶対パス>` を渡す (同じメモの取り込み直しは1回にまとまるが、同じセッションの incident-retro の観測とは別に数えうる)。`originSessionId` は公式ドキュメントに無く、この環境の実物の frontmatter (`metadata:` の下に `type` と並ぶ) で確かめた。`type` は公式ドキュメントで frontmatter にあるとだけ書かれているので、トップレベルと入れ子の両方を読む。
+  - 取り込み済みの判定: `candidates --all` と `candidates --all --session-id <キー> --signature <S>` で S の `sessions` が同じなら、そのセッションの観測は既にマージされているので取り込まない。
+  - 回数: `candidates` は作業ツリーの観測を今のセッションの分しか数えないので、マージ前の memory の観測 (別のセッション) を数えない。incident-retro は照合の `sessions` に、同じ signature の memory の候補の session キーの種類の数を足す。`learnings.py` に複数のセッションを数える引数を足せばこの足し算は要らなくなるが、#108 と同時に `learnings.py` を変えないため見送った。
+  - 残るリスク: 絶対パスの session キーは12桁のハッシュで残るので、ユーザー名・リポジトリのパス・ファイル名を推測できる人はハッシュと照らし合わせうる (どのファイル名のメモがあったか、が分かる)。PR のレビュー中で未マージの取り込みがある間に取り込み直すと、同じ観測のファイルが重複しうる (回数は同じセッションなので増えない)。
 - #106 (asset-audit): 昇格の記録 (`promotions/`) ができてから、それを読んで memory の削除候補を出す。検査に `promotions/` の規則を足すのは #106 か昇格の記録を作る変更。
 - #107 (還流): `scope` が `tool`・`aidd` の観測を草案の候補にする。草案に入れる signature・事実は検査を通ったものなので、固有の情報を伏せる手間が減る。
 - #108 (autonomous-review): `source: autonomous-review` で `add` を呼び、指摘の型を `signature` に入れる。指摘の型はコマンド名ではないので、`signature` の語の規則を広げるかは #108 で決める。

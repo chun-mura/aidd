@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.66.0 (2026-11-23)
+
+- `incident-retro`: 知見の台帳が有効なとき、手順1で Claude Code の auto memory の feedback (`type: feedback`) を読み、台帳の観測の候補にする。auto memory はマシンの中だけにあり、強制力が無く、サブエージェントにも読まれないので、hook や CLAUDE.md にすべき訂正が memory に留まっていたため (#105)。読むのはこのセッションに読み込まれた auto memory のディレクトリだけで、列挙は frontmatter だけを読む snippet で行う (`type` はトップレベルと `metadata:` の下の両方を読む)。`fact` は memory の文を写さず書き直し、memory のパスは `evidence` に入れない。`source: auto-memory` で `scripts/learnings.py add` を通し、承認されたものだけ書く。`session` には、そのメモを書いたセッションの ID (`originSessionId`、無ければファイルの絶対パス) を渡すので、取り込み直しても回数が増えない。取り込み済み (そのセッションの観測がマージ済み) のものは `candidates` で判定して外す。`candidates` はマージ前の別セッションの観測を数えないので、照合の回数に memory の候補の session の種類の数を足し、2回目以上を昇格候補として示す。memory のファイルは書き換えず消さず、正典の書き換えは承認後だけ。`scripts/learnings.py` は変えていない。設計書の #105 の節に理由と残るリスクを書いた
+- `tests/incident-retro-memory-test.sh` (新規): incident-retro の列挙の snippet を偽の memory ディレクトリに対して動かし (feedback だけ・本文を出さない・session キー)、取り込み済みの判定・回数の足し算・`add` を `learnings.py` で通して、足し算の回数がマージ後に `candidates` だけで数えた回数と一致すること、取り込み直さないことを検査する。本物の memory は読まない。`tests/command-contract-test.sh` に取り込みの文言を足した
+
 ## 0.65.0 (2026-11-22)
 
 - 利用側リポジトリに「知見の台帳」(`.aidd/learnings/<YYYYMMDDTHHMMSSZ>-<16進8桁>.json`、1観測1ファイル) を足した。`/aidd:incident-retro` が今のセッションの会話しか見ず、運用ルール2 (2回ルール) を人の記憶で判定していたため (#104)。コミットして PR で共有し、ファイル名が別なので同時に書いても衝突しない。**既定で無効**で、clone ごとに `git config aidd.learnings true` で有効にする (コミットされず fork に引き継がれないので、公開リポジトリ・fork で知らずに書き始めない)。スキーマ (`schema_version` 1) と保存先を README の「利用側プロジェクトのディレクトリ規約」に載せた。設計は `docs/superpowers/specs/2026-11-22-learnings-ledger-design.md`

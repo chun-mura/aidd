@@ -41,6 +41,7 @@ bash tests/hook-log-test.sh              # exercises templates/aidd-hook-log.sh 
 bash tests/redundancy-contract-test.sh   # asserts removed assets stay removed and de-duplication boundaries hold
 bash tests/session-start-test.sh         # asserts session-start.sh injects the short nudges only when due
 bash tests/codex-agents-contract-test.sh # Codex TOML stays generated from agents/*.md; installer copies and --check detects stale/missing
+bash tests/incident-retro-memory-test.sh # runs incident-retro's auto memory listing snippet on a fake memory dir and walks the skip/count/write steps through scripts/learnings.py
 bash tests/learnings-test.sh             # scripts/learnings.py: ledger check rejects/passes, add is off by default, candidates counting
 ```
 

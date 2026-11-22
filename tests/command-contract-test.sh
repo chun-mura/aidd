@@ -126,6 +126,17 @@ grep -F -- '「マージ済みの観測を数えられなかった」' "$inciden
 if grep -Eq -- 'python3 -I \.\./\.\./scripts/learnings\.py' "$incident_retro"; then
   exit 1
 fi
+# Auto memory intake (#105): feedback memories enter the ledger only through the check and the
+# user's approval, from this repository's memory directory only, without the memory text or path;
+# memory files and the canon change only after approval. The snippet and the counting steps are
+# executed by tests/incident-retro-memory-test.sh.
+grep -F -- '**auto memory の取り込み**' "$incident_retro"
+grep -F -- '`"source": "auto-memory"`' "$incident_retro"
+grep -F -- 'ほかのプロジェクトの memory ディレクトリを探して読まない' "$incident_retro"
+grep -F -- 'memory の文を写さず' "$incident_retro"
+grep -F -- 'memory のファイルは書き換えず、消さない' "$incident_retro"
+grep -F -- '正典 (CLAUDE.md・hook・skill) を書き換えるのは承認後だけ' "$incident_retro"
+grep -F -- 'session キーの種類の数を足す' "$incident_retro"
 
 # doctor's sandbox check only warns (running without the sandbox is allowed), and it must
 # report whether a GitHub token is set without ever printing the token (#96). gh belongs inside
