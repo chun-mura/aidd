@@ -54,7 +54,7 @@ argument-hint: "[対象] [--base <branch>] [--head <branch>] [--reviewer codex|c
 
 | キー | 型 | 必須 | 意味 |
 |------|----|------|------|
-| `schema_version` | number | 必須 | このスキーマの版。現行は `2` (`1` からの変更: `rounds` の要素に `snapshot` を追加し、`worktree` を品質ゲート用だけにした) |
+| `schema_version` | number | 必須 | このスキーマの版。現行は `3` (`2` からの変更: `perspective_reviews` の `perspective` に `sibling_coverage` を追加した。`1` から `2` への変更: `rounds` の要素に `snapshot` を追加し、`worktree` を品質ゲート用だけにした) |
 | `run_id` | string | 必須 | 実行ID |
 | `status` | string | 必須 | `started` / `reviewing` / `gating` / `auto_merge_eligible` / `human_required` / `failed` |
 | `target` | string | 必須 | `[対象]` または対象モードの説明 |
@@ -64,7 +64,7 @@ argument-hint: "[対象] [--base <branch>] [--head <branch>] [--reviewer codex|c
 | `reviewer` | string | 必須 | `codex` / `claude` |
 | `reviewer_version` | string / null | 必須 | レビュー担当の版 (`codex --version` の出力など)。取得できなければ `null` |
 | `reviewer_command` | string / null | 必須 | 実際に実行したコマンド行。自己レビュー時は `null` |
-| `perspective_reviews` | array | 必須 | 観点別レビュー。要素は `{ "perspective": "error_handling" \| "security", "applicable": bool, "reason": string, "executed": bool, "agent": string \| null }` |
+| `perspective_reviews` | array | 必須 | 観点別レビュー。要素は `{ "perspective": "error_handling" \| "security" \| "sibling_coverage", "applicable": bool, "reason": string, "executed": bool, "agent": string \| null }` |
 | `worktree` | object | 必須 | 2ブランチ比較の品質ゲート用 worktree。`{ "isolated": bool, "path": string \| null, "created": bool, "removed": bool }`。一時worktreeを使わない場合も `isolated: false` で記録する |
 | `rounds` | array | 必須 | 各ラウンドの `{ "round": number, "reviewer_verdict": string, "finding_ids": array, "fixed_ids": array, "snapshot": object \| null }`。`snapshot` は codex 用スナップショットの `{ "path": string \| null, "commit": string, "diff_applied": bool, "created": bool, "removed": bool }` で、自己レビュー時は `null` |
 | `findings` | array | 必須 | 指摘の配列。件数だけの要約に置き換えてはならない。要素はレビュー担当のJSON契約 (`id` / `severity` / `file` / `line` / `title` / `claim` / `evidence` / `verification`) に、`decision` (`confirmed` / `false_positive` / `deferred`)、`decision_reason`、`tracking` を加えたもの |

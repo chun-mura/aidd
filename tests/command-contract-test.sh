@@ -64,7 +64,10 @@ grep -F -- '責務の集中は行数ではなく、この責務の割り当て�
 grep -F -- 'どのコンポーネントにも割り当てていない責務' "$issue_implement"
 grep -F -- '差分の周りの既存の構造を配置とみなし' "$issue_implement"
 grep -F -- '**同じ形の箇所に広げる**' "$issue_implement"
+grep -F -- '当てなかった箇所を一覧にして 6 (完了条件) の deferred に回す' "$issue_implement"
 grep -F -- '**テストや項目を消すとき**' "$issue_implement"
+grep -F -- '代わりのテスト (または不要とした理由) を完了報告に書く' "$issue_implement"
+grep -F -- '既定のテスト実行から外れたテスト' "$issue_implement"
 
 # incident-retro picks the first matching tier, so the ADR tier must come before the rule
 # tier (a design decision also reads as a rule with judgment), and deferred work is folded
