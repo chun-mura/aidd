@@ -36,8 +36,12 @@ TLDS = ("com|net|org|edu|gov|mil|int|io|dev|app|cloud|ai|co|jp|us|uk|de|fr|cn|kr
         "|me|tech|online|site|xyz|local|localdomain|internal|intranet|corp|lan|home|example|invalid")
 # Boundaries are ASCII (re.A): a value written straight against Japanese text is still a value.
 PATTERNS = [
-    # The lookbehind is ASCII; the body is any non-space so Japanese directory names still match.
-    ("absolute path", re.compile(r"(?<![\w.~:/-])/[^\s/]+/\S*|(?<![A-Za-z0-9])[A-Za-z]:[\\/]", re.A)),
+    # A slash after a delimiter starts a path (Japanese directory names included). A slash right
+    # after Japanese text is prose ("読み/書き") unless the run also holds ASCII letters or digits.
+    ("absolute path", re.compile(
+        r"(?<![^\s\"'`(\[{<=,;「『（【])/[^\s/]+/\S*"
+        r"|(?<=[^\x00-\x7f])/(?=\S*[A-Za-z0-9])[^\s/]+/\S*"
+        r"|(?<![A-Za-z0-9])[A-Za-z]:[\\/]", re.A)),
     ("email address", re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", re.A)),
     ("URL", re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://|(?<![\w.])www\.", re.I | re.A)),
     ("IP address", re.compile(

@@ -224,6 +224,8 @@ for label, rule, text in [
     if not any(rule in e for e in got):
         failures.append(f"should reject with {rule}: {label}: {got}")
 expect_pass("std namespaces and times", doc(fact="std::fs and Foo::Bar ran at 12:30:45."))
+expect_pass("Japanese slashes in prose", doc(fact="読み/書き/実行の権限と、設定/作業/ファイルの順を確かめた。"))
+expect_pass("ratios and dates", doc(fact="成功は 3/4 で、11/22 に再現した。"))
 
 # Names that break the file-name pattern are not echoed.
 if mod.display_name(".aidd/learnings/leaky-name.json") != mod.display_name(".aidd/learnings/other.json"):
