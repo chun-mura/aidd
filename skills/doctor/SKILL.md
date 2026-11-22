@@ -166,7 +166,7 @@ else:
     if sys.platform == "darwin":
         missing += [v for v in ("SSL_CERT_FILE", "GH_CONFIG_DIR") if not os.environ.get(v)]
     if missing:
-        print("sandbox gh: WARN %s not set; gh in the sandbox fails without a token (GH_TOKEN), "
+        print("sandbox gh: WARN %s not set; gh in the sandbox has no scoped token (GH_TOKEN), "
               "fails TLS with x509: OSStatus -26276 on macOS (SSL_CERT_FILE), or cannot read the "
               "denied ~/.config/gh (GH_CONFIG_DIR). See the env of templates/sandbox-settings.json.template "
               "and README step 2; project env applies only after the folder is trusted" % ", ".join(missing))
