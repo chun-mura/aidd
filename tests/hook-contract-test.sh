@@ -308,6 +308,18 @@ expect_push deny "$pushes" 'git push -f origin "$BRANCH"' 'git push -f origin $(
   'git push -f origin `git branch --show-current`' 'git push --delete "$REMOTE" feat' 'git push -f origin HEAD:$B' \
   "git push -f origin \$'main'" 'git push --prune origin "$X"'
 expect_push allow "$pushes" 'git push origin "$BRANCH"' 'git push -n -f origin "$BRANCH"'
+# F2: a +refspec / :refspec forces or deletes without an option; braces expand later too.
+expect_push deny "$pushes" 'git push origin +$BRANCH' 'git push origin "+HEAD:$B"' 'git push origin ":$BRANCH"' \
+  'git push origin +`git branch --show-current`' 'git push -f origin {main,feat}' 'git push origin +{main,feat}' \
+  'git push --delete origin {feat,main}' 'git push -f origin feat{,-x}' 'git push origin :{a..c}'
+expect_push allow "$pushes" 'git push origin HEAD:$B' 'git push origin {main,feat}' 'git push -f origin feat' \
+  'git push -f origin "{literal}"'
+# F7: the wrappers Claude Code strips before matching rules are stripped here too, with their arguments.
+expect_push deny "$pushes" 'timeout 30 git push -f origin main' 'timeout -s KILL -k 5 30s git push -f origin main' \
+  'timeout --signal=TERM 1m git push --delete origin main' 'nice git push -f origin main' 'nice -n 10 git push -f origin main' \
+  'nice -n10 git push -f origin main' 'stdbuf -oL git push -f origin main' 'stdbuf -o L -e 0 git push -f origin main' \
+  'nohup nice -n 5 timeout 9 git push -f origin main' 'time git push -f origin main'
+expect_push allow "$pushes" 'timeout 30 git push -f origin feat' 'nice -n 10 git push origin main' 'timeout 30 echo git push -f origin main'
 # The remote's HEAD adds its branch; main and master stay protected (a fork's main too).
 git -C "$pushes" update-ref refs/remotes/origin/trunk HEAD
 git -C "$pushes" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/trunk

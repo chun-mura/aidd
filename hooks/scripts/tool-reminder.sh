@@ -44,9 +44,20 @@ def add(bucket, text):
 # --- command parsing: tokenize, split into simple commands, drop wrappers --------------------
 # Not a shell parser. Quoted strings stay whole (so text inside -m "..." is never a command);
 # commands joined by && || ; | & newlines or parentheses are checked one by one.
-WRAPPERS = [["rtk", "proxy"], ["rtk"], ["command"], ["env"], ["time"], ["nohup"], ["exec"]]
+# timeout / time / nice / nohup / stdbuf are the wrappers Claude Code itself strips before
+# matching permission rules, so a rule and this hook see the same inner command.
+WRAPPERS = [["rtk", "proxy"], ["rtk"], ["command"], ["env"], ["time"], ["nohup"], ["exec"],
+            ["timeout"], ["nice"], ["stdbuf"]]
 # Extra wrappers: comma-separated, each may span words (e.g. "sudo -E,chronic").
 WRAPPERS += [w.split() for w in env.get("AIDD_COMMAND_WRAPPERS", "").split(",") if w.strip()]
+# Wrapper options whose value is the next word, and leading operands that are not the command
+# (timeout 30 git push: 30 is the duration).
+WRAPPER_VALUE_OPTIONS = {
+    "timeout": {"-s", "--signal", "-k", "--kill-after"},
+    "nice": {"-n", "--adjustment"},
+    "stdbuf": {"-i", "-o", "-e", "--input", "--output", "--error"},
+}
+WRAPPER_OPERANDS = {"timeout": 1}
 SEPARATOR_CHARS = set(";&|()\n")
 ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 HEREDOC = re.compile(r"(?<!<)<<(?!<)-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
@@ -127,8 +138,11 @@ def unwrap(argv):
         for wrapper in WRAPPERS:
             if argv[:len(wrapper)] == wrapper:
                 argv = argv[len(wrapper):]
+                name = " ".join(wrapper)
+                takes_value = WRAPPER_VALUE_OPTIONS.get(name, set())
                 while argv and (argv[0].startswith("-") or ASSIGNMENT.match(argv[0])):
-                    argv = argv[1:]
+                    argv = argv[2:] if argv[0] in takes_value else argv[1:]
+                argv = argv[WRAPPER_OPERANDS.get(name, 0):]
                 changed = True
                 break
     return argv
@@ -382,7 +396,7 @@ DISCARDS = "aidd: {} は未コミットの変更を取り戻せない形で捨�
 UNNAMED_STAGE = "aidd: {} は変更を名指しせずにステージするため拒否した (別のセッションや別の作業の変更まで取り込む)。git add <path>... でファイルを名指ししてから git commit すること。"
 STASH = "aidd: git stash は拒否した。stash のスタックは worktree とセッションの間で共有され、別のセッションの変更を pop したり消したりする。退避は一時コミットか別の worktree で行うこと (git stash list / show は可)。"
 DEFAULT_BRANCH_PUSH = "aidd: {} は既定ブランチ {} の履歴をリモートで書き換えるか消すため拒否した (ほかの人がその上に積んだ作業を失う)。必要ならユーザーに確認し、ユーザー自身に実行してもらうこと。自分の作業ブランチへの force push は止めない。"
-UNRESOLVED_PUSH = "aidd: force / delete / prune を伴う git push の送り先 (remote か refspec) に変数・コマンド置換 ($ やバッククォート) があり、既定ブランチに届くかを判定できないため拒否した。ブランチ名を展開した形で書き直すこと。"
+UNRESOLVED_PUSH = "aidd: force / delete / prune を伴う git push の送り先 (remote か refspec) に変数・コマンド置換・ブレース展開 ($・バッククォート・{a,b}) があり、既定ブランチに届くかを判定できないため拒否した。ブランチ名を展開した形で書き直すこと。"
 
 
 def default_branch(directory, remote):
@@ -494,10 +508,13 @@ def deny_default_branch_push(args, directory):
     delete = "d" in shorts or "--delete" in longs
     prune = "--prune" in longs
     every = longs & {"--all", "--branches", "--mirror"}
-    # The shell expands $VAR, $(...), backquotes and $'...' after this check sees the words,
-    # so a destination built from them cannot be judged; a forcing push of one is denied.
+    # The shell expands $VAR, $(...), backquotes, $'...' and braces ({main,feat}, {a..b}) after
+    # this check sees the words, so a destination built from them cannot be judged; a push that
+    # forces or deletes (by option, or by a +refspec / :refspec) with one is denied.
     # (\x60 is the backquote: a literal one inside this heredoc breaks bash 3.2's parse.)
-    if (force or delete or prune) and any(re.search("[$\x60]", w) for w in positionals + repo):
+    unresolved = re.compile("[$\x60]|\\{[^}]*(,|\\.\\.)[^}]*\\}")
+    forcing = force or delete or prune or any(r.startswith(("+", ":")) for r in refspecs)
+    if forcing and any(unresolved.search(w) for w in positionals + repo):
         add(denials, UNRESOLVED_PUSH)
         return
     implicit = not refspecs and not every and "--tags" not in longs
