@@ -49,7 +49,22 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
    - sandbox が使えない環境では起動を止め (`failIfUnavailable`)、エージェントによる sandbox の外での再実行を許さない (`allowUnsandboxedCommands: false`)。sandbox の外で動かす必要があるコマンドは `excludedCommands` に足す。足したコマンドは利用者の全権限で動く
    - sandbox がかかるのは Bash のコマンドだけ。`Read` ツールには効かないので、雛形は同じ認証情報のパスを `permissions.deny` の `Read(...)` でも拒否している。ほかに `Read` ツールで読ませたくないファイルも `permissions.deny` に書く
 2. **`gh` には対象リポジトリだけの fine-grained PAT を渡す**: macOS では `gh` が sandbox 内で TLS の検証に失敗しうるため、雛形は `gh *` を `excludedCommands` に入れ、`gh` を sandbox の外で動かす。`gh` の権限は token で絞る。
-   - sandbox の外の `gh` はローカルのどのファイルも読んで GitHub に送れる (`--body-file`・`gh api -F key=@<file>`)。拡張やエイリアスを使えば任意のコマンドを、`gh pr checkout` などは作業ツリーへの書き込みを sandbox の外で行える。雛形は aidd の skill が使わない `gh extension`・`gh alias`・`gh pr checkout`・`gh repo clone` を `permissions.deny` で拒否している。`Bash(gh *)` を `permissions.allow` に入れたり、`bypassPermissions` モードで動かしたりしない。TLS の失敗は macOS の sandbox (Seatbelt) で起きるもので、Linux では `excludedCommands` から `gh *` を外せる
+   - sandbox の外の `gh` はローカルのどのファイルも読んで送れる (`--body-file`・`gh api -F key=@<file>`)。送り先は GitHub に限らない。`gh api --hostname <ホスト>` で任意のホストに送れ、sandbox の `allowedDomains` はこれを止めない。拡張やエイリアスを使えば任意のコマンドを、`gh pr checkout` などは作業ツリーへの書き込みを sandbox の外で行える。雛形は aidd の skill が使わない `gh extension`・`gh alias`・`gh pr checkout`・`gh repo clone` を `permissions.deny` で拒否している。`Bash(gh *)` を `permissions.allow` に入れたり、`bypassPermissions` モードで動かしたりしない。TLS の失敗は macOS の sandbox (Seatbelt) で起きるもので、Linux では `excludedCommands` から `gh *` を外せる
+   - `gh` の設定も sandbox の外でコマンドを動かす経路になる。`gh config set browser "<コマンド>"` の後に `gh browse` や `--web` 付きの呼び出し (`gh pr view --web` など) を実行すると、`gh` は設定したコマンドを利用者の全権限で実行する (gh 2.103.2 で確認)。`pager`・`editor` の設定も同じ種類の経路になりうる
+   - 雛形の `permissions.deny` はこれらと `gh api --hostname` を塞いでいない。当面は利用側の `permissions.deny` に次を足す。aidd の skill はこれらのサブコマンドとオプションを使わない
+
+     ```json
+     "Bash(gh config set *)",
+     "Bash(gh browse*)",
+     "Bash(gh * --web*)",
+     "Bash(gh * -w*)",
+     "Bash(gh api --hostname*)",
+     "Bash(gh api * --hostname*)",
+     "Bash(gh pr merge*)"
+     ```
+
+     deny は呼び出しの文字列との照合で、`gh` が引数をどう解釈するかとは一致しない (公式の permissions も、引数を絞るパターンは壊れやすいとしている)。上の例に無い書き方 (オプションの順序や綴りを変えた形) では外れる。逆に、`--body` の本文に ` --web` や ` -w` を含む呼び出しも拒否される
+   - 既定ブランチの force 更新・削除は `git push` だけでなく `gh api` (refs の API) でもでき、Contents: write の token では止まらない。既定ブランチを実際に守るのは GitHub 側の設定なので、対象リポジトリで branch protection か ruleset を有効にし、force push の禁止 (Block force pushes)・削除の禁止 (Restrict deletions)・PR とレビューの必須 (Require a pull request before merging) を設定する
    - `excludedCommands` は Claude が送る呼び出しの文字列全体と照合される。次の場合は `gh` でも sandbox の中で動き、macOS では `x509: OSStatus -26276` (TLS) か、`~/.config/gh/config.yml: operation not permitted` (雛形の読み取り拒否) で失敗する
      - `id=$(gh api ...)` のようなコマンド置換、ファイルへのリダイレクト、`cd`、`gh ... | head` のように別のコマンドと繋いだ呼び出し。`gh` だけの呼び出しに分ける
      - Bash のコマンドを書き換える PreToolUse hook を使っている場合、書き換えた後の文字列が `gh` で始まらないと一致しないことがある (例: RTK は `gh issue list` を `rtk gh issue list` に書き換える)。hook の側で `gh` を書き換えの対象から外す
