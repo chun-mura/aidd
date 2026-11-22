@@ -42,6 +42,16 @@ fi
 grep -F -- 'インデックスの前提' "$design_review"
 grep -F -- '件数の上限なく全件を読む経路' "$design_review"
 grep -F -- 'N+1 などクエリの実装で決まることは扱わない' "$design_review"
+# Agent 2 checks concurrent access only when the design shows it, and design-doc asks for the
+# countermeasure in the same section, so the two stay one-to-one (#3).
+grep -F -- '競合・二重実行・破損への対策 (排他、冪等、楽観ロック、原子的な書き込みなど) が書かれているか' "$design_review"
+grep -F -- '同時アクセスが設計書から読み取れない場合は推測で指摘しない' "$design_review"
+grep -F -- '競合・二重実行・破損への対策 (排他、冪等、楽観ロック、原子的な書き込みなど) を書く' "$design_doc"
+# Storing sensitive data goes to Agent 6, not Agent 2, because security stays in one agent (#3).
+grep -F -- '機微情報 (個人情報・プロンプト・認証情報など) をファイル・ログ・キャッシュに保存する場合' "$design_review"
+grep -F -- 'stored in files, logs, or caches that other users or processes may read' "$repo_root/agents/security-reviewer.md"
+grep -F -- 'または機微情報をファイル・ログ・キャッシュに保存する場合は、レビュー結果の最後に実装後の `/security-review`' "$design_review"
+grep -F -- 'or store sensitive data in files, logs, or caches. Launched' "$repo_root/agents/security-reviewer.md"
 grep -F -- '初回を含めて最大3ラウンド' "$review_loop"
 grep -F -- 'deferred mid' "$review_loop"
 grep -F -- '`/aidd:issue-split`' "$review_loop"
