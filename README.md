@@ -72,6 +72,8 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 
      `gh auth setup-git` は使わない。push は sandbox の中で動くので、helper として呼ばれる `gh` が雛形の拒否した `~/.config/gh` を読めずに失敗する。この helper は sandbox の中に `GH_TOKEN` があることを前提にするため、`sandbox.credentials.envVars` で `GH_TOKEN` を deny にしない (deny にすると push が認証できない。代わりに sandbox 内のコマンドも token を読めるので、token の権限は対象リポジトリだけに絞る)
 
+     sandbox の中からは `.git/config` に書けない。`git push -u` は push 自体は通るが、upstream の保存で失敗する。新しいブランチは `git push origin HEAD` のように push 先を毎回指定する
+
 3. **完全な隔離が必要なら aidd-autopilot を使う**: 上の設定は利用者のマシンとアカウントの上での制限にとどまる。コンテナ隔離・egress 許可リスト・fine-grained PAT で skill を動かすなら aidd-autopilot (issue のラベルを契機に、隔離した Docker コンテナで headless の Claude Code を動かす) を使う。
 
 ### Codex CLI (hooks・skills・custom agents)
