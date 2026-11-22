@@ -51,7 +51,8 @@ grep -F -- 'must の観点は全件' "$issue_implement"
 grep -F -- 'コンポーネントごとにコード上の配置 (ディレクトリ・ファイル) を書く' "$design_doc"
 grep -F -- '設計書の「構成と責務」に書かれた配置と照らす' "$issue_implement"
 grep -F -- '責務の集中は行数ではなく、この責務の割り当てで判定する' "$issue_implement"
-grep -F -- '差分の周りの既存の構造を配置とみなす' "$issue_implement"
+grep -F -- 'どのコンポーネントにも割り当てていない責務' "$issue_implement"
+grep -F -- '差分の周りの既存の構造を配置とみなし' "$issue_implement"
 
 # incident-retro picks the first matching tier, so the ADR tier must come before the rule
 # tier (a design decision also reads as a rule with judgment), and deferred work is folded
