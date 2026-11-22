@@ -55,6 +55,10 @@ grep -F -- 'must の観点は全件' "$issue_implement"
 # issue-implement checks the diff against the placement that design-doc writes, so both
 # sides of that contract must stay.
 grep -F -- 'コンポーネントごとにコード上の配置 (ディレクトリ・ファイル) を書く' "$design_doc"
+# design-review Agent 1 checks that placement too, so a design doc that omits it does not
+# pass review and leave issue-implement without a placement to check against (#95).
+grep -F -- 'コンポーネントごとにコード上の配置 (ディレクトリ・ファイル) が書かれているか' "$design_review"
+grep -F -- '既存の構造から外れる配置に理由が書かれているか' "$design_review"
 grep -F -- '設計書の「構成と責務」に書かれた配置と照らす' "$issue_implement"
 grep -F -- '責務の集中は行数ではなく、この責務の割り当てで判定する' "$issue_implement"
 grep -F -- 'どのコンポーネントにも割り当てていない責務' "$issue_implement"
