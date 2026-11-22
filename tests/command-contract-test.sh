@@ -10,6 +10,7 @@ review_loop="$repo_root/skills/review-loop/SKILL.md"
 adr_command="$repo_root/skills/adr/SKILL.md"
 issue_implement="$repo_root/skills/issue-implement/SKILL.md"
 design_doc="$repo_root/skills/design-doc/SKILL.md"
+test_perspectives="$repo_root/skills/test-perspectives/SKILL.md"
 
 grep -F -- '--depth=standard|deep' "$design_review"
 grep -F -- '既定は `--depth=standard`' "$design_review"
@@ -68,6 +69,17 @@ grep -F -- '当てなかった箇所を一覧にして 6 (完了条件) の defe
 grep -F -- '**テストや項目を消すとき**' "$issue_implement"
 grep -F -- '代わりのテスト (または不要とした理由) を完了報告に書く' "$issue_implement"
 grep -F -- '既定のテスト実行から外れたテスト' "$issue_implement"
+# issue-implement section 5 adds the sibling-coverage review that autonomous-review runs, and
+# must not stack it on top of autonomous-review, which already includes it.
+grep -F -- '**横展開のレビュー**: 差分が守りの処理 (認可・所有の確認、入力の検証、ログに出す値の形、例外の扱い) を足す・直す・共通の関数に切り出す' "$issue_implement"
+grep -F -- '同じ形の呼び出し元と兄弟の処理 (同じ種類のエンドポイント・ハンドラ・action) に同じ処理が当たっているか' "$issue_implement"
+grep -F -- 'silent-failure-hunter・/security-review・横展開のレビューは重ねない' "$issue_implement"
+# test-perspectives carries the failure-path, removal and sibling-authz perspectives that
+# issue-implement 4-5 / 4-6 rely on (#92).
+grep -F -- '失敗の分岐では、送出される型だけでなく、その後に起きるべきこと (ロックの解放、残りの要素の処理の続行、部分失敗の後の再実行での回復) を観点にする' "$test_perspectives"
+grep -F -- 'コメントや docstring が「再実行で回復する」「呼び出し元が再試行する」などと主張していれば、その主張そのものを観点にする' "$test_perspectives"
+grep -F -- '項目・挙動を消す・改名する変更では、それを参照する既存テスト (既定の実行から外れた E2E なども含む) と、消すテストが守っていた性質を観点にする' "$test_perspectives"
+grep -F -- '同じ形の既存のエンドポイントにも同じ確認があるかを含む' "$test_perspectives"
 
 # incident-retro picks the first matching tier, so the ADR tier must come before the rule
 # tier (a design decision also reads as a rule with judgment), and deferred work is folded
