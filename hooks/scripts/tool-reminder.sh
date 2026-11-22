@@ -941,6 +941,8 @@ LEDGER_DENY = ("aidd: 知見の台帳 (.aidd/learnings/) のファイルが検�
                "伏せ字にせず該当する記述を書き直してステージし直すか、git restore --staged <file> で外すこと。")
 LEDGER_UNCHECKED = ("aidd: 知見の台帳 (.aidd/learnings/) のファイルを含むコミットだが、検査スクリプト scripts/learnings.py を"
                     "読み込めないため拒否した (検査せずに通さない)。aidd の導入を /aidd:doctor で確かめること。")
+LEDGER_UNLISTED = ("aidd: 知見の台帳 (.aidd/learnings/) のファイルを git で列挙できなかったため git commit を拒否した (検査せずに通さない)。"
+                   "git status で git が動くか、git add / git commit に渡したパスが正しいかを確かめること。")
 LEDGER_FAILED = ("aidd: 知見の台帳 (.aidd/learnings/) の検査が途中で失敗したため git commit を拒否した (検査せずに通さない)。"
                  "git diff --cached --name-only -- .aidd/learnings/ で対象を確かめ、python3 -I <aidd>/scripts/learnings.py check <file> を実行すること。")
 
@@ -956,8 +958,8 @@ def git_bytes(directory, *args):
 
 def ledger_named_files(directory, sub, args):
     """Ledger files that git add / git commit name in this command (not staged yet when PreToolUse
-    runs). git resolves the pathspecs itself, so its globbing and magic apply; a pathspec git
-    rejects resolves to nothing (README lists this layer's limits)."""
+    runs). git resolves the pathspecs itself, so its globbing and magic apply. Returns None when
+    git fails (broken git, or a pathspec git rejects): the caller must not read that as "none"."""
     shorts, longs, positionals = scan(args, *(ADD_OPTIONS if sub == "add" else COMMIT_OPTIONS))
     specs = [p for p in positionals if p != "--"]
     if not specs:
@@ -966,8 +968,9 @@ def ledger_named_files(directory, sub, args):
     if not (sub == "add" and ("f" in shorts or "--force" in longs)):
         command.append("--exclude-standard")
     out = git_bytes(directory, *command, "--", *specs)
-    names = os.fsdecode(out or b"").split("\0")
-    return [n for n in names if n.startswith(LEDGER_DIR + "/")]
+    if out is None:
+        return None
+    return [n for n in os.fsdecode(out).split("\0") if n.startswith(LEDGER_DIR + "/")]
 
 
 def check_ledger(git_calls):
@@ -984,12 +987,22 @@ def check_ledger(git_calls):
         if not any(sub == "commit" for _, sub, _ in calls):
             continue
         entries = []  # (name, where, bytes or None)
+        # A git failure while listing is not "no ledger files": deny instead of passing unchecked.
         staged = git_bytes(top, "diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR", "--", LEDGER_DIR + "/")
-        for name in filter(None, os.fsdecode(staged or b"").split("\0")):
+        if staged is None:
+            add(denials, LEDGER_UNLISTED)
+            continue
+        for name in filter(None, os.fsdecode(staged).split("\0")):
             entries.append((name, "staged", git_bytes(top, "cat-file", "blob", ":" + name)))
         named = set()
         for directory, sub, args in calls:
-            named.update(ledger_named_files(directory, sub, args))
+            found = ledger_named_files(directory, sub, args)
+            if found is None:
+                break
+            named.update(found)
+        if found is None:
+            add(denials, LEDGER_UNLISTED)
+            continue
         for name in sorted(named):
             try:
                 with open(os.path.join(top, name), "rb") as f:

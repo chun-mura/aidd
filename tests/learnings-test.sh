@@ -361,4 +361,61 @@ python3 -I "$script" candidates --repo "$repo" --all > "$tmp_dir/c6" 2>/dev/null
 grep -F '"signature": "git stash"' "$tmp_dir/c6"
 grep -F '"sessions": 1' "$tmp_dir/c6"
 
+# A working-tree observation that fails the check is reported (its session cannot be read);
+# a valid one from another session is left out silently.
+python3 -c '
+import json, sys
+json.dump({"schema_version": 1, "source": "incident-retro", "scope": "tool", "status": "observed",
+           "signature": "git stash", "fact": "Reported by someone@mailhost.zz today.",
+           "evidence": [], "session": "bbbbbbbbbbbb"}, open(sys.argv[1], "w"))
+' "$repo/.aidd/learnings/20261122T000000Z-00000002.json"
+observation 'gh pr view' | python3 -I "$script" add --repo "$repo" --session-id s9 >/dev/null
+python3 -I "$script" candidates --repo "$repo" --session-id s3 > /dev/null 2> "$tmp_dir/c7.err"
+grep -F '1 observation(s) on the working tree fail the check' "$tmp_dir/c7.err"
+grep -F '.aidd/learnings/20261122T000000Z-00000002.json' "$tmp_dir/c7.err"
+[ "$(grep -c '^  ' "$tmp_dir/c7.err")" -eq 2 ]  # the merged bad file and this one, nothing else
+if grep -Fq 'someone' "$tmp_dir/c7.err"; then
+  echo "candidates echoed a rejected value" >&2
+  exit 1
+fi
+
+# A default branch named master is found.
+master_repo="$tmp_dir/master-repo"
+git init -q --template= -b master "$master_repo"
+git -C "$master_repo" config aidd.learnings true
+observation 'git stash' | python3 -I "$script" add --repo "$master_repo" --session-id m1 >/dev/null
+git -C "$master_repo" add .aidd/learnings
+git -C "$master_repo" commit -qm 'docs: ledger'
+python3 -I "$script" candidates --repo "$master_repo" --session-id m2 --signature 'git stash' > "$tmp_dir/m1"
+grep -F '"sessions": 2' "$tmp_dir/m1"
+
+# No default branch, or a default branch that cannot be listed: say so and exit 4 (not 0, not
+# the 3 that means disabled), so merged observations are never silently counted as none.
+trunk_repo="$tmp_dir/trunk-repo"
+git init -q --template= -b trunk "$trunk_repo"
+git -C "$trunk_repo" commit -q --allow-empty -m 'chore: base'
+set +e
+python3 -I "$script" candidates --repo "$trunk_repo" --session-id t1 > "$tmp_dir/t1" 2> "$tmp_dir/t1.err"
+status=$?
+set -e
+[ "$status" -eq 4 ]
+[ ! -s "$tmp_dir/t1" ]
+grep -F 'merged observations could not be counted' "$tmp_dir/t1.err"
+
+fake_bin="$tmp_dir/fake-bin"
+mkdir -p "$fake_bin"
+real_git=$(command -v git)
+cat > "$fake_bin/git" <<EOF
+#!/bin/bash
+for arg in "\$@"; do [ "\$arg" = ls-tree ] && exit 128; done
+exec "$real_git" "\$@"
+EOF
+chmod +x "$fake_bin/git"
+set +e
+PATH="$fake_bin:$PATH" python3 -I "$script" candidates --repo "$master_repo" --session-id m2 > "$tmp_dir/t2" 2> "$tmp_dir/t2.err"
+status=$?
+set -e
+[ "$status" -eq 4 ]
+grep -F 'could not list the ledger on the default branch' "$tmp_dir/t2.err"
+
 echo "learnings-test: ok"

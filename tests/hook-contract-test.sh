@@ -1621,3 +1621,39 @@ if printf '%s\n' "$out" | grep -Fq 'leakyname'; then
 fi
 git -C "$ledger_repo" rm -q --cached .aidd/learnings/leakyname.json
 rm "$ledger_repo/.aidd/learnings/leakyname.json"
+
+# A git failure while listing ledger files is not "no ledger files": a wrapper first on PATH fails
+# only `git diff --cached` (AIDD_FAIL=diff) or only `git ls-files` (AIDD_FAIL=ls-files).
+failing_bin="$tmp_dir/failing-git"
+mkdir -p "$failing_bin"
+real_git=$(command -v git)
+cat > "$failing_bin/git" <<EOF
+#!/bin/bash
+case " \$* " in
+  *" diff --cached "*) [ "\${AIDD_FAIL-}" = diff ] && exit 128 ;;
+  *" ls-files "*) [ "\${AIDD_FAIL-}" = ls-files ] && exit 128 ;;
+esac
+exec "$real_git" "\$@"
+EOF
+chmod +x "$failing_bin/git"
+failing_hook() {  # failing_hook MODE CWD COMMAND
+  local mode=$1
+  shift
+  python3 -c '
+import json, sys
+print(json.dumps({"hook_event_name": "PreToolUse", "cwd": sys.argv[1], "session_id": "s",
+                  "tool_name": "Bash", "tool_input": {"command": sys.argv[2]}}))
+' "$1" "$2" | PATH="$failing_bin:$PATH" AIDD_FAIL="$mode" AIDD_TEST_STATE_DIR="$tmp_dir/aidd" bash "$dispatcher"
+}
+# The wrapper passes everything through when nothing is set to fail.
+[ "$(failing_hook none "$ledger_repo" 'git commit -m x' | decision_of)" = none ]
+out=$(failing_hook diff "$ledger_repo" 'git commit -m x')
+[ "$(printf '%s\n' "$out" | decision_of)" = deny ]
+printf '%s\n' "$out" | grep -F 'git で列挙できなかった'
+out=$(failing_hook ls-files "$ledger_repo" 'git add app.sh && git commit -m x')
+[ "$(printf '%s\n' "$out" | decision_of)" = deny ]
+printf '%s\n' "$out" | grep -F 'git で列挙できなかった'
+# ls-files runs only for named paths: a commit naming nothing is not affected by its failure.
+[ "$(failing_hook ls-files "$ledger_repo" 'git commit -m x' | decision_of)" = none ]
+# Without a commit in the command nothing is listed, so a failing git does not matter.
+[ -z "$(failing_hook diff "$ledger_repo" 'git add app.sh')" ]

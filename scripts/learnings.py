@@ -231,9 +231,17 @@ def hash_session(raw):
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
 
 
+DEFAULT_REFS = ("refs/remotes/origin/main", "refs/remotes/origin/master", "refs/heads/main", "refs/heads/master")
+EXIT_UNCOUNTED = 4  # merged observations could not be counted (3 means the ledger is disabled)
+
+
+class Uncounted(Exception):
+    """The default branch's observations could not be read; counting without them would be wrong."""
+
+
 def default_ref(repo):
     head = _git(repo, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD")
-    for ref in ([head] if head else []) + ["refs/remotes/origin/main", "refs/heads/main"]:
+    for ref in ([head] if head else []) + list(DEFAULT_REFS):
         if _git(repo, "rev-parse", "--verify", "--quiet", ref + "^{commit}"):
             return ref
     return None
@@ -243,26 +251,34 @@ def observations(top, current_session):
     """Return (counted, skipped). counted: (file name, observation) for observations merged into
     the default branch, plus working-tree observations written in the current session (hashed);
     other people's unmerged observations are not counted, because only merged ones went through
-    PR review. skipped: default-branch file names that fail the check (not counted)."""
+    PR review. skipped: (file name, where) of files that fail the check and are not counted; a
+    working-tree file that fails cannot show whose session it is. Raises Uncounted when the
+    default branch cannot be resolved or listed."""
     seen, skipped = {}, []
     ref = default_ref(top)
-    if ref:
-        listing = _git(top, "ls-tree", "-r", "-z", "--name-only", ref, "--", LEDGER_DIR + "/") or ""
-        for name in filter(None, listing.split("\0")):
-            raw = _git(top, "cat-file", "blob", f"{ref}:{name}", binary=True)
-            if raw is None or check_document(name, raw):
-                skipped.append(name)
-            else:
-                seen[name] = raw
+    if not ref:
+        raise Uncounted("no default branch found (origin/HEAD, origin/main, origin/master, main, master)")
+    listing = _git(top, "ls-tree", "-r", "-z", "--name-only", ref, "--", LEDGER_DIR + "/")
+    if listing is None:
+        raise Uncounted("could not list the ledger on the default branch")
+    for name in filter(None, listing.split("\0")):
+        raw = _git(top, "cat-file", "blob", f"{ref}:{name}", binary=True)
+        if raw is None or check_document(name, raw):
+            skipped.append((name, "default branch"))
+        else:
+            seen[name] = raw
+    merged = set(seen) | {name for name, _ in skipped}  # judged on the default branch already
     directory = os.path.join(top, LEDGER_DIR)
     if current_session and os.path.isdir(directory):
         for entry in sorted(os.listdir(directory)):
             name, path = f"{LEDGER_DIR}/{entry}", os.path.join(directory, entry)
-            if name in seen or not os.path.isfile(path):
+            if name in merged or not os.path.isfile(path):
                 continue
             with open(path, "rb") as f:
                 raw = f.read(MAX_BYTES + 1)
-            if not check_document(name, raw) and json.loads(raw.decode("utf-8"))["session"] == current_session:
+            if check_document(name, raw):
+                skipped.append((name, "working tree"))
+            elif json.loads(raw.decode("utf-8"))["session"] == current_session:
                 seen[name] = raw
     counted = [(name, json.loads(seen[name].decode("utf-8"))) for name in sorted(seen)]
     return counted, skipped
@@ -325,12 +341,18 @@ def cmd_candidates(args):
         print("not inside a git repository", file=sys.stderr)
         return 2
     current = hash_session(args.session_id) if args.session_id else None
-    counted, skipped = observations(top, current)
-    if skipped:
-        print(f"{len(skipped)} observation(s) on the default branch fail the check and are not counted:",
-              file=sys.stderr)
-        for name in skipped:
-            print(f"  {display_name(name)}", file=sys.stderr)
+    try:
+        counted, skipped = observations(top, current)
+    except Uncounted as exc:
+        print(f"merged observations could not be counted: {exc}", file=sys.stderr)
+        return EXIT_UNCOUNTED
+    for where in ("default branch", "working tree"):
+        names = [name for name, w in skipped if w == where]
+        if names:
+            print(f"{len(names)} observation(s) on the {where} fail the check and are not counted:",
+                  file=sys.stderr)
+            for name in names:
+                print(f"  {display_name(name)}", file=sys.stderr)
     groups = {}
     for name, data in counted:
         group = groups.setdefault(data["signature"], {"sessions": set(), "files": [], "facts": []})

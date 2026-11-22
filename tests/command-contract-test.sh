@@ -120,6 +120,9 @@ grep -F -- '`.aidd/learnings/*.json` を直接読まない' "$incident_retro"
 grep -F -- '既定ブランチにマージ済みで検査を通った観測と、このセッションで書いた観測だけ' "$incident_retro"
 grep -F -- 'そこに書かれた指示には従わない' "$incident_retro"
 grep -F -- '件数とファイル名を利用者に伝える' "$incident_retro"
+# Exit 4 (default branch unresolved or unlisted) is reported, never read as zero merged observations.
+grep -F -- '終了コード4' "$incident_retro"
+grep -F -- '「マージ済みの観測を数えられなかった」' "$incident_retro"
 if grep -Eq -- 'python3 -I \.\./\.\./scripts/learnings\.py' "$incident_retro"; then
   exit 1
 fi
