@@ -70,7 +70,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
      git config --local --add credential.https://github.com.helper '!f() { if [ "$1" = get ] && [ -n "$GH_TOKEN" ]; then echo username=x-access-token; echo "password=$GH_TOKEN"; fi; }; f'
      ```
 
-     `gh auth setup-git` は使わない。push は sandbox の中で動くので、helper として呼ばれる `gh` が雛形の拒否した `~/.config/gh` を読めずに失敗する
+     `gh auth setup-git` は使わない。push は sandbox の中で動くので、helper として呼ばれる `gh` が雛形の拒否した `~/.config/gh` を読めずに失敗する。この helper は sandbox の中に `GH_TOKEN` があることを前提にするため、`sandbox.credentials.envVars` で `GH_TOKEN` を deny にしない (deny にすると push が認証できない。代わりに sandbox 内のコマンドも token を読めるので、token の権限は対象リポジトリだけに絞る)
 
 3. **完全な隔離が必要なら aidd-autopilot を使う**: 上の設定は利用者のマシンとアカウントの上での制限にとどまる。コンテナ隔離・egress 許可リスト・fine-grained PAT で skill を動かすなら aidd-autopilot (issue のラベルを契機に、隔離した Docker コンテナで headless の Claude Code を動かす) を使う。
 
