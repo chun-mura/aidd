@@ -50,6 +50,8 @@ grep -F -- '競合・二重実行・破損への対策 (排他、冪等、楽観
 # Storing sensitive data goes to Agent 6, not Agent 2, because security stays in one agent (#3).
 grep -F -- '機微情報 (個人情報・プロンプト・認証情報など) をファイル・ログ・キャッシュに保存する場合' "$design_review"
 grep -F -- 'stored in files, logs, or caches that other users or processes may read' "$repo_root/agents/security-reviewer.md"
+grep -F -- 'または機微情報をファイル・ログ・キャッシュに保存する場合は、レビュー結果の最後に実装後の `/security-review`' "$design_review"
+grep -F -- 'or store sensitive data in files, logs, or caches. Launched' "$repo_root/agents/security-reviewer.md"
 grep -F -- '初回を含めて最大3ラウンド' "$review_loop"
 grep -F -- 'deferred mid' "$review_loop"
 grep -F -- '`/aidd:issue-split`' "$review_loop"
