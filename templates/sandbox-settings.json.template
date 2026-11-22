@@ -39,6 +39,14 @@
       "Bash(gh run delete *)",
       "Bash(gh cache delete *)",
       "Bash(gh codespace *)",
+      "Bash(gh config set *)",
+      "Bash(gh browse*)",
+      "Bash(gh * --web*)",
+      "Bash(gh * -w*)",
+      "Bash(gh api --hostname*)",
+      "Bash(gh api * --hostname*)",
+      "Bash(gh pr merge*)",
+      "Bash(gh * pr merge*)",
       "Read(~/.ssh/**)",
       "Read(~/.aws/**)",
       "Read(~/.config/gh/**)",
@@ -46,7 +54,15 @@
       "Read(~/.git-credentials)",
       "Read(~/.config/git/credentials)",
       "Read(~/.npmrc)",
-      "Read(~/.pypirc)"
+      "Read(~/.pypirc)",
+      "Read(~/.docker/config.json)",
+      "Read(~/.kube/config)",
+      "Read(~/.config/gcloud/**)",
+      "Read(~/.azure/**)",
+      "Read(~/.gnupg/**)",
+      "Read(~/.cargo/credentials.toml)",
+      "Read(~/.gem/credentials)",
+      "Read(~/.terraform.d/credentials.tfrc.json)"
     ]
   },
   "sandbox": {
@@ -73,7 +89,15 @@
         { "path": "~/.git-credentials", "mode": "deny" },
         { "path": "~/.config/git/credentials", "mode": "deny" },
         { "path": "~/.npmrc", "mode": "deny" },
-        { "path": "~/.pypirc", "mode": "deny" }
+        { "path": "~/.pypirc", "mode": "deny" },
+        { "path": "~/.docker/config.json", "mode": "deny" },
+        { "path": "~/.kube/config", "mode": "deny" },
+        { "path": "~/.config/gcloud", "mode": "deny" },
+        { "path": "~/.azure", "mode": "deny" },
+        { "path": "~/.gnupg", "mode": "deny" },
+        { "path": "~/.cargo/credentials.toml", "mode": "deny" },
+        { "path": "~/.gem/credentials", "mode": "deny" },
+        { "path": "~/.terraform.d/credentials.tfrc.json", "mode": "deny" }
       ]
     }
   }
