@@ -104,8 +104,45 @@ for status in ("observed", "applied", "declined"):
     expect_pass(f"status {status}", doc(status=status))
 for scope in ("project", "tool", "aidd"):
     expect_pass(f"scope {scope}", doc(scope=scope))
-for source in ("incident-retro", "auto-memory", "autonomous-review"):
+for source in ("incident-retro", "auto-memory"):
     expect_pass(f"source {source}", doc(source=source))
+
+# autonomous-review records the type of a review finding, not a command: the signature is
+# "review <category> <type words>", the scope is project, and evidence holds only SHAs and
+# #numbers (a path would carry file names from the reviewed code).
+REVIEW = doc(source="autonomous-review", scope="project", signature="review error-handling swallowed-exception",
+             fact="A caught exception was logged and dropped, so the caller reported success.",
+             evidence=["1287eb5", "#12"])
+expect_pass("autonomous-review baseline", REVIEW)
+expect_pass("autonomous-review empty evidence", {**REVIEW, "evidence": []})
+for signature in [
+    "review correctness off-by-one",
+    "review security missing-authz-check",
+    "review sibling-coverage check-missing-on-sibling handler",
+    "review test assertion-never-fails",
+    "review performance query-in-loop",
+    "review compatibility removed-public-field",
+    "review maintainability duplicated-logic",
+]:
+    expect_pass(f"autonomous-review signature {signature}", {**REVIEW, "signature": signature})
+for label, rule, changes in [
+    ("command signature", "autonomous-review needs", {"signature": "git stash"}),
+    ("unknown category", "autonomous-review needs", {"signature": "review billing rounding"}),
+    ("no type words", "autonomous-review needs", {"signature": "review security"}),
+    ("flag as type", "autonomous-review needs", {"signature": "review security --strict"}),
+    ("other head", "autonomous-review needs", {"signature": "audit security missing-check"}),
+    ("tool scope", "must be project", {"scope": "tool"}),
+    ("aidd scope", "must be project", {"scope": "aidd"}),
+    ("path evidence", "SHA or #number only", {"evidence": ["#12", "src/app.ts"]}),
+    # The general rules still hold inside an allowed shape.
+    ("random type word", "high-entropy", {"signature": "review security a8f3k2m9x7q1w5e4r6t0"}),
+    ("email in fact", "email address", {"fact": "Reported by someone@mailhost.zz in review."}),
+]:
+    got = errors({**REVIEW, **changes})
+    if not any(rule in e for e in got):
+        failures.append(f"should reject with {rule}: autonomous-review {label}: {got}")
+# The review rules are for autonomous-review only: incident-retro keeps command signatures.
+expect_pass("incident-retro keeps tool scope and paths", doc(scope="tool", evidence=["src/app.ts"]))
 
 # Each pattern must reject on its own: the reason names that pattern's rule, so a case that a
 # neighbouring pattern also catches still fails when its own pattern breaks.
@@ -388,6 +425,21 @@ git -C "$master_repo" add .aidd/learnings
 git -C "$master_repo" commit -qm 'docs: ledger'
 python3 -I "$script" candidates --repo "$master_repo" --session-id m2 --signature 'git stash' > "$tmp_dir/m1"
 grep -F '"sessions": 2' "$tmp_dir/m1"
+
+# autonomous-review writes a finding type through the same add, and it is counted the same way.
+python3 -c '
+import json
+print(json.dumps({"source": "autonomous-review", "scope": "project", "status": "applied",
+                  "signature": "review error-handling swallowed-exception",
+                  "fact": "A caught exception was logged and dropped.", "evidence": ["#3"]}))
+' | python3 -I "$script" add --repo "$master_repo" --session-id m3 > "$tmp_dir/m3"
+grep -Eq '^\.aidd/learnings/[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}\.json$' "$tmp_dir/m3"
+git -C "$master_repo" add .aidd/learnings
+git -C "$master_repo" commit -qm 'docs: review ledger'
+python3 -I "$script" candidates --repo "$master_repo" --session-id m4 \
+  --signature 'review error-handling swallowed-exception' > "$tmp_dir/m4"
+grep -F '"signature": "review error-handling swallowed-exception"' "$tmp_dir/m4"
+grep -F '"sessions": 2' "$tmp_dir/m4"
 
 # No default branch, or a default branch that cannot be listed: say so and exit 4 (not 0, not
 # the 3 that means disabled), so merged observations are never silently counted as none.

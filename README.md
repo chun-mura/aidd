@@ -178,12 +178,12 @@ Claude Code に入れた aidd と、この Cursor 用プラグインは併用し
 | `docs/test-perspectives/` | `/aidd:test-perspectives` の出力先。hook が6時間以内の更新有無を見る |
 | `.aidd/design-perspectives.md` | `/aidd:design-review` のプロジェクト固有観点 (任意)。`cp templates/design-perspectives.md.template .aidd/design-perspectives.md` で可観測性・ドメイン固有の観点から始められる |
 | `.aidd/issue-priority.md` | issue-priority スキルの優先度ラベル名・段数 (並べた順で上位から下位)・追加の軸 (任意)。無ければ既定の `priority:P0`〜`P3` |
-| `.aidd/learnings/<YYYYMMDDTHHMMSSZ>-<16進8桁>.json` | 知見の台帳 (任意、**既定で無効**)。`/aidd:incident-retro` が事故の観測と、Claude Code の auto memory の feedback から取り込んだ観測 (`source: auto-memory`) を1観測1ファイルで書き、同じ `signature` が別のセッションで2回以上あれば昇格候補として示す (2回ルールをチームで数える。数えるのは既定ブランチにマージ済みの観測と今回のセッションで書いた観測だけ)。コミットして PR で共有する。clone ごとに `git config aidd.learnings true` で有効にする (`.git/config` に入るのでコミットされず、fork にも引き継がれない)。項目 (`schema_version` 1、すべて必須、ほかのキーは拒否): `schema_version`・`source` (`incident-retro` / `auto-memory` / `autonomous-review`)・`scope` (`project` / `tool` / `aidd`)・`status` (`observed` / `applied` / `declined`)・`signature` (コマンド名・ツール名とサブコマンド・フラグだけ)・`fact` (200字以内の事実。唯一の自由記述)・`evidence` (コミット SHA・`#番号`・リポジトリ相対パスだけ)・`session` (セッション ID の SHA-256 の先頭12桁)。作成者名は持たない |
+| `.aidd/learnings/<YYYYMMDDTHHMMSSZ>-<16進8桁>.json` | 知見の台帳 (任意、**既定で無効**)。`/aidd:incident-retro` が事故の観測と、Claude Code の auto memory の feedback から取り込んだ観測 (`source: auto-memory`) を、`/aidd:autonomous-review` が confirmed・deferred の指摘の型を1観測1ファイルで書き、同じ `signature` が別のセッションで2回以上あれば昇格候補として示す (2回ルールをチームで数える。数えるのは既定ブランチにマージ済みの観測と今回のセッションで書いた観測だけ)。コミットして PR で共有する。clone ごとに `git config aidd.learnings true` で有効にする (`.git/config` に入るのでコミットされず、fork にも引き継がれない)。項目 (`schema_version` 1、すべて必須、ほかのキーは拒否): `schema_version`・`source` (`incident-retro` / `auto-memory` / `autonomous-review`)・`scope` (`project` / `tool` / `aidd`)・`status` (`observed` / `applied` / `declined`)・`signature` (コマンド名・ツール名とサブコマンド・フラグだけ。`autonomous-review` は `review <category> <type words>` で、`scope` は `project`、`evidence` は SHA と `#番号` だけ)・`fact` (200字以内の事実。唯一の自由記述)・`evidence` (コミット SHA・`#番号`・リポジトリ相対パスだけ)・`session` (セッション ID の SHA-256 の先頭12桁)。作成者名は持たない |
 
 **知見の台帳に機密を入れない4層** (詳細は `docs/superpowers/specs/2026-11-22-learnings-ledger-design.md`):
 
 1. 項目の制限 (上の表)
-2. 書く時点の検査: incident-retro は `scripts/learnings.py add` を通してだけ書く。NFKC で正規化したうえで、スキーマと、絶対パス・メール・URL・IP・FQDN・token の接頭辞・高エントロピー文字列・UUID・長い16進・会社名の手がかり (`株式会社`・`Inc.` など) の正規表現にかけ、制御文字・書式文字 (ゼロ幅・双方向制御)・行や段落の区切り文字を含むものも含めて、該当すれば伏せ字にせず拒否する
+2. 書く時点の検査: incident-retro と autonomous-review は `scripts/learnings.py add` を通してだけ書く。NFKC で正規化したうえで、スキーマと、絶対パス・メール・URL・IP・FQDN・token の接頭辞・高エントロピー文字列・UUID・長い16進・会社名の手がかり (`株式会社`・`Inc.` など) の正規表現にかけ、制御文字・書式文字 (ゼロ幅・双方向制御)・行や段落の区切り文字を含むものも含めて、該当すれば伏せ字にせず拒否する
 3. コミット時の検査 (`tool-reminder.sh`): **よくある形での不注意を防ぐ層**で、すべてのコミットを止めるものではない。Claude Code が実行する `git commit` の前に、ステージ済みの台帳ファイルと、同じコマンドの `git add` / `git commit` が名指しした台帳ファイル (pathspec は git 自身に解決させる) の両方の版を同じ検査にかけ、通らなければ拒否する (有効化の有無に関係なく動く)。次の経路では効かない、または効くとは限らない:
    - git が解決できない、またはこの層が読み取れない pathspec の書き方と `--pathspec-from-file`
    - git のエイリアス (`git -c alias.*` を含む)、`GIT_INDEX_FILE`、`--git-dir` / `--work-tree`、`bash -c` などコマンドを文字列で渡す形
@@ -217,7 +217,7 @@ jobs:
 
 あわせて gitleaks などの秘密検出も CI で動かす (雛形は未提供)。
 
-**顧客案件・NDA の対象のリポジトリ**では、台帳を有効にする前に情報管理の責任者の確認を取る。台帳の中身 (`fact` など) は、incident-retro の実行時に生成 AI に入力される。
+**顧客案件・NDA の対象のリポジトリ**では、台帳を有効にする前に情報管理の責任者の確認を取る。台帳の中身 (`fact` など) は、incident-retro と autonomous-review の実行時に生成 AI に入力される。
 
 ## インデックス
 
@@ -227,7 +227,7 @@ jobs:
 |---|---|---|---|---|
 | `design-review/` | 設計や実装方針を多観点レビュー。既定の `--depth=standard` は必要時だけ refuter / arbiter を起動し、反証済み指摘を直接報告する。`--depth=deep` は品質重視の完全経路。再レビューでは `--review-delta=<変更範囲>` で差分と周辺文脈に絞る。`--verify-sources` で外部情報源検証を追加。信頼境界を跨ぐ設計では security-reviewer (STRIDE) を条件起動 (`--security` / `--no-security` で強制・抑止)。構造の観点でコンポーネントごとのコード上の配置の記載と、既存の構造から外れる理由も見る。永続化を含む設計では、スキーマを緩める選択 (JSON 型など) の理由と代替案、検索条件のインデックスの前提、上限の無い全件ロードも見る。同時に読み書きされる状態が設計書から読み取れる場合は、競合・二重実行・破損への対策を見る。機微情報をファイル・ログ・キャッシュに保存する設計でも security-reviewer を起動する | `/aidd:design-review` | `$aidd:design-review` | `/design-review` |
 | `eval/` | design-review パイプラインの精度測定。`tests/eval/` のゴールデンセット (シード欠陥入り設計書 + 正解キー) にレビューを実行し、検出率・反証誤棄却・偽指摘の棄却率・デコイ誤検出・ノイズ率・総トークン等を採点して `tests/eval/results/` に記録する (aidd リポジトリ自身で実行) | `/aidd:eval` | `$aidd:eval` | `/eval` |
-| `autonomous-review/` | ローカル差分または `--base` / `--head` で指定した2ブランチ間の差分を、既定の Codex read-only 異種AIレビュー（`--reviewer claude` で同一モデル自己レビュー）、差分の性質に応じた観点別レビュー (エラーハンドリング / セキュリティ / 横展開) の条件付き追加、現物反証、品質ゲート、リスク判定で最大3ラウンド検査し、`deferred` は追跡先 (issue 番号 or `review-dismissed.md`) の確定を終了条件にし、ロジックを変えた場合は `report.md` に観点とテストの対応表を書き、自動マージ可否だけを判定する。未指定の `--base` / `--head` / `--reviewer` は AskUserQuestion で決める。`--reviewer claude` 時は最終判定が常に `human_required`。push・PR作成・マージは行わない。Claude Code ではモデルも起動できるが、起動の前に `skill-gate.sh` が必ずユーザーに許可を求める (Codex は手で起動したときだけ、Cursor はモデルの起動を拒否する) | `/aidd:autonomous-review` | `$aidd:autonomous-review` | `/autonomous-review` |
+| `autonomous-review/` | ローカル差分または `--base` / `--head` で指定した2ブランチ間の差分を、既定の Codex read-only 異種AIレビュー（`--reviewer claude` で同一モデル自己レビュー）、差分の性質に応じた観点別レビュー (エラーハンドリング / セキュリティ / 横展開) の条件付き追加、現物反証、品質ゲート、リスク判定で最大3ラウンド検査し、`deferred` は追跡先 (issue 番号 or `review-dismissed.md`) の確定を終了条件にし、ロジックを変えた場合は `report.md` に観点とテストの対応表を書き、自動マージ可否だけを判定する。知見の台帳 (既定で無効) を有効にしたリポジトリでは、最終判定のあと、利用者の承認を得た指摘の型 (`review <category> <type words>`) を台帳に書き、別のセッションで2回以上出た型を `.aidd/design-perspectives.md` への昇格候補として示す (判定は変えない)。未指定の `--base` / `--head` / `--reviewer` は AskUserQuestion で決める。`--reviewer claude` 時は最終判定が常に `human_required`。push・PR作成・マージは行わない。Claude Code ではモデルも起動できるが、起動の前に `skill-gate.sh` が必ずユーザーに許可を求める (Codex は手で起動したときだけ、Cursor はモデルの起動を拒否する) | `/aidd:autonomous-review` | `$aidd:autonomous-review` | `/autonomous-review` |
 | `issue-split/` | 設計を独立マージ可能なPR単位 (縦切り・5ファイル以内目安) に分割し、承認後に GitHub issue 化 (作成前に `gh issue list --search` で重複を確認。元の issue が引数か設計書で明示されていれば、新規作成分をそのサブ issue に登録。分割案の依存を blocked by として登録し、読み直して確認)。design-doc が規模超過を検知すると提案 | `/aidd:issue-split` | `$aidd:issue-split` | `/issue-split` |
 | `issue-select/` | open issue から今着手できる分を選ぶ。進行中の作業 (未 push の実装済みブランチを含む) を先に見て、本文の冒頭と決定済み ADR を確かめ、open のサブ issue を持つ親を子に置き換え、open の issue に blocked by されているものを外し、人の手続きが要るもの・衝突する組み合わせ (同じ画面・共有部品・同じモデル・同じテストファイルの新規作成・マイグレーション・ADR 採番) を外す。ラベルは絞り込みと、付いている優先度ラベルでの並べ替えにだけ使い、優先度の基準は持たない (判定と付与は `aidd:issue-priority` skill の役割)。提案で止める | `/aidd:issue-select` | `$aidd:issue-select` | `/issue-select` |
 | `retro/` | aidd 資産の棚卸し。利用実績・hooks/skills の摩擦・陳腐化を洗い出す (対象は aidd 自身の資産のみ) | `/aidd:retro` | `$aidd:retro` | `/retro` |
