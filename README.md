@@ -36,7 +36,7 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 
 ### ローカルで権限を絞って使う (Claude Code)
 
-`/aidd:issue-implement` などをローカルで動かすと、エージェントは利用者の権限で Bash と `gh` を実行する。次の3つで書き込み範囲・通信先・GitHub の権限を絞る。
+`/aidd:issue-implement` などをローカルで動かすと、エージェントは利用者の権限で Bash と `gh` を実行する。次の4つで書き込み範囲・通信先・GitHub の権限を絞り、既定ブランチを守る。
 
 1. **sandbox を有効にする**: `templates/sandbox-settings.json.template` の内容を利用プロジェクトの `.claude/settings.json` (自分だけなら `.claude/settings.local.json`) にマージする。効いているかは、Claude に `touch ~/sandbox-probe` を実行させて 失敗する (macOS は `Operation not permitted`、Linux・WSL2 は `Read-only file system`) ことで確かめる (公式の確認手順。`!` から自分で打つと sandbox の外で動くので確認にならない)。
    - Bash の書き込みは作業ディレクトリと `$TMPDIR` に限られる (sandbox の既定)。`Write` / `Edit` も `permissions.blockWritesOutsideWorkingDirectories` で作業ディレクトリの外を拒否する (Claude Code v2.1.314 以降)
@@ -45,26 +45,15 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
      - コマンドごとに `$TMPDIR` の下を使う (`npm --cache "$TMPDIR/npm-cache" ...`、`PIP_CACHE_DIR="$TMPDIR/pip-cache" pip ...`): 共有のキャッシュに触れないが、セッションをまたいで再利用されない
      - `sandbox.filesystem.allowWrite` に `~/.npm` などを足す: キャッシュが残るが、sandbox 内のコマンドがほかのプロジェクトと共有するキャッシュを書き換えられるようになる
    - macOS では、OS の証明書ストアで TLS を検証する pip (truststore) が sandbox 内で `OSStatus -26276` で失敗することがある。`PIP_USE_DEPRECATED=legacy-certs` を付けると pip 同梱の証明書で検証する
-   - `~/.ssh`・`~/.aws`・`~/.config/gh`・`~/.netrc`・git の credential store (`~/.git-credentials`・`~/.config/git/credentials`) は sandbox 内のコマンドから読めない。認証情報の既定の拒否リストは無いので、ほかの認証情報のパスは利用側で足す。SSH の鍵が読めないため、git の remote は HTTPS にし、push の認証は手順2の credential helper で `GH_TOKEN` から渡す (macOS では、継承した `osxkeychain` の helper が sandbox 内で使えず、push が失敗することがある)
+   - `~/.ssh`・`~/.aws`・`~/.config/gh`・`~/.netrc`・git の credential store (`~/.git-credentials`・`~/.config/git/credentials`)・npm と PyPI の token を置く `~/.npmrc`・`~/.pypirc`・docker / kubectl / gcloud / Azure CLI / GnuPG / cargo / gem / Terraform の認証情報 (`~/.docker/config.json`・`~/.kube/config`・`~/.config/gcloud`・`~/.azure`・`~/.gnupg`・`~/.cargo/credentials.toml`・`~/.gem/credentials`・`~/.terraform.d/credentials.tfrc.json`) は sandbox 内のコマンドから読めない。認証情報の既定の拒否リストは無いので、ほかの認証情報のパスは利用側で足す。設定と token が同じファイルに入る `~/.yarnrc.yml`・`~/.m2/settings.xml`・`~/.gradle/gradle.properties` は、拒否すると通常のビルドが設定を読めずに壊れうるので雛形に入れていない。token を書いているなら、ビルドが動くことを確かめてから足す候補にする。`~/.gnupg` を拒否すると sandbox 内の `git commit -S` (署名つきコミット) が鍵を読めずに失敗する。署名する場合はその行を外す。SSH の鍵が読めないため、git の remote は HTTPS にし、push の認証は手順2の credential helper で `GH_TOKEN` から渡す (macOS では、継承した `osxkeychain` の helper が sandbox 内で使えず、push が失敗することがある)
+   - `~/.npmrc`・`~/.pypirc` を拒否すると、そこに書いた設定 (非公開レジストリの URL と token、proxy など) を npm・pip・twine が読めなくなる。非公開レジストリを sandbox 内で使う場合は、そのファイルの行を `sandbox.credentials.files` と `permissions.deny` の両方から外し、token はそのレジストリだけに届く読み取り専用のものにする。公開レジストリの `npm install` / `pip install` が、`~/.npmrc` が存在して読めない状態で動くかは未確認 (`~/.pypirc` が読めない状態での `pip download` は動いた。`~/.npmrc` が無い環境でしか試していない)。初回に実機で確かめる
    - sandbox が使えない環境では起動を止め (`failIfUnavailable`)、エージェントによる sandbox の外での再実行を許さない (`allowUnsandboxedCommands: false`)。sandbox の外で動かす必要があるコマンドは `excludedCommands` に足す。足したコマンドは利用者の全権限で動く
    - sandbox がかかるのは Bash のコマンドだけ。`Read` ツールには効かないので、雛形は同じ認証情報のパスを `permissions.deny` の `Read(...)` でも拒否している。ほかに `Read` ツールで読ませたくないファイルも `permissions.deny` に書く
 2. **`gh` には対象リポジトリだけの fine-grained PAT を渡す**: macOS では `gh` が sandbox 内で TLS の検証に失敗しうるため、雛形は `gh *` を `excludedCommands` に入れ、`gh` を sandbox の外で動かす。`gh` の権限は token で絞る。
-   - sandbox の外の `gh` はローカルのどのファイルも読んで送れる (`--body-file`・`gh api -F key=@<file>`)。送り先は GitHub に限らない。`gh api --hostname <ホスト>` で任意のホストに送れ、sandbox の `allowedDomains` はこれを止めない。拡張やエイリアスを使えば任意のコマンドを、`gh pr checkout` などは作業ツリーへの書き込みを sandbox の外で行える。雛形は aidd の skill が使わない `gh extension`・`gh alias`・`gh pr checkout`・`gh repo clone` を `permissions.deny` で拒否している。`Bash(gh *)` を `permissions.allow` に入れたり、`bypassPermissions` モードで動かしたりしない。TLS の失敗は macOS の sandbox (Seatbelt) で起きるもので、Linux では `excludedCommands` から `gh *` を外せる
-   - `gh` の設定も sandbox の外でコマンドを動かす経路になる。`gh config set browser "<コマンド>"` の後に `gh browse` や `--web` 付きの呼び出し (`gh pr view --web` など) を実行すると、`gh` は設定したコマンドを利用者の全権限で実行する (gh 2.103.2 で確認)。`pager`・`editor` の設定も同じ種類の経路になりうる
-   - 雛形の `permissions.deny` はこれらと `gh api --hostname` を塞いでいない。当面は利用側の `permissions.deny` に次を足す。aidd の skill はこれらのサブコマンドとオプションを使わない
-
-     ```json
-     "Bash(gh config set *)",
-     "Bash(gh browse*)",
-     "Bash(gh * --web*)",
-     "Bash(gh * -w*)",
-     "Bash(gh api --hostname*)",
-     "Bash(gh api * --hostname*)",
-     "Bash(gh pr merge*)"
-     ```
-
-     deny は呼び出しの文字列との照合で、`gh` が引数をどう解釈するかとは一致しない (公式の permissions も、引数を絞るパターンは壊れやすいとしている)。上の例に無い書き方 (オプションの順序や綴りを変えた形) では外れる。逆に、`--body` の本文に ` --web` や ` -w` を含む呼び出しも拒否される
-   - 既定ブランチの force 更新・削除は `git push` だけでなく `gh api` (refs の API) でもでき、Contents: write の token では止まらない。既定ブランチを実際に守るのは GitHub 側の設定なので、対象リポジトリで branch protection か ruleset を有効にし、force push の禁止 (Block force pushes)・削除の禁止 (Restrict deletions)・PR とレビューの必須 (Require a pull request before merging) を設定する
+   - sandbox の外の `gh` はローカルのどのファイルも読んで、GitHub に限らず任意のホストに送れる (`--body-file`・`gh api -F key=@<file>`、`gh api --hostname <host>`、`gh api https://<host>/...` のような完全な URL、環境変数 `GH_HOST` で送り先を変える)。sandbox の `allowedDomains` はこれを止めない。逆に、ローカルの任意のファイルに書き込める (`gh release download -O <path> --clobber`・`gh run download` など)。シェルの設定ファイルや Claude Code の設定を書き換えれば、次の起動でコードが動く。gh を sandbox の中に戻す対応を別の issue で進めている。拡張やエイリアスを使えば任意のコマンドを、`gh pr checkout` などは作業ツリーへの書き込みを sandbox の外で行える。
+   - `gh` の設定も sandbox の外でコマンドを動かす経路になる。`gh config set browser "<コマンド>"` の後に `gh browse` や `--web` 付きの呼び出し (`gh pr view --web` など) を実行すると、`gh` は設定したコマンドを利用者の全権限で実行する (gh 2.103.2 で確認)。`pager`・`editor` の設定と、環境変数 (`GH_BROWSER`・`BROWSER`・`GH_PAGER`・`PAGER`・`GH_EDITOR`・`EDITOR`・`VISUAL`) も同じ種類の経路になりうる
+   - 雛形は aidd の skill が使わない `gh extension`・`gh alias`・`gh pr checkout`・`gh repo clone` を `permissions.deny` で拒否している。あわせて、token を表示するもの (`gh auth token`)、認証の範囲や git の helper を変えるもの (`gh auth refresh`・`gh auth setup-git`)、リポジトリを消す・設定を変えるもの (`gh repo delete`・`archive`・`rename`・`edit`・`deploy-key`)、Actions の secret・変数や鍵を扱うもの (`gh secret`・`gh variable`・`gh ssh-key`・`gh gpg-key`)、消すもの (`gh run delete`・`gh cache delete`)、ファイルを書く・外へ出すもの (`gh release` 全体・`gh run download`・`gh gist`)、codespace で任意のコマンドを動かすもの (`gh codespace`)、ブラウザなどの外部コマンドを動かすもの (`gh config set`・`gh browse`・`--web` / `-w`)、GitHub 以外のホストへ送るもの (`gh api --hostname`・`gh api http...`)、PR をマージするもの (`gh pr merge`。aidd の skill はマージしない) も拒否している。`-w` は `gh run list` では `--workflow` の短縮形なので、`gh run list -w <workflow>` も拒否される (`--workflow` と書けば通る)。`--web` / `-w` の拒否は文字列全体との照合なので、`gh issue create --body "grep -w ..."` のように本文に ` -w` や ` --web` を含む呼び出しも拒否される。同じ理由で、`gh * release *`・`gh * browse*` は本文に ` release ` や ` browse` を含む呼び出しを、`gh api * http*` は値に URL を含む `gh api` を拒否する。その場合は本文を `--body-file` で渡す。これらの deny は gh を sandbox の中に戻すまでの当面の対策で、書き方を変えれば外れる。
+   - skill が使う issue・pr の create / view / list / edit / comment、`gh api`、`gh label list`、`gh repo view`、`gh auth status` は塞がない。`gh api` は skill が使うので塞がず、`gh api -X DELETE repos/<owner>/<repo>` のように API を直接呼べば上の拒否と同じ操作ができる。これを止めるのは token の権限だけなので、token には下の権限しか付けない。拒否は呼び出しの文字列との照合で、`gh` が引数をどう解釈するかとは一致しない (公式の permissions も、引数を絞るパターンは壊れやすいとしている)。オプションの順序や綴りを変えた形 (`gh -R <owner>/<repo> secret list` のようにサブコマンドの前にオプションを置いた形など) や、`gh api --hostname` の代わりに `GH_HOST=<host> gh api ...` と書いた形 (deny は先頭の変数代入を外して照合するので、変数そのものは止められない) は一致しない (公式の「What a Bash rule doesn't match」)。deny はうっかり使うのを防ぐ層にとどまる。操作を限るのは token の権限と GitHub 側の ruleset で、送り先のホストを限る手段は、gh を sandbox の外で動かすこの構成には無い。既定ブランチの force 更新・削除は `git push` だけでなく `gh api` (refs の API) でもでき、Contents: write の token では止まらないので、手順3の ruleset を必ず有効にする。`excludedCommands` を skill が使うサブコマンドだけに絞ることはしない: 絞りすぎると skill が止まって利用者が除外を広げ直しやすく、照合が文字列全体なので RTK のような書き換え hook と合わせると外れやすいため、危険なサブコマンドを deny に足す形にしている。`Bash(gh *)` を `permissions.allow` に入れたり、`bypassPermissions` モードで動かしたりしない。TLS の失敗は macOS の sandbox (Seatbelt) で起きるもので、Linux では `excludedCommands` から `gh *` を外せる
    - `excludedCommands` は Claude が送る呼び出しの文字列全体と照合される。次の場合は `gh` でも sandbox の中で動き、macOS では `x509: OSStatus -26276` (TLS) か、`~/.config/gh/config.yml: operation not permitted` (雛形の読み取り拒否) で失敗する
      - `id=$(gh api ...)` のようなコマンド置換、ファイルへのリダイレクト、`cd`、`gh ... | head` のように別のコマンドと繋いだ呼び出し。`gh` だけの呼び出しに分ける
      - Bash のコマンドを書き換える PreToolUse hook を使っている場合、書き換えた後の文字列が `gh` で始まらないと一致しないことがある (例: RTK は `gh issue list` を `rtk gh issue list` に書き換える)。hook の側で `gh` を書き換えの対象から外す
@@ -89,7 +78,55 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 
      sandbox の中からは `.git/config` に書けない。`git push -u` は push 自体は通るが、upstream の保存で失敗する。新しいブランチは `git push origin HEAD` のように push 先を毎回指定する
 
-3. **完全な隔離が必要なら aidd-autopilot を使う**: 上の設定は利用者のマシンとアカウントの上での制限にとどまる。コンテナ隔離・egress 許可リスト・fine-grained PAT で skill を動かすなら aidd-autopilot (issue のラベルを契機に、隔離した Docker コンテナで headless の Claude Code を動かす) を使う。
+   - **雛形をチームでコミットするとき**: `.claude/settings.json` に入れた sandbox と拒否はクローンした全員に効くが、`GH_TOKEN` は各自のシェルの環境変数なので届かない。`GH_TOKEN` を渡さずに起動したメンバーの `gh` は、`gh auth login` で保存した本人の全権限の認証で、sandbox の外で動く。コミットと同時に、次の2点をチームに知らせる (README・PR 本文・チームの手順書など、メンバーが起動前に読む場所に書く)
+     - 起動前に対象リポジトリだけの fine-grained PAT を作り、上の `read -rs GH_TOKEN ...` の形で `GH_TOKEN` に入れて起動する
+     - `claude` を起動する前に、同じシェルで `gh auth status` を実行し、出力に `(GH_TOKEN)` と出ることを確かめる。出なければ `gh` は保存済みの認証で動くので、`GH_TOKEN` を入れ直してから起動する
+
+3. **対象リポジトリの既定ブランチに ruleset をかける**: 既定ブランチを実際に守るのは GitHub 側の branch protection / ruleset で、hook と雛形はミスを防ぐ層にとどまる。push 権限 (Contents: write) のある token なら、`gh api -X PATCH` / `-X DELETE` で `repos/<owner>/<repo>/git/refs/heads/<既定>` を直接書き換えたり消したりでき、hook も deny も文字列の書き方を変えれば外れる。リポジトリの Settings > Rules > Rulesets で New branch ruleset を作り、Enforcement status を Active、Target branches に既定ブランチを入れ、Branch protections の「Restrict deletions」「Block force pushes」「Require a pull request before merging」を有効にする。「Require a pull request before merging」の中で「Required approvals」を 1 以上にし、「Require approval of the most recent reviewable push」を有効にする (承認の後に積んだコミットを、別の人の承認なしにマージさせない)。承認を必須にすると、自分の PR を自分では承認できないので、1人で開発するリポジトリでは PR をマージできなくなる。その場合は承認を求めず、force push と削除の禁止だけをかける (このとき `gh pr merge` は ruleset では止まらない) (公式: GitHub Docs「Creating rulesets for a repository」「Available rules for rulesets」)。利用できるプランとリポジトリの種類は「About rulesets」で確かめる。ruleset を迂回できる bypass list に、エージェントに渡す token の持ち主を入れない
+
+4. **完全な隔離が必要なら aidd-autopilot を使う**: 上の設定は利用者のマシンとアカウントの上での制限にとどまる。コンテナ隔離・egress 許可リスト・fine-grained PAT で skill を動かすなら aidd-autopilot (issue のラベルを契機に、隔離した Docker コンテナで headless の Claude Code を動かす) を使う。
+
+#### 破壊的な操作をどこで止めるか
+
+既定ブランチを実際に守るのは GitHub 側の ruleset (上の手順3) で、これを必須にする。そのうえで、他人の作業を確実に失う操作は aidd の hook (`tool-reminder.sh`) で拒否し、環境によって許容度が違う操作は雛形の `permissions.ask` で確認を出す。hook と雛形はエージェントのミスを手元で止める層で、書き方を変えた呼び出しや `gh api` による ref の直接の書き換えは止められない。hook は aidd を入れれば雛形を使わなくても効き、`ask` は利用側で外せる。
+
+| 操作 | どこで止めるか | 理由・範囲 |
+|------|--------------|-----------|
+| 既定ブランチの force 更新・削除 (手段を問わず。`gh api` による ref の書き換え、`gh pr merge` を含む) | GitHub の ruleset (必須) | push 権限のある token ならどの経路でもできるので、サーバー側で止める。`gh pr merge` を ruleset で止められるのは「Required approvals」を 1 以上にした場合に限る。雛形は `gh pr merge` も deny に入れている |
+| 既定ブランチへの force push (`--force`・`-f`・`--force-with-lease`・`+<refspec>`・`--mirror`・`--force --all`・`+:`・`heads/<既定>` のような短い書き方・`--force-w` のような省略形。refspec を省いた場合は `remote.<name>.push` と `push.default` で決まる送り先が既定ブランチなら) | hook で拒否 | 既定ブランチの上に積んだほかの人の作業を失う。既定ブランチは、push 先のリモート (無ければ `origin`) の `HEAD` が指すブランチ (`refs/remotes/<remote>/<branch>` が実在する場合だけ) と、常に `main`・`master`。そのため fork など別のリモートの `main` / `master` への force push も拒否する。送り先 (remote か refspec) に `$`・バッククォートを含む force / delete / prune の push は、展開後の値を判定できないので拒否する。`-n` / `--dry-run` は止めない |
+| 既定ブランチのリモート削除 (`git push --delete <既定>`・`git push <remote> :<既定>`・ローカルに無い既定ブランチを消す `--prune`) | hook で拒否 | 同上 |
+| 作業ブランチへの force push | 雛形の `ask` で確認 (hook は止めない) | rebase 後の push など正当な用途がある。雛形の `Bash(git push --force*)`・`Bash(git push -f*)`・`Bash(git push * +*)` などが既定ブランチ以外の force push にも確認を出す |
+| `rm -rf` (と `rm -fr`・`rm -Rf`・`rm -r`・`rm --recursive` など) | 雛形の `ask` で確認 | ビルド成果物の削除など正当な用途が多い。sandbox 内の Bash は作業ディレクトリと `$TMPDIR` の外に書けないので、消せる範囲もそこに限られる |
+| `git branch -D` | 雛形の `ask` で確認 | マージ済みでないブランチのコミットを失いうるが、ローカルの reflog に残り、不要なブランチの整理にも使う |
+| 未コミットの作業を失う git 操作 (`reset --hard`・`stash`・`clean` など) と指名しないステージ | hook で拒否 (既存) | 上の Hooks の表を参照 |
+| DB の drop・truncate、本番環境へのコマンド | 利用側の `permissions.deny` / `ask` (雛形には入れない) | CLI と接続先の指定方法がプロジェクトごとに違う。下の例を自分の CLI に合わせて書く |
+| それ以外 (`git push` の通常の push、`git reset --soft` など) | 止めない | 作業を失わない、または取り戻せる |
+
+`permissions.ask` に当たると、bypassPermissions モードと auto モードでも確認が出る。headless (`-p`) と `dontAsk` モードでは確認できないので拒否になる。`ask` と `deny` は呼び出しの文字列との照合なので、オプションの書き方や順序を変えた形 (`rm -v -rf`、`git branch --delete --force`)、`git -C . push`、`bash -c '...'` には当たらない (公式の「What a Bash rule doesn't match」)。既定ブランチへの force push は hook が `git -C`・`cd`・ラッパーを見分けて拒否する。ただし hook もコマンドの文字列と git の設定から判定するので、`bash -c '...'`・`sh -c '...'`・`sudo`・`xargs` など登録していないラッパー (`AIDD_COMMAND_WRAPPERS` で足せる。Claude Code が permission の照合の前に外す `timeout`・`time`・`nice`・`nohup`・`stdbuf` は既定で外す)・git のエイリアス・オプション自体を変数で渡した形 (`git push $FLAGS origin main`)・refspec 全体を変数で渡した形 (`git push origin "$BRANCH"` で値が `+main` の場合。force の指定が無い `$` の push は、正当な push を止めないため拒否しない)・`eval` やバッククォートの中のコマンド (`eval "git push -f origin main"`)・`git -c` や `GIT_DIR` で渡した設定・既定ブランチを取れないリモート (`refs/remotes/<remote>/HEAD` が無いか実在しないブランチを指し、既定ブランチの名前が `main` / `master` でもない) では止まらない。既定ブランチが `main` / `master` 以外のリポジトリでは、`refs/remotes/<remote>/HEAD` を別の実在するブランチに付け替えると (`git remote set-head` など)、本来の既定ブランチの保護が外れる。git の呼び出しが失敗したときも止めずに通す。
+
+DB と本番環境の例 (利用側の `.claude/settings.json` に足す。コマンド名・接続先の名前は自分のものに置き換える):
+
+```json
+{
+  "permissions": {
+    "deny": [
+      "Bash(psql * -h prod-db.example.com*)",
+      "Bash(kubectl --context prod *)"
+    ],
+    "ask": [
+      "Bash(psql *DROP *)",
+      "Bash(psql *TRUNCATE *)",
+      "Bash(mysql *DROP *)",
+      "Bash(rails db:drop*)",
+      "Bash(npx prisma migrate reset*)",
+      "Bash(terraform apply*)",
+      "Bash(terraform destroy*)"
+    ]
+  }
+}
+```
+
+SQL を対話シェルやファイル (`psql -f`) で流すと文字列に `DROP` が現れないので、これらの規則は当たらない。本番に届くかどうかは、本番の認証情報を sandbox 内から読めなくし (`sandbox.credentials`)、本番のホストを `allowedDomains` に入れないことで止める。
 
 ### Codex CLI (hooks・skills・custom agents)
 
@@ -189,7 +226,7 @@ Claude Code に入れた aidd と、この Cursor 用プラグインは併用し
 |---------|------|
 | `session-start.sh` | SessionStart で aidd 資産の使いどころと「実装を左右する不明点は、このセッションが実際に持つ手段で確認する (対話なら AskUserQuestion、監督下なら親への返答)」を注入。`/aidd:asset-audit` の最終実施日 (未実施なら `aidd-hook-log.sh` が最初の hook の記録を始めた日) から一定期間 (既定30日) が過ぎたプロジェクトでだけ、棚卸しを促す1文を足す。superpowers 未導入を検知して警告 |
 | `usage-log.sh` | 起動を2経路で記録し、aidd コマンド使用数・最終利用時刻を `~/.claude/aidd/usage.json` に残す (`/aidd:retro` が読む): 行頭が `/aidd:<name>` のプロンプト (UserPromptSubmit) と、Skill ツール経由の起動 (PreToolUse、サブエージェント内の起動もここに入る)。文中で名前に触れただけのプロンプトは計上しない。実在するコマンド・skill 名だけを計上し、旧版が残した `prompt_log` は起動時に削除する |
-| `tool-reminder.sh` | `git commit` 前の test-perspectives 確認、`gh pr/issue create・edit` 前の日本語確認、`gh pr create` 前のレビュー証跡の確認、`git push` 後の PR 同期確認、`git commit` 後の HEAD の件名 (Conventional Commits 形式) と本文の有無の検査を1本で処理 (ここまでは非ブロック。コミットの検査はコマンド文字列でなく確定後の HEAD を SHA ごとに1回だけ読み、規約を採るリポジトリだけで行う。後続のコマンドが失敗した場合 (PostToolUseFailure) もコミットは検査する)。加えて、未コミットの作業を失う git 操作 (`stash`・`reset --hard`・パスを指定した `checkout` (`checkout -- <path>` / `checkout .` / `checkout <path>` / `checkout HEAD <path>`)・`checkout -f`・`switch -f` / `--discard-changes`・`--staged` だけでない `restore`・`-n` の無い `clean`) と指名しないステージ (`add -A` / `-u`、`.` / `./` / `..` / `:/` のように作業ディレクトリやルートを指すパス、`commit -a`) を拒否し、主ツリーを別のセッションが直近に使っているときは相手ごとに1回だけ worktree への移動を促し (拒否はしない。`session_id` は resume / compact の前後で同じと保証されていない)、`gh issue create` は同じセッションで直近に同じリポジトリ (`-R` / `--repo`、無ければ cwd の `origin`) に対して `gh issue list --search` を実行していなければ拒否する。`AIDD_REQUIRED_LABEL_PREFIX` を設定すると、その接頭辞のラベルが無い `gh issue create` も拒否する。コマンドは引用符・`&&` / `;` の連結・`#` のコメント・`if` / `then` / `do` などの制御構文・`cd`・`git -C`・前置のラッパー (`rtk` など) を見分けて判定し、1回の起動で当たった判定は JSON 1つにまとめて返す。コマンドに `git` / `gh` の語が無ければ python を起動せずに終わる。レビュー証跡の確認は、`--head` のブランチ (未指定なら cwd のブランチ) が基点ブランチに対してコードを変更しているのに、どの worktree の `.aidd/autonomous-review/` にもそのブランチの `state.json` が無いときだけ、変更ファイルの一覧つきで警告する (docs だけの変更では鳴らさない) |
+| `tool-reminder.sh` | `git commit` 前の test-perspectives 確認、`gh pr/issue create・edit` 前の日本語確認、`gh pr create` 前のレビュー証跡の確認、`git push` 後の PR 同期確認、`git commit` 後の HEAD の件名 (Conventional Commits 形式) と本文の有無の検査を1本で処理 (ここまでは非ブロック。コミットの検査はコマンド文字列でなく確定後の HEAD を SHA ごとに1回だけ読み、規約を採るリポジトリだけで行う。後続のコマンドが失敗した場合 (PostToolUseFailure) もコミットは検査する)。加えて、未コミットの作業を失う git 操作 (`stash`・`reset --hard`・パスを指定した `checkout` (`checkout -- <path>` / `checkout .` / `checkout <path>` / `checkout HEAD <path>`)・`checkout -f`・`switch -f` / `--discard-changes`・`--staged` だけでない `restore`・`-n` の無い `clean`) と指名しないステージ (`add -A` / `-u`、`.` / `./` / `..` / `:/` のように作業ディレクトリやルートを指すパス、`commit -a`) を拒否する。既定ブランチ (push 先のリモートの `HEAD` が指す実在のブランチと、常に `main` / `master`) への force push (`--force`・`-f`・`--force-with-lease`・`+<refspec>`・`--mirror`・`--force --all`・`+:`・`heads/<既定>` のような短い書き方・`--force-w` のような省略形。refspec を省いた場合は `remote.<name>.push` と `push.default` で決まる送り先が既定ブランチなら) と既定ブランチのリモート削除 (`push --delete`・`push <remote> :<branch>`) も拒否し (送り先に `$`・バッククォートを含む force / delete / prune の push も、判定できないので拒否する)、作業ブランチへの force push と `-n` / `--dry-run` は止めない (どの操作をどこで止めるかは「破壊的な操作をどこで止めるか」)。主ツリーを別のセッションが直近に使っているときは相手ごとに1回だけ worktree への移動を促し (拒否はしない。`session_id` は resume / compact の前後で同じと保証されていない)、`gh issue create` は同じセッションで直近に同じリポジトリ (`-R` / `--repo`、無ければ cwd の `origin`) に対して `gh issue list --search` を実行していなければ拒否する。`AIDD_REQUIRED_LABEL_PREFIX` を設定すると、その接頭辞のラベルが無い `gh issue create` も拒否する。コマンドは引用符・`&&` / `;` の連結・`#` のコメント・`if` / `then` / `do` などの制御構文・`cd`・`git -C`・前置のラッパー (`rtk` など) を見分けて判定し、1回の起動で当たった判定は JSON 1つにまとめて返す。コマンドに `git` / `gh` の語が無ければ python を起動せずに終わる。レビュー証跡の確認は、`--head` のブランチ (未指定なら cwd のブランチ) が基点ブランチに対してコードを変更しているのに、どの worktree の `.aidd/autonomous-review/` にもそのブランチの `state.json` が無いときだけ、変更ファイルの一覧つきで警告する (docs だけの変更では鳴らさない) |
 | `skill-gate.sh` | モデルが Skill ツールで `autonomous-review` を起動する前に、PreToolUse で `ask` を返してユーザーの許可を取る (名前は接頭辞・先頭の `/`・大文字小文字の違いをならして照合する)。対話の default / auto / bypassPermissions、allow ルール、サブエージェントのどれでも確認がユーザーに届き、headless (`-p`) では拒否として働く。ユーザーが手で打った起動は Skill ツールを通らないので確認は出ない。判定を出してから件数を記録し、入力を解釈できなくても `autonomous-review` を含めば `ask` を返す。Cursor では adapter 経由で、この plugin の `skills/autonomous-review/SKILL.md` の `Read` を拒否する。hook が起動できないときや hook が無効な環境 (`disableAllHooks` など) では確認なしで起動しうる (hook の起動失敗は Claude Code が素通りさせる) |
 | `write-guard.sh` | Write・Edit・NotebookEdit の PreToolUse を1本で処理する。対象はまだ存在しないファイルだけで、既存ファイルと対象外のパスでは何も出さずに終わる。サンドボックスの読み取り拒否によく入る名前 (`.env*`・`*.pem`・`*secret*`・`*credential*` など) のファイルを新しく作ろうとしたら拒否する (作った後に git・テスト・シェルから読めなくなるため)。Claude Code には読み取り拒否の既定リストが無いので、パターンは `AIDD_UNREADABLE_NAME_PATTERNS` で利用側の設定に合わせて差し替える。あわせて、`.claude/{hooks,skills,commands,rules,agents}/` (プロジェクト側・`~/.claude/` 側の両方) に新しい資産を作ろうとしたら、同梱の `hooks/asset-index.json` から aidd の資産一覧 (名前と description) を additionalContext で渡し、役割が重なるならそれを使うか aidd への要望として起票するよう促す。重なりの判断はモデルに任せ、aidd の command・skill・agent と同名のときだけ拒否する (command・agent は種類のディレクトリ直下のファイルだけ比べる。`commands/adr/new.md` は `/adr:new` になり、agent の名前は frontmatter で決まるため)。既存の資産と既存 skill 内のファイルは対象外。`AIDD_ASSET_OVERLAP_PLUGINS` で指定した他のプラグインの資産も、そのディレクトリの `.claude-plugin/plugin.json` から実行時に読んで一覧に加える (同梱の一覧には入れない。`<plugin>:<name>` の名前空間で利用側の同名の資産と共存するため、案内だけで拒否しない) |
 | `harness-adapter.sh` | Codex の `apply_patch` と Cursor の Shell / Write / Read / SessionStart を、既存スクリプトが読める形に揃えて呼び、返事を各ハーネスの形に戻す。判定ロジックは持たない。失敗しても exit 0 で素通りし、理由は `adapter-skips.json` に件数だけ残す。Cursor の Read は `autonomous-review` を含むものだけ python を起動して `skill-gate.sh` に渡す |
@@ -253,7 +290,7 @@ hooks は上記スクリプトをセッション中に自動実行する。フ�
 |---------|------|
 | `CLAUDE.md.template` | プロジェクト概要・技術スタック・コマンド・AI運用をまとめるテンプレート。コメントの置き場所 (How はコード / What はテスト / Why はコミットログ / Why not はコメント) を規約として同梱 |
 | `settings.json.template` | Claude Code 権限設定の基本構成テンプレート |
-| `sandbox-settings.json.template` | ローカル実行で権限を絞るときに `.claude/settings.json` にマージする。Bash を sandbox に入れ、通信先を GitHub と主要レジストリに、書き込みを作業ディレクトリに限り、認証情報ファイルの読み取りを拒否する (手順は「ローカルで権限を絞って使う」) |
+| `sandbox-settings.json.template` | ローカル実行で権限を絞るときに `.claude/settings.json` にマージする。Bash を sandbox に入れ、通信先を GitHub と主要レジストリに、書き込みを作業ディレクトリに限り、認証情報ファイルの読み取りと危険な `gh` のサブコマンドを拒否し、`rm -rf`・`git push --force`・`git branch -D` に確認を出す (手順は「ローカルで権限を絞って使う」) |
 | `team-settings.json.template` | チーム導入用。利用プロジェクトの `.claude/settings.json` にマージすると aidd が自動提案される |
 | `design-perspectives.md.template` | `.aidd/design-perspectives.md` の出発点。可観測性・プロジェクト固有観点 (design-review の Agent 4 が読む) |
 | `asset-overlap-prompt-hook.json.template` | 資産の重複を厳格に止めたい利用側向けの prompt 型 PreToolUse hook (既定では無効。`.claude/settings.json` の `hooks` にマージして有効化)。`.claude/{hooks,skills,commands,rules,agents}/` への Write をモデルが aidd の資産一覧と照らし、役割が重なれば拒否する。`scripts/generate-asset-index.py` が生成する |

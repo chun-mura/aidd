@@ -218,6 +218,120 @@ assert "git add -A" in reply["permissionDecisionReason"], reply
 assert "/aidd:test-perspectives" in reply["additionalContext"], reply
 PYEOF
 
+# #97: a force push to, or a remote delete of, the default branch is denied; the same on a work
+# branch is not. The default branch is the remote's HEAD, else main / master.
+pushes="$tmp_dir/pushes"
+git init -q --template= -b main "$pushes"
+git -C "$pushes" commit -q --allow-empty -m 'chore: base'
+git -C "$pushes" branch feat
+expect_push() {
+  local want=$1 dir=$2 c
+  shift 2
+  for c in "$@"; do
+    got=$(hook PreToolUse "$dir" "$c" | decision_of)
+    if [ "$want" = deny ]; then
+      [ "$got" = deny ] || { echo "not denied in $dir: $c" >&2; exit 1; }
+    else
+      [ "$got" != deny ] || { echo "denied in $dir: $c" >&2; exit 1; }
+    fi
+  done
+}
+expect_push deny "$pushes" 'git push --force origin main' 'git push -f origin main' 'git push origin main -f' \
+  'git push --force-with-lease origin main' 'git push --force-with-lease=main:abc origin main' \
+  'git push origin +main' 'git push origin +HEAD:main' 'git push -f origin feat:main' 'git push -f origin feat:refs/heads/main' \
+  'git push --force' 'git push -f origin' 'git push -uf origin HEAD' 'git push --force origin HEAD' \
+  'git push --force origin master' 'git push --force --all origin' 'git push --mirror origin' \
+  'git push --delete origin main' 'git push -d origin main' 'git push origin :main' 'git push origin :refs/heads/main' \
+  "git -C $pushes push -f origin main" "cd $pushes && git push -f origin main" 'rtk git push -f origin main' \
+  'git status && git push --force origin main' 'git push -o ci.skip -f origin main'
+expect_push allow "$pushes" 'git push origin main' 'git push' 'git push origin HEAD' 'git push -u origin feat' \
+  'git push --force origin feat' 'git push -f origin HEAD:feat' 'git push origin +feat' 'git push --force-with-lease origin feat' \
+  'git push --delete origin feat' 'git push origin :feat' 'git push -n -f origin main' 'git push --dry-run --force origin main' \
+  'git push -o main -f origin feat' 'git push origin feat:main' 'echo "git push -f origin main"'
+# The remote resolves heads/main to refs/heads/main; ":" pushes same-named branches; a pattern
+# refspec reaches main unless a negative refspec takes it out; --tags alone pushes only tags.
+expect_push deny "$pushes" 'git push -f origin heads/main' 'git push -f origin feat:heads/main' \
+  "git push -f origin 'refs/*:refs/*'" 'git push origin +:' 'git push --force origin :'
+expect_push allow "$pushes" 'git push --tags -f origin' "git push -f origin 'refs/heads/*:refs/heads/*' ^refs/heads/main" \
+  'git push origin :' 'git push -f origin heads/feat'
+# git push takes unambiguous prefixes of long options.
+expect_push deny "$pushes" 'git push --force-w origin main' 'git push --dele origin main' 'git push --mirr origin'
+expect_push allow "$pushes" 'git push --dry -f origin main'
+# The last of -n / --dry-run / --no-dry-run wins, and a value of -o is not a flag.
+expect_push deny "$pushes" 'git push --dry-run --no-dry-run --delete origin main' 'git push -o -n -f origin main' \
+  'git push --push-option -n -f origin main'
+expect_push allow "$pushes" 'git push --no-dry-run --dry-run -f origin main' 'git push -fn origin main'
+git -C "$pushes" switch -q feat
+expect_push allow "$pushes" 'git push --force' 'git push -f origin' 'git push --force origin HEAD'
+# A positional repository wins over --repo.
+expect_push deny "$pushes" 'git push --force origin main' 'git push --repo=elsewhere -f origin main'
+# A pattern refspec reaches main only through a source ref that exists here.
+git -C "$pushes" branch release/feat
+expect_push allow "$pushes" "git push -f origin 'refs/heads/release/*:refs/heads/*'"
+git -C "$pushes" branch release/main
+expect_push deny "$pushes" "git push -f origin 'refs/heads/release/*:refs/heads/*'"
+# --prune deletes the remote main once there is no local main; remote.<name>.mirror forces.
+git -C "$pushes" update-ref refs/remotes/origin/main HEAD
+expect_push allow "$pushes" "git push --prune origin 'refs/heads/*:refs/heads/*'" 'git push --prune --all origin'
+git -C "$pushes" branch -m main main-x
+expect_push deny "$pushes" "git push --prune origin 'refs/heads/*:refs/heads/*'" 'git push --prune --all origin' \
+  'git push --prune origin :'
+# A missing remote-tracking ref does not prove the remote lacks main.
+git -C "$pushes" update-ref -d refs/remotes/origin/main
+expect_push deny "$pushes" "git push --prune origin 'refs/heads/*:refs/heads/*'"
+git -C "$pushes" branch -m main-x main
+git -C "$pushes" config remote.origin.mirror true
+expect_push deny "$pushes" 'git push origin'
+git -C "$pushes" config --unset remote.origin.mirror
+# Without a refspec the destination comes from push.default / remote.<name>.push, not the branch name.
+git -C "$pushes" config branch.feat.remote origin
+git -C "$pushes" config branch.feat.merge refs/heads/main
+git -C "$pushes" config push.default upstream
+expect_push deny "$pushes" 'git push -f' 'git push -f origin'
+expect_push allow "$pushes" 'git push'
+git -C "$pushes" config push.default simple
+git -C "$pushes" config remote.origin.push '+refs/heads/feat:refs/heads/main'
+expect_push deny "$pushes" 'git push'
+git -C "$pushes" config --unset remote.origin.push
+git -C "$pushes" config --unset branch.feat.merge
+# S5: a refspec without a destination goes where remote.<name>.push maps it.
+git -C "$pushes" config remote.origin.push 'refs/heads/feat:refs/heads/main'
+expect_push deny "$pushes" 'git push -f origin feat' 'git push origin +feat' 'git push -f origin HEAD'
+git -C "$pushes" config --replace-all remote.origin.push 'refs/heads/*:refs/heads/team/*'
+expect_push allow "$pushes" 'git push -f origin feat'
+git -C "$pushes" config --replace-all remote.origin.push 'refs/heads/feat*:refs/heads/main*'
+expect_push deny "$pushes" 'git push -f origin feat'
+git -C "$pushes" config --unset-all remote.origin.push
+expect_push allow "$pushes" 'git push -f origin feat'
+# S6: a forcing push whose destination the shell builds later cannot be judged, so it is denied.
+expect_push deny "$pushes" 'git push -f origin "$BRANCH"' 'git push -f origin $(git branch --show-current)' \
+  'git push -f origin `git branch --show-current`' 'git push --delete "$REMOTE" feat' 'git push -f origin HEAD:$B' \
+  "git push -f origin \$'main'" 'git push --prune origin "$X"'
+expect_push allow "$pushes" 'git push origin "$BRANCH"' 'git push -n -f origin "$BRANCH"'
+# F2: a +refspec / :refspec forces or deletes without an option; braces expand later too.
+expect_push deny "$pushes" 'git push origin +$BRANCH' 'git push origin "+HEAD:$B"' 'git push origin ":$BRANCH"' \
+  'git push origin +`git branch --show-current`' 'git push -f origin {main,feat}' 'git push origin +{main,feat}' \
+  'git push --delete origin {feat,main}' 'git push -f origin feat{,-x}' 'git push origin :{a..c}'
+expect_push allow "$pushes" 'git push origin HEAD:$B' 'git push origin {main,feat}' 'git push -f origin feat' \
+  'git push -f origin "{literal}"'
+# F7: the wrappers Claude Code strips before matching rules are stripped here too, with their arguments.
+expect_push deny "$pushes" 'timeout 30 git push -f origin main' 'timeout -s KILL -k 5 30s git push -f origin main' \
+  'timeout --signal=TERM 1m git push --delete origin main' 'nice git push -f origin main' 'nice -n 10 git push -f origin main' \
+  'nice -n10 git push -f origin main' 'stdbuf -oL git push -f origin main' 'stdbuf -o L -e 0 git push -f origin main' \
+  'nohup nice -n 5 timeout 9 git push -f origin main' 'time git push -f origin main'
+expect_push allow "$pushes" 'timeout 30 git push -f origin feat' 'nice -n 10 git push origin main' 'timeout 30 echo git push -f origin main'
+# The remote's HEAD adds its branch; main and master stay protected (a fork's main too).
+git -C "$pushes" update-ref refs/remotes/origin/trunk HEAD
+git -C "$pushes" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/trunk
+expect_push deny "$pushes" 'git push -f origin trunk' 'git push --delete origin trunk' 'git push https://example.com/x.git +trunk' \
+  'git push -f origin main' 'git push --delete origin master' 'git push -f fork main'
+expect_push allow "$pushes" 'git push -f origin feat' 'git push -f origin release'
+AIDD_DISABLE_GIT_SAFETY=1 expect_push allow "$pushes" 'git push -f origin trunk'
+# S3: a HEAD aimed at a branch that does not exist adds nothing and lifts nothing.
+git -C "$pushes" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/nonexistent
+expect_push deny "$pushes" 'git push -f origin main' 'git push --delete origin master'
+expect_push allow "$pushes" 'git push -f origin nonexistent' 'git push -f origin trunk'
+
 # #21 (2): a main tree used by another live session warns once per other session.
 shared="$tmp_dir/shared"
 git init -q --template= -b main "$shared"

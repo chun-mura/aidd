@@ -17,7 +17,7 @@ fi
 
 # The payload stays on stdin (a command can exceed ARG_MAX, see usage-log.sh).
 PY_CODE=$(cat <<'PYEOF'
-import fcntl, glob, json, os, re, shlex, subprocess, sys, time
+import fcntl, fnmatch, glob, json, os, re, shlex, subprocess, sys, time
 
 try:
     event = json.load(sys.stdin)
@@ -44,9 +44,20 @@ def add(bucket, text):
 # --- command parsing: tokenize, split into simple commands, drop wrappers --------------------
 # Not a shell parser. Quoted strings stay whole (so text inside -m "..." is never a command);
 # commands joined by && || ; | & newlines or parentheses are checked one by one.
-WRAPPERS = [["rtk", "proxy"], ["rtk"], ["command"], ["env"], ["time"], ["nohup"], ["exec"]]
+# timeout / time / nice / nohup / stdbuf are the wrappers Claude Code itself strips before
+# matching permission rules, so a rule and this hook see the same inner command.
+WRAPPERS = [["rtk", "proxy"], ["rtk"], ["command"], ["env"], ["time"], ["nohup"], ["exec"],
+            ["timeout"], ["nice"], ["stdbuf"]]
 # Extra wrappers: comma-separated, each may span words (e.g. "sudo -E,chronic").
 WRAPPERS += [w.split() for w in env.get("AIDD_COMMAND_WRAPPERS", "").split(",") if w.strip()]
+# Wrapper options whose value is the next word, and leading operands that are not the command
+# (timeout 30 git push: 30 is the duration).
+WRAPPER_VALUE_OPTIONS = {
+    "timeout": {"-s", "--signal", "-k", "--kill-after"},
+    "nice": {"-n", "--adjustment"},
+    "stdbuf": {"-i", "-o", "-e", "--input", "--output", "--error"},
+}
+WRAPPER_OPERANDS = {"timeout": 1}
 SEPARATOR_CHARS = set(";&|()\n")
 ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 HEREDOC = re.compile(r"(?<!<)<<(?!<)-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
@@ -127,8 +138,11 @@ def unwrap(argv):
         for wrapper in WRAPPERS:
             if argv[:len(wrapper)] == wrapper:
                 argv = argv[len(wrapper):]
+                name = " ".join(wrapper)
+                takes_value = WRAPPER_VALUE_OPTIONS.get(name, set())
                 while argv and (argv[0].startswith("-") or ASSIGNMENT.match(argv[0])):
-                    argv = argv[1:]
+                    argv = argv[2:] if argv[0] in takes_value else argv[1:]
+                argv = argv[WRAPPER_OPERANDS.get(name, 0):]
                 changed = True
                 break
     return argv
@@ -381,6 +395,224 @@ def warn_review_before_pr(args, directory):
 DISCARDS = "aidd: {} は未コミットの変更を取り戻せない形で捨てるため拒否した。捨ててよいかをユーザーに確認し、必要ならユーザー自身に実行してもらうこと。"
 UNNAMED_STAGE = "aidd: {} は変更を名指しせずにステージするため拒否した (別のセッションや別の作業の変更まで取り込む)。git add <path>... でファイルを名指ししてから git commit すること。"
 STASH = "aidd: git stash は拒否した。stash のスタックは worktree とセッションの間で共有され、別のセッションの変更を pop したり消したりする。退避は一時コミットか別の worktree で行うこと (git stash list / show は可)。"
+DEFAULT_BRANCH_PUSH = "aidd: {} は既定ブランチ {} の履歴をリモートで書き換えるか消すため拒否した (ほかの人がその上に積んだ作業を失う)。必要ならユーザーに確認し、ユーザー自身に実行してもらうこと。自分の作業ブランチへの force push は止めない。"
+UNRESOLVED_PUSH = "aidd: force / delete / prune を伴う git push の送り先 (remote か refspec) に変数・コマンド置換・ブレース展開 ($・バッククォート・{a,b}) があり、既定ブランチに届くかを判定できないため拒否した。ブランチ名を展開した形で書き直すこと。"
+
+
+def default_branch(directory, remote):
+    # The remote's HEAD names its default branch (a remote given as a URL or path has no
+    # remote-tracking refs, so origin's is the next guess), but only when it points at a ref
+    # that exists: a HEAD aimed at a missing branch must not lift the guard. main and master
+    # always count, so a stale or rewritten HEAD cannot unprotect them (a fork's main too).
+    names = []
+    for name in dict.fromkeys([remote, "origin"]):
+        if name and re.fullmatch(r"[A-Za-z0-9._-]+", name):
+            target = git(directory, "symbolic-ref", "--quiet", f"refs/remotes/{name}/HEAD")
+            prefix = f"refs/remotes/{name}/"
+            if target and target.startswith(prefix) and git(
+                    directory, "rev-parse", "--verify", "--quiet", target) is not None:
+                names.append(target[len(prefix):])
+                break
+    return list(dict.fromkeys(names + ["main", "master"]))
+
+
+def push_remote(directory, current):
+    # The remote a push without one goes to, in git's order.
+    keys = [f"branch.{current}.pushRemote", "remote.pushDefault", f"branch.{current}.remote"]
+    for key in keys if current else keys[1:2]:
+        value = git(directory, "config", key)
+        if value:
+            return value
+    return "origin"
+
+
+def implicit_refspecs(directory, remote, current):
+    # A push without refspecs sends remote.<name>.push, else what push.default picks: with
+    # upstream the current branch goes to its upstream's name, which can be the default branch.
+    if re.fullmatch(r"[A-Za-z0-9._-]+", remote):
+        configured = git(directory, "config", "--get-all", f"remote.{remote}.push")
+        if configured:
+            return configured.split("\n")
+    mode = git(directory, "config", "push.default") or "simple"
+    if mode == "matching":
+        return [":"]
+    if not current or mode == "nothing":
+        return []
+    if mode in ("upstream", "tracking"):
+        merge = git(directory, "config", f"branch.{current}.merge")
+        return [f"{current}:{merge}"] if merge else []
+    return [current]
+
+
+PUSH_OPTIONS = ["all", "atomic", "branches", "delete", "dry-run", "exec", "follow-tags", "force",
+                "force-if-includes", "force-with-lease", "mirror", "porcelain", "progress", "prune",
+                "push-option", "quiet", "receive-pack", "recurse-submodules", "repo", "set-upstream",
+                "signed", "tags", "thin", "verbose"]
+PUSH_LONGS = ({f"--{o}" for o in PUSH_OPTIONS} | {f"--no-{o}" for o in PUSH_OPTIONS}
+              | {"--ipv4", "--ipv6", "--verify", "--no-verify"})
+
+
+def full_push_options(args):
+    # git push accepts any unambiguous prefix of a long option (--force-w is --force-with-lease).
+    out = []
+    for i, arg in enumerate(args):
+        if arg == "--":
+            return out + args[i:]
+        name, eq, value = arg.partition("=")
+        if arg.startswith("--") and name not in PUSH_LONGS:
+            found = [o for o in PUSH_LONGS if o.startswith(name)]
+            if len(found) == 1:
+                arg = found[0] + eq + value
+        out.append(arg)
+    return out
+
+
+def dry_run(args):
+    # The last of -n / --dry-run / --no-dry-run wins; a value of -o / --repo is not a flag.
+    dry, skip = False, False
+    for arg in args:
+        if skip:
+            skip = False
+        elif arg == "--":
+            break
+        elif arg in ("--dry-run", "--no-dry-run"):
+            dry = arg == "--dry-run"
+        elif arg in ("--repo", "--push-option", "--receive-pack", "--exec"):
+            skip = True
+        elif arg.startswith("-") and not arg.startswith("--"):
+            shorts, _, _ = scan([arg], "o")
+            dry = dry or "n" in shorts
+            skip = arg.endswith("o") and "o" in shorts and arg.index("o") == len(arg) - 1
+    return dry
+
+
+def deny_default_branch_push(args, directory):
+    args = full_push_options(args)
+    shorts, longs, positionals = scan(
+        args, "o", ("--repo", "--push-option", "--receive-pack", "--exec"))
+    if dry_run(args):
+        return
+    positionals = [p for p in positionals if p != "--"]
+    current = git(directory, "symbolic-ref", "--quiet", "--short", "HEAD")
+    # A positional repository wins over --repo.
+    repo = option_values(args, "--repo")
+    if positionals:
+        remote, refspecs = positionals[0], positionals[1:]
+    else:
+        remote, refspecs = repo[-1] if repo else push_remote(directory, current), []
+    # remote.<name>.mirror makes a plain push a mirror push.
+    if re.fullmatch(r"[A-Za-z0-9._-]+", remote) and git(
+            directory, "config", "--bool", f"remote.{remote}.mirror") == "true":
+        longs.add("--mirror")
+    force = "f" in shorts or longs & {"--force", "--force-with-lease", "--mirror"}
+    delete = "d" in shorts or "--delete" in longs
+    prune = "--prune" in longs
+    every = longs & {"--all", "--branches", "--mirror"}
+    # The shell expands $VAR, $(...), backquotes, $'...' and braces ({main,feat}, {a..b}) after
+    # this check sees the words, so a destination built from them cannot be judged; a push that
+    # forces or deletes (by option, or by a +refspec / :refspec) with one is denied.
+    # (\x60 is the backquote: a literal one inside this heredoc breaks bash 3.2's parse.)
+    unresolved = re.compile("[$\x60]|\\{[^}]*(,|\\.\\.)[^}]*\\}")
+    forcing = force or delete or prune or any(r.startswith(("+", ":")) for r in refspecs)
+    if forcing and any(unresolved.search(w) for w in positionals + repo):
+        add(denials, UNRESOLVED_PUSH)
+        return
+    implicit = not refspecs and not every and "--tags" not in longs
+    if implicit:
+        refspecs = implicit_refspecs(directory, remote, current)
+    if not (force or delete or prune or any(r.startswith(("+", ":")) for r in refspecs)):
+        return
+    defaults = default_branch(directory, remote)
+
+    def full(ref):
+        # The remote resolves heads/main and main to refs/heads/main.
+        if ref in ("HEAD", "@"):
+            ref = current or ""
+        if not ref or ref.startswith("refs/"):
+            return ref
+        return "refs/" + ref if ref.startswith("heads/") else "refs/heads/" + ref
+
+    def matches(name, ref):
+        return bool(ref) and fnmatch.fnmatchcase(f"refs/heads/{name}", full(ref))
+
+    def exists(ref):
+        return bool(ref) and git(directory, "rev-parse", "--verify", "--quiet", ref) is not None
+
+    def local(name):
+        return exists(f"refs/heads/{name}")
+
+    def pruned(name):
+        # --prune deletes a remote branch with no local counterpart. A missing remote-tracking
+        # ref proves nothing, so the first default (the remote's HEAD, or main) always counts.
+        if name == defaults[0] or not re.fullmatch(r"[A-Za-z0-9._-]+", remote):
+            return True
+        return exists(f"refs/remotes/{remote}/{name}")
+
+    def source(name, src, dst):
+        # The ref a pattern refspec sends to refs/heads/<name> (src and dst have one * each).
+        prefix, _, suffix = full(dst).partition("*")
+        ref = f"refs/heads/{name}"
+        return full(src).replace("*", ref[len(prefix):len(ref) - len(suffix)], 1)
+
+    def mapped(src):
+        # A refspec without a destination goes where remote.<name>.push maps its source
+        # (git push -f origin feat lands on main under refs/heads/feat:refs/heads/main).
+        if implicit or not re.fullmatch(r"[A-Za-z0-9._-]+", remote):
+            return src
+        for spec in (git(directory, "config", "--get-all", f"remote.{remote}.push") or "").split("\n"):
+            s, colon, d = spec.lstrip("+").partition(":")
+            if not colon or not d or s.startswith("^"):
+                continue
+            ref = full(src)
+            if "*" in s:
+                prefix, _, suffix = full(s).partition("*")
+                if ref.startswith(prefix) and ref.endswith(suffix) and len(ref) >= len(prefix) + len(suffix):
+                    return full(d).replace("*", ref[len(prefix):len(ref) - len(suffix)], 1)
+            elif full(s) == ref:
+                return d
+        return src
+
+    # A negative refspec (^<ref>) takes refs out of the pattern refspecs.
+    excluded = {d for d in defaults for r in refspecs if r.startswith("^") and matches(d, r[1:])}
+    hit = None
+    if "--mirror" in longs or (force and every and any(local(d) for d in defaults)):
+        hit = "git push --force --all / --mirror"
+    elif prune and every and any(pruned(d) and not local(d) for d in defaults):
+        hit = "git push --prune (ローカルに無い既定ブランチを消す)"
+    for refspec in refspecs:
+        if refspec.startswith("^"):
+            continue
+        plus = refspec.startswith("+")
+        src, colon, dst = refspec.lstrip("+").partition(":")
+        if colon and not src and not dst:
+            # ":" pushes every branch that exists on both sides under the same name.
+            if (force or plus) and any(local(d) for d in defaults):
+                hit = "git push --force <remote> : / +:"
+            elif prune and any(pruned(d) and not local(d) for d in defaults):
+                hit = "git push --prune (ローカルに無い既定ブランチを消す)"
+            continue
+        target = dst if colon else (src if "*" in src else mapped(src))
+        reached = False
+        for d in defaults:
+            if not matches(d, target):
+                continue
+            if "*" not in refspec:
+                reached = True
+            elif d not in excluded:
+                # A pattern sends only the refs that exist here; --prune deletes the rest.
+                if exists(source(d, src, target)):
+                    reached = True
+                elif prune and pruned(d):
+                    hit = "git push --prune (ローカルに無い既定ブランチを消す)"
+        if not reached:
+            continue
+        if delete or (colon and not src):
+            hit = "git push --delete <既定ブランチ> / git push <remote> :<既定ブランチ>"
+        elif force or plus:
+            hit = ("git push --force (refspec を省いた push の送り先)" if implicit
+                   else "git push --force / +<refspec>")
+    if hit:
+        add(denials, DEFAULT_BRANCH_PUSH.format(hit, " / ".join(defaults)))
 
 
 def is_whole_tree(pathspec, directory, top):
@@ -465,6 +697,8 @@ def deny_unsafe_git(sub, args, directory):
         )
         if "a" in shorts or "--all" in longs:
             add(denials, UNNAMED_STAGE.format("git commit -a"))
+    elif sub == "push":
+        deny_default_branch_push(args, directory)
 
 
 def main_tree_of(directory):

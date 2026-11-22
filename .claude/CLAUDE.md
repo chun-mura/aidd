@@ -119,7 +119,8 @@ the skill's `name:` frontmatter.
     It splits the command (quotes, `&&`/`;`, comments, control keywords, `cd`, `git -C`, wrappers), collects every
     matching check, and emits one JSON: the original nudges (test-perspectives, Japanese PR/issue text, post-push
     PR sync), review-evidence warning before `gh pr create`, denial of work-losing git operations and unnamed
-    staging, main-tree sharing warning, search-before-`gh issue create` gate, optional required-label gate, and the
+    staging, denial of a force push to / remote delete of the default branch (the remote's `HEAD` if it
+    exists, plus `main`/`master` always; a destination with `$`/backquote is denied; work-branch force pushes pass), main-tree sharing warning, search-before-`gh issue create` gate, optional required-label gate, and the
     post-commit subject/Why check (only in repos that adopt the convention). Commands without a `git`/`gh` word exit
     before python starts. Don't split it back out without checking `docs/superpowers/specs/2026-07-18-token-optimization-design.md`
   - `write-guard.sh` (PreToolUse, matcher `Write|Edit|NotebookEdit`): acts only on files that don't exist yet —
