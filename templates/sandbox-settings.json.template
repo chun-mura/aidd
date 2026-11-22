@@ -22,12 +22,31 @@
       "Bash(gh alias *)",
       "Bash(gh pr checkout *)",
       "Bash(gh repo clone *)",
+      "Bash(gh auth token *)",
+      "Bash(gh auth refresh *)",
+      "Bash(gh auth setup-git *)",
+      "Bash(gh repo delete *)",
+      "Bash(gh repo archive *)",
+      "Bash(gh repo rename *)",
+      "Bash(gh repo edit *)",
+      "Bash(gh repo deploy-key *)",
+      "Bash(gh secret *)",
+      "Bash(gh variable *)",
+      "Bash(gh ssh-key *)",
+      "Bash(gh gpg-key *)",
+      "Bash(gh release delete *)",
+      "Bash(gh release delete-asset *)",
+      "Bash(gh run delete *)",
+      "Bash(gh cache delete *)",
+      "Bash(gh codespace *)",
       "Read(~/.ssh/**)",
       "Read(~/.aws/**)",
       "Read(~/.config/gh/**)",
       "Read(~/.netrc)",
       "Read(~/.git-credentials)",
-      "Read(~/.config/git/credentials)"
+      "Read(~/.config/git/credentials)",
+      "Read(~/.npmrc)",
+      "Read(~/.pypirc)"
     ]
   },
   "sandbox": {
@@ -52,7 +71,9 @@
         { "path": "~/.config/gh", "mode": "deny" },
         { "path": "~/.netrc", "mode": "deny" },
         { "path": "~/.git-credentials", "mode": "deny" },
-        { "path": "~/.config/git/credentials", "mode": "deny" }
+        { "path": "~/.config/git/credentials", "mode": "deny" },
+        { "path": "~/.npmrc", "mode": "deny" },
+        { "path": "~/.pypirc", "mode": "deny" }
       ]
     }
   }

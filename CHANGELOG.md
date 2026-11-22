@@ -6,6 +6,9 @@
 - `sandbox-settings.json.template`: `permissions.ask` に `rm -rf` (と `rm -fr`・`rm -r`・`rm --recursive` など)・`git push --force` / `-f` / `+<refspec>`・`git branch -D` を足した。正当な用途があり、環境によって許容度が違うため、拒否ではなく確認にする (#97)
 - README に「破壊的な操作をどこで止めるか」を足し、操作ごとに hook で拒否 / 雛形で確認 / 利用側で書く (DB の drop・truncate、本番環境へのコマンド。例つき) / 止めない を表にした (#97)
 - `tests/hook-contract-test.sh` が、既定ブランチへの force push・削除を拒否し、作業ブランチへの force push・通常の push・作業ブランチの削除を拒否しないことを検査する (#97)
+- `sandbox-settings.json.template`: `excludedCommands` の `gh *` は変えず、aidd の skill が使わない危険な `gh` のサブコマンド (`gh auth token`・`auth refresh`・`auth setup-git`、`gh repo delete`・`archive`・`rename`・`edit`・`deploy-key`、`gh secret`・`gh variable`・`gh ssh-key`・`gh gpg-key`、`gh release delete`・`delete-asset`、`gh run delete`・`gh cache delete`、`gh codespace`) を `permissions.deny` に足した。除外を skill が使うサブコマンドに絞ると、skill が止まって利用者が除外を広げ直しやすく、文字列全体の照合が書き換え hook (RTK など) と合わせると外れやすいため。`gh api` は skill が使うので塞がず、API を直接呼べば同じ操作ができる限界を README に書いた (#98)
+- `sandbox-settings.json.template`: `~/.npmrc`・`~/.pypirc` を `sandbox.credentials.files` (deny) と `permissions.deny` の `Read(...)` に足した。許可済みの npm・PyPI のレジストリへ直接届く token が読めたため。README に、非公開レジストリを使う場合の外し方と、`~/.npmrc` がある環境で公開レジストリの npm が動くかは未確認であることを書いた (#98)
+- README に、雛形をチームでコミットするときの周知 (`GH_TOKEN` が無いと `gh` は保存済みの全権限の認証で動くこと、各メンバーが起動前に `gh auth status` で `(GH_TOKEN)` を確かめること) を足した (#98)
 
 ## 0.61.0 (2026-11-22)
 

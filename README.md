@@ -45,11 +45,12 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
      - コマンドごとに `$TMPDIR` の下を使う (`npm --cache "$TMPDIR/npm-cache" ...`、`PIP_CACHE_DIR="$TMPDIR/pip-cache" pip ...`): 共有のキャッシュに触れないが、セッションをまたいで再利用されない
      - `sandbox.filesystem.allowWrite` に `~/.npm` などを足す: キャッシュが残るが、sandbox 内のコマンドがほかのプロジェクトと共有するキャッシュを書き換えられるようになる
    - macOS では、OS の証明書ストアで TLS を検証する pip (truststore) が sandbox 内で `OSStatus -26276` で失敗することがある。`PIP_USE_DEPRECATED=legacy-certs` を付けると pip 同梱の証明書で検証する
-   - `~/.ssh`・`~/.aws`・`~/.config/gh`・`~/.netrc`・git の credential store (`~/.git-credentials`・`~/.config/git/credentials`) は sandbox 内のコマンドから読めない。認証情報の既定の拒否リストは無いので、ほかの認証情報のパスは利用側で足す。SSH の鍵が読めないため、git の remote は HTTPS にし、push の認証は手順2の credential helper で `GH_TOKEN` から渡す (macOS では、継承した `osxkeychain` の helper が sandbox 内で使えず、push が失敗することがある)
+   - `~/.ssh`・`~/.aws`・`~/.config/gh`・`~/.netrc`・git の credential store (`~/.git-credentials`・`~/.config/git/credentials`)・npm と PyPI の token を置く `~/.npmrc`・`~/.pypirc` は sandbox 内のコマンドから読めない。認証情報の既定の拒否リストは無いので、ほかの認証情報のパスは利用側で足す。SSH の鍵が読めないため、git の remote は HTTPS にし、push の認証は手順2の credential helper で `GH_TOKEN` から渡す (macOS では、継承した `osxkeychain` の helper が sandbox 内で使えず、push が失敗することがある)
+   - `~/.npmrc`・`~/.pypirc` を拒否すると、そこに書いた設定 (非公開レジストリの URL と token、proxy など) を npm・pip・twine が読めなくなる。非公開レジストリを sandbox 内で使う場合は、そのファイルの行を `sandbox.credentials.files` と `permissions.deny` の両方から外し、token はそのレジストリだけに届く読み取り専用のものにする。公開レジストリの `npm install` / `pip install` が、`~/.npmrc` が存在して読めない状態で動くかは未確認 (`~/.pypirc` が読めない状態での `pip download` は動いた。`~/.npmrc` が無い環境でしか試していない)。初回に実機で確かめる
    - sandbox が使えない環境では起動を止め (`failIfUnavailable`)、エージェントによる sandbox の外での再実行を許さない (`allowUnsandboxedCommands: false`)。sandbox の外で動かす必要があるコマンドは `excludedCommands` に足す。足したコマンドは利用者の全権限で動く
    - sandbox がかかるのは Bash のコマンドだけ。`Read` ツールには効かないので、雛形は同じ認証情報のパスを `permissions.deny` の `Read(...)` でも拒否している。ほかに `Read` ツールで読ませたくないファイルも `permissions.deny` に書く
 2. **`gh` には対象リポジトリだけの fine-grained PAT を渡す**: macOS では `gh` が sandbox 内で TLS の検証に失敗しうるため、雛形は `gh *` を `excludedCommands` に入れ、`gh` を sandbox の外で動かす。`gh` の権限は token で絞る。
-   - sandbox の外の `gh` はローカルのどのファイルも読んで送れる (`--body-file`・`gh api -F key=@<file>`)。送り先は GitHub に限らない。`gh api --hostname <ホスト>` で任意のホストに送れ、sandbox の `allowedDomains` はこれを止めない。拡張やエイリアスを使えば任意のコマンドを、`gh pr checkout` などは作業ツリーへの書き込みを sandbox の外で行える。雛形は aidd の skill が使わない `gh extension`・`gh alias`・`gh pr checkout`・`gh repo clone` を `permissions.deny` で拒否している。`Bash(gh *)` を `permissions.allow` に入れたり、`bypassPermissions` モードで動かしたりしない。TLS の失敗は macOS の sandbox (Seatbelt) で起きるもので、Linux では `excludedCommands` から `gh *` を外せる
+   - sandbox の外の `gh` はローカルのどのファイルも読んで GitHub に送れる (`--body-file`・`gh api -F key=@<file>`)。拡張やエイリアスを使えば任意のコマンドを、`gh pr checkout` などは作業ツリーへの書き込みを sandbox の外で行える。雛形は aidd の skill が使わない `gh extension`・`gh alias`・`gh pr checkout`・`gh repo clone` を `permissions.deny` で拒否している。あわせて、token を表示するもの (`gh auth token`)、認証の範囲や git の helper を変えるもの (`gh auth refresh`・`gh auth setup-git`)、リポジトリを消す・設定を変えるもの (`gh repo delete`・`archive`・`rename`・`edit`・`deploy-key`)、Actions の secret・変数や鍵を扱うもの (`gh secret`・`gh variable`・`gh ssh-key`・`gh gpg-key`)、消すもの (`gh release delete`・`delete-asset`・`gh run delete`・`gh cache delete`)、codespace で任意のコマンドを動かすもの (`gh codespace`) も拒否している。skill が使う issue・pr の create / view / list / edit / comment、`gh api`、`gh label list`、`gh repo view`、`gh auth status` は塞がない。`gh api` は skill が使うので塞がず、`gh api -X DELETE repos/<owner>/<repo>` のように API を直接呼べば上の拒否と同じ操作ができる。これを止めるのは token の権限だけなので、token には下の権限しか付けない。拒否は呼び出しの文字列との照合で、`gh -R <owner>/<repo> secret list` のようにサブコマンドの前にオプションを置いた形は一致しない (公式の「What a Bash rule doesn't match」)。`excludedCommands` を skill が使うサブコマンドだけに絞ることはしない: 絞りすぎると skill が止まって利用者が除外を広げ直しやすく、照合が文字列全体なので RTK のような書き換え hook と合わせると外れやすいため、危険なサブコマンドを deny に足す形にしている。`Bash(gh *)` を `permissions.allow` に入れたり、`bypassPermissions` モードで動かしたりしない。TLS の失敗は macOS の sandbox (Seatbelt) で起きるもので、Linux では `excludedCommands` から `gh *` を外せる
    - `gh` の設定も sandbox の外でコマンドを動かす経路になる。`gh config set browser "<コマンド>"` の後に `gh browse` や `--web` 付きの呼び出し (`gh pr view --web` など) を実行すると、`gh` は設定したコマンドを利用者の全権限で実行する (gh 2.103.2 で確認)。`pager`・`editor` の設定も同じ種類の経路になりうる
    - 雛形の `permissions.deny` はこれらと `gh api --hostname` を塞いでいない。当面は利用側の `permissions.deny` に次を足す。aidd の skill はこれらのサブコマンドとオプションを使わない
 
@@ -88,6 +89,10 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
      `gh auth setup-git` は使わない。push は sandbox の中で動くので、helper として呼ばれる `gh` が雛形の拒否した `~/.config/gh` を読めずに失敗する。この helper は sandbox の中に `GH_TOKEN` があることを前提にするため、`sandbox.credentials.envVars` で `GH_TOKEN` を deny にしない (deny にすると push が認証できない。代わりに sandbox 内のコマンドも token を読めるので、token の権限は対象リポジトリだけに絞る)
 
      sandbox の中からは `.git/config` に書けない。`git push -u` は push 自体は通るが、upstream の保存で失敗する。新しいブランチは `git push origin HEAD` のように push 先を毎回指定する
+
+   - **雛形をチームでコミットするとき**: `.claude/settings.json` に入れた sandbox と拒否はクローンした全員に効くが、`GH_TOKEN` は各自のシェルの環境変数なので届かない。`GH_TOKEN` を渡さずに起動したメンバーの `gh` は、`gh auth login` で保存した本人の全権限の認証で、sandbox の外で動く。コミットと同時に、次の2点をチームに知らせる (README・PR 本文・チームの手順書など、メンバーが起動前に読む場所に書く)
+     - 起動前に対象リポジトリだけの fine-grained PAT を作り、上の `read -rs GH_TOKEN ...` の形で `GH_TOKEN` に入れて起動する
+     - `claude` を起動する前に、同じシェルで `gh auth status` を実行し、出力に `(GH_TOKEN)` と出ることを確かめる。出なければ `gh` は保存済みの認証で動くので、`GH_TOKEN` を入れ直してから起動する
 
 3. **完全な隔離が必要なら aidd-autopilot を使う**: 上の設定は利用者のマシンとアカウントの上での制限にとどまる。コンテナ隔離・egress 許可リスト・fine-grained PAT で skill を動かすなら aidd-autopilot (issue のラベルを契機に、隔離した Docker コンテナで headless の Claude Code を動かす) を使う。
 
@@ -294,7 +299,7 @@ hooks は上記スクリプトをセッション中に自動実行する。フ�
 |---------|------|
 | `CLAUDE.md.template` | プロジェクト概要・技術スタック・コマンド・AI運用をまとめるテンプレート。コメントの置き場所 (How はコード / What はテスト / Why はコミットログ / Why not はコメント) を規約として同梱 |
 | `settings.json.template` | Claude Code 権限設定の基本構成テンプレート |
-| `sandbox-settings.json.template` | ローカル実行で権限を絞るときに `.claude/settings.json` にマージする。Bash を sandbox に入れ、通信先を GitHub と主要レジストリに、書き込みを作業ディレクトリに限り、認証情報ファイルの読み取りを拒否し、`rm -rf`・`git push --force`・`git branch -D` に確認を出す (手順は「ローカルで権限を絞って使う」) |
+| `sandbox-settings.json.template` | ローカル実行で権限を絞るときに `.claude/settings.json` にマージする。Bash を sandbox に入れ、通信先を GitHub と主要レジストリに、書き込みを作業ディレクトリに限り、認証情報ファイルの読み取りと危険な `gh` のサブコマンドを拒否し、`rm -rf`・`git push --force`・`git branch -D` に確認を出す (手順は「ローカルで権限を絞って使う」) |
 | `team-settings.json.template` | チーム導入用。利用プロジェクトの `.claude/settings.json` にマージすると aidd が自動提案される |
 | `design-perspectives.md.template` | `.aidd/design-perspectives.md` の出発点。可観測性・プロジェクト固有観点 (design-review の Agent 4 が読む) |
 | `asset-overlap-prompt-hook.json.template` | 資産の重複を厳格に止めたい利用側向けの prompt 型 PreToolUse hook (既定では無効。`.claude/settings.json` の `hooks` にマージして有効化)。`.claude/{hooks,skills,commands,rules,agents}/` への Write をモデルが aidd の資産一覧と照らし、役割が重なれば拒否する。`scripts/generate-asset-index.py` が生成する |
