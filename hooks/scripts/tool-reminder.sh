@@ -31,6 +31,7 @@ if not isinstance(command, str) or not command:
 # CLAUDE_PROJECT_DIR stays on the main checkout inside a worktree; the input cwd follows it.
 base_dir = event.get("cwd") or os.getcwd()
 env = os.environ
+LEARNINGS_SCRIPT = sys.argv[1] if len(sys.argv) > 1 else ""
 
 denials = []
 contexts = []
@@ -646,6 +647,15 @@ def is_whole_tree(pathspec, directory, top):
     return root == resolved or root.startswith(resolved.rstrip(os.sep) + os.sep)
 
 
+ADD_OPTIONS = ("", ("--chmod", "--pathspec-from-file"))
+COMMIT_OPTIONS = (
+    "mFCct",
+    ("--message", "--file", "--reuse-message", "--reedit-message", "--fixup", "--squash",
+     "--author", "--date", "--template", "--cleanup", "--trailer"),
+    "Su",
+)
+
+
 def deny_unsafe_git(sub, args, directory):
     if env.get("AIDD_DISABLE_GIT_SAFETY") == "1":
         return
@@ -683,18 +693,13 @@ def deny_unsafe_git(sub, args, directory):
         if "n" not in shorts and "--dry-run" not in longs:
             add(denials, DISCARDS.format("git clean (-n / --dry-run を除く)"))
     elif sub == "add":
-        shorts, longs, positionals = scan(args, "", ("--chmod", "--pathspec-from-file"))
+        shorts, longs, positionals = scan(args, *ADD_OPTIONS)
         top = git(directory, "rev-parse", "--show-toplevel") or directory
         whole = any(is_whole_tree(p, directory, top) for p in positionals if p != "--")
         if shorts & set("Au") or longs & {"--all", "--update"} or whole:
             add(denials, UNNAMED_STAGE.format("git add -A / . / -u"))
     elif sub == "commit":
-        shorts, longs, _ = scan(
-            args, "mFCct",
-            ("--message", "--file", "--reuse-message", "--reedit-message", "--fixup", "--squash",
-             "--author", "--date", "--template", "--cleanup", "--trailer"),
-            short_attached="Su",
-        )
+        shorts, longs, _ = scan(args, *COMMIT_OPTIONS)
         if "a" in shorts or "--all" in longs:
             add(denials, UNNAMED_STAGE.format("git commit -a"))
     elif sub == "push":
@@ -928,9 +933,95 @@ def _mark_judged(data, sha):
     return True
 
 
-JAPANESE_NUDGE = "aidd: GitHub issue/PR のタイトルと本文は日本語で書くこと (コード識別子・コマンド・コミットメッセージは英語のまま)。既に日本語なら変更不要。"
+# --- learnings ledger: the commit-time layer of docs/superpowers/specs/2026-11-22-learnings-ledger-design.md
+# Runs whether or not the ledger is enabled (enabling only gates writing): a leaking file is the
+# same risk in anyone's commit. Read-only; the check itself lives in scripts/learnings.py.
+LEDGER_DIR = ".aidd/learnings"
+LEDGER_DENY = ("aidd: 知見の台帳 (.aidd/learnings/) のファイルが検査 (scripts/learnings.py) に通らないため git commit を拒否した。"
+               "伏せ字にせず該当する記述を書き直してステージし直すか、git restore --staged <file> で外すこと。")
+LEDGER_UNCHECKED = ("aidd: 知見の台帳 (.aidd/learnings/) のファイルを含むコミットだが、検査スクリプト scripts/learnings.py を"
+                    "読み込めないため拒否した (検査せずに通さない)。aidd の導入を /aidd:doctor で確かめること。")
+
+
+def ledger_named_files(directory, sub, args, top):
+    """Ledger files that git add / git commit name in this command, read from the working tree
+    (they are not staged yet when PreToolUse runs)."""
+    _, _, positionals = scan(args, *(ADD_OPTIONS if sub == "add" else COMMIT_OPTIONS))
+    ledger = os.path.realpath(os.path.join(top, LEDGER_DIR))
+    found = set()
+    for spec in positionals:
+        if spec == "--":
+            continue
+        path = os.path.join(directory, os.path.expanduser(spec))
+        for match in (glob.glob(path) if glob.has_magic(path) else [path]):
+            match = os.path.realpath(match)
+            if ledger == match or ledger.startswith(match.rstrip(os.sep) + os.sep):
+                match = ledger  # the ledger directory or one of its parents
+            elif not match.startswith(ledger + os.sep):
+                continue
+            if os.path.isdir(match):
+                for root, _, names in os.walk(match):
+                    found.update(os.path.join(root, n) for n in names)
+            elif os.path.isfile(match):
+                found.add(match)
+    return {os.path.relpath(p, os.path.realpath(top)).replace(os.sep, "/"): p for p in found}
+
+
+def check_ledger(git_calls):
+    """git_calls: (directory, sub, args) of the git add / git commit in this command."""
+    tops = {}
+    for directory, sub, args in git_calls:
+        top = git(directory, "rev-parse", "--show-toplevel")
+        if top:
+            tops.setdefault(top, []).append((directory, sub, args))
+    module = None
+    for top, calls in tops.items():
+        if not any(sub == "commit" for _, sub, _ in calls):
+            continue
+        files = {}
+        staged = git(top, "diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR", "--", LEDGER_DIR + "/")
+        for name in filter(None, (staged or "").split("\0")):
+            blob = git(top, "cat-file", "blob", ":" + name)
+            files[name] = blob.encode("utf-8") if blob is not None else None
+        for directory, sub, args in calls:
+            for name, path in ledger_named_files(directory, sub, args, top).items():
+                try:
+                    with open(path, "rb") as f:
+                        files[name] = f.read(8192)
+                except OSError:
+                    files[name] = None
+        if not files:
+            continue
+        if module is None:
+            module = load_learnings()
+            if not module:
+                add(denials, LEDGER_UNCHECKED)
+                return
+        problems = []
+        for name in sorted(files):
+            errors = module.check_document(name, files[name]) if files[name] is not None else ["could not read the file"]
+            if errors:
+                problems.append(f"{name}: " + "; ".join(errors))
+        if problems:
+            add(denials, LEDGER_DENY + "\n" + "\n".join(problems))
+
+
+def load_learnings():
+    try:
+        import importlib.util
+        sys.dont_write_bytecode = True  # no __pycache__ in the plugin: hooks write only under ~/.claude/aidd/
+        spec =importlib.util.spec_from_file_location("aidd_learnings", LEARNINGS_SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module if callable(getattr(module, "check_document", None)) else None
+    except Exception:
+        return None
+
+
+JAPANESE_NUDGE ="aidd: GitHub issue/PR のタイトルと本文は日本語で書くこと (コード識別子・コマンド・コミットメッセージは英語のまま)。既に日本語なら変更不要。"
 PUSH_NUDGE = "aidd: push したブランチに open PR がある場合 (gh pr view で確認)、追加コミットが PR の範囲・内容を変えたなら gh pr edit でタイトルと概要を最新化すること (日本語)。変えていなければ何もしない。"
 
+ledger_calls = []
 for argv, directory in simple_commands(command):
     program = os.path.basename(argv[0])
     if program == "git":
@@ -942,6 +1033,8 @@ for argv, directory in simple_commands(command):
             warn_shared_main_tree(parsed["dir"])
             if parsed["sub"] == "commit":
                 remind_test_perspectives(parsed["dir"])
+            if parsed["sub"] in ("add", "commit"):
+                ledger_calls.append((parsed["dir"], parsed["sub"], parsed["args"]))
         elif hook_event == "PostToolUse" and parsed["sub"] == "push":
             add(contexts, PUSH_NUDGE)
         elif hook_event in ("PostToolUse", "PostToolUseFailure") and parsed["sub"] == "commit":
@@ -965,6 +1058,9 @@ for argv, directory in simple_commands(command):
             require_issue_search(target_repo(repo_flag, directory))
             require_label(args)
 
+if any(sub == "commit" for _, sub, _ in ledger_calls):
+    check_ledger(ledger_calls)
+
 if denials or contexts:
     output = {"hookEventName": hook_event}
     if denials and hook_event == "PreToolUse":
@@ -976,6 +1072,8 @@ if denials or contexts:
 PYEOF
 )
 
-printf '%s' "$input" | python3 -I -c "$PY_CODE" 2>/dev/null
+# The ledger check (scripts/learnings.py) sits two levels up, beside the other plugin scripts.
+learnings_script="$(cd "$(dirname "$0")/../.." 2>/dev/null && pwd)/scripts/learnings.py"
+printf '%s' "$input" | python3 -I -c "$PY_CODE" "$learnings_script" 2>/dev/null
 
 exit 0

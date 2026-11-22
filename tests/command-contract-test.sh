@@ -102,6 +102,16 @@ grep -F -- '今すぐ直せない・直さないなら、その作業は `/aidd:
 if grep -Fq -- '**今すぐ直せない作業**' "$incident_retro"; then
   exit 1
 fi
+# The learnings ledger (#104): off unless enabled per clone, written only through the check,
+# never masked, and a signature seen in a second session becomes a promotion candidate.
+grep -F -- '既定で無効' "$incident_retro"
+grep -F -- '`git config --get aidd.learnings` が `true` のときだけ' "$incident_retro"
+grep -F -- '検査を通った観測だけを書く' "$incident_retro"
+grep -F -- '`python3 -I ../../scripts/learnings.py add' "$incident_retro"
+grep -F -- '`python3 -I ../../scripts/learnings.py candidates' "$incident_retro"
+grep -F -- '2回目以上を昇格候補として示す' "$incident_retro"
+grep -F -- '伏せ字にせず書き直す' "$incident_retro"
+grep -F -- 'PR のレビュー' "$incident_retro"
 
 # doctor's sandbox check only warns (running without the sandbox is allowed), and it must
 # report whether a GitHub token is set without ever printing the token (#96). gh belongs inside

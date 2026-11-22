@@ -41,6 +41,7 @@ bash tests/hook-log-test.sh              # exercises templates/aidd-hook-log.sh 
 bash tests/redundancy-contract-test.sh   # asserts removed assets stay removed and de-duplication boundaries hold
 bash tests/session-start-test.sh         # asserts session-start.sh injects the short nudges only when due
 bash tests/codex-agents-contract-test.sh # Codex TOML stays generated from agents/*.md; installer copies and --check detects stale/missing
+bash tests/learnings-test.sh             # scripts/learnings.py: ledger check rejects/passes, add is off by default, candidates counting
 ```
 
 On macOS inside the Claude Code sandbox, `mktemp -d` may ignore `$TMPDIR` and fail under `/var/folders`; run the
@@ -52,7 +53,7 @@ prompt files; `hook-contract`, `hook-log` and `session-start` execute the script
 `skills/incident-retro/SKILL.md`, `skills/autonomous-review/SKILL.md`, `skills/issue-implement/SKILL.md`, `skills/design-doc/SKILL.md`, `skills/test-perspectives/SKILL.md`, `skills/doctor/SKILL.md`, `skills/asset-audit/SKILL.md` (also executed by
 `hook-log-test.sh`), `skills/review-loop/SKILL.md`, `templates/design-perspectives.md.template`,
 `templates/CLAUDE.md.template`, `templates/aidd-hook-log.sh`, `hooks/hooks.json`, `hooks/scripts/*.sh`,
-`scripts/generate-asset-index.py`, `scripts/generate-codex-agents.py`, `scripts/install-codex-agents.sh`,
+`scripts/generate-asset-index.py`, `scripts/generate-codex-agents.py`, `scripts/install-codex-agents.sh`, `scripts/learnings.py`,
 `.codex/agents/*.toml`, or any command/skill/agent frontmatter, run the matching test script — a wording
 change can silently break the contract. There is no CI job that runs these `tests/*.sh` scripts automatically; run
 them locally before committing. After editing `agents/*.md`, run `python3 scripts/generate-codex-agents.py`.

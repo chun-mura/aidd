@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.65.0 (2026-11-22)
+
+- 利用側リポジトリに「知見の台帳」(`.aidd/learnings/<YYYYMMDDTHHMMSSZ>-<16進8桁>.json`、1観測1ファイル) を足した。`/aidd:incident-retro` が今のセッションの会話しか見ず、運用ルール2 (2回ルール) を人の記憶で判定していたため (#104)。コミットして PR で共有し、ファイル名が別なので同時に書いても衝突しない。**既定で無効**で、clone ごとに `git config aidd.learnings true` で有効にする (コミットされず fork に引き継がれないので、公開リポジトリ・fork で知らずに書き始めない)。スキーマ (`schema_version` 1) と保存先を README の「利用側プロジェクトのディレクトリ規約」に載せた。設計は `docs/superpowers/specs/2026-11-22-learnings-ledger-design.md`
+- `scripts/learnings.py` (新規、`python3 -I`・標準ライブラリだけ): `check` (検査)・`add` (標準入力の観測を検査し、通ったときだけファイル名を決めて書く。台帳が無効なら終了コード3で書かない)・`candidates` (既定ブランチと作業ツリーの検査を通った観測を数え、同じ `signature` が別の `session` で2回以上のものを出す)。検査はスキーマ (項目外・重複したキー、列挙値、`fact` 200字、`signature` の形、`evidence` の形、`session` のハッシュの形、4096 バイト、ファイル名) と、絶対パス・メール・URL・IP・FQDN・token の接頭辞・高エントロピー文字列・UUID・長い16進・会社名の手がかりの正規表現。該当すれば伏せ字にせず拒否し、理由に該当した値を含めない
+- `incident-retro`: 台帳が有効なときだけ、事故ごとに `signature` を付けて台帳と照合し、2回目以上を昇格候補として表に示す。承認された観測を `scripts/learnings.py add` を通してだけ書き (Write で直接書かない)、拒否されたら伏せ字にせず書き直す。固有名は PR のレビューで確かめるよう利用者に伝える
+- `tool-reminder.sh`: PreToolUse の `git commit` で、ステージ済みの `.aidd/learnings/` のファイル (インデックスの中身) と、同じコマンドの `git add` / `git commit` が名指しした台帳のファイル (作業ツリーの中身。ディレクトリ・親ディレクトリ・グロブ・`--` の後・`git -C` を含む) を同じ検査にかけ、通らなければ拒否する。台帳の有効化に関係なく動く (秘密を含むファイルがコミットされる危険は書いた人の設定に関係なく同じため)。台帳のファイルを含まないコミットでは挙動を変えない。検査スクリプトを読み込めなければ、台帳を含むコミットだけを拒否する
+- `tests/learnings-test.sh` (新規) が検査の拒否すべき入力と通すべき入力 (SHA・相対パス・PR 番号・識別子・ファイル名の幹など誤検出しやすいもの)、`add` の既定無効とハッシュ化、`candidates` の数え方を検査する。token らしいテストデータは実行時に組み立て、リポジトリに置かない。`tests/hook-contract-test.sh` と `tests/command-contract-test.sh` を合わせた
+
 ## 0.64.0 (2026-11-22)
 
 - `sandbox-settings.json.template`: `gh` を sandbox の中に戻した (`excludedCommands` の `gh *` を外した)。sandbox の外の `gh` は、設定や環境変数で指定したコマンドを全権限で動かせ、任意のホストへローカルのファイルを送れ、任意のファイルに書け、読み取りを拒否した認証情報も読めた。deny は文字列の照合なので塞ぐたびに別の経路が見つかったため (#115)。macOS の sandbox で `gh` が `x509: OSStatus -26276` で失敗する問題は、`env` の `SSL_CERT_FILE=/etc/ssl/cert.pem` で回避する (Go 1.27 から darwin でも `SSL_CERT_FILE` が効き、Go のネイティブの検証になる。証明書の検証は省かない)。`~/.config/gh` の読み取り拒否で `gh` が `GH_TOKEN` があっても `failed to read configuration` で止まるので、`env` の `GH_CONFIG_DIR=/var/empty` で設定の読み先を空のディレクトリに向けた (読み取り拒否は緩めない。sandbox の中の `gh` は保存済みの認証を使わず `GH_TOKEN` だけで動く)。pip (truststore) の同じ TLS の失敗は `env` の `PIP_USE_DEPRECATED=legacy-certs` で回避する
