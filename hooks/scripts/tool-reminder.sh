@@ -382,17 +382,24 @@ DISCARDS = "aidd: {} は未コミットの変更を取り戻せない形で捨�
 UNNAMED_STAGE = "aidd: {} は変更を名指しせずにステージするため拒否した (別のセッションや別の作業の変更まで取り込む)。git add <path>... でファイルを名指ししてから git commit すること。"
 STASH = "aidd: git stash は拒否した。stash のスタックは worktree とセッションの間で共有され、別のセッションの変更を pop したり消したりする。退避は一時コミットか別の worktree で行うこと (git stash list / show は可)。"
 DEFAULT_BRANCH_PUSH = "aidd: {} は既定ブランチ {} の履歴をリモートで書き換えるか消すため拒否した (ほかの人がその上に積んだ作業を失う)。必要ならユーザーに確認し、ユーザー自身に実行してもらうこと。自分の作業ブランチへの force push は止めない。"
+UNRESOLVED_PUSH = "aidd: force / delete / prune を伴う git push の送り先 (remote か refspec) に変数・コマンド置換 ($ やバッククォート) があり、既定ブランチに届くかを判定できないため拒否した。ブランチ名を展開した形で書き直すこと。"
 
 
 def default_branch(directory, remote):
-    # The remote's HEAD names its default branch; a remote given as a URL or path has no
-    # remote-tracking refs, so origin's is the next guess, then main / master.
+    # The remote's HEAD names its default branch (a remote given as a URL or path has no
+    # remote-tracking refs, so origin's is the next guess), but only when it points at a ref
+    # that exists: a HEAD aimed at a missing branch must not lift the guard. main and master
+    # always count, so a stale or rewritten HEAD cannot unprotect them (a fork's main too).
+    names = []
     for name in dict.fromkeys([remote, "origin"]):
         if name and re.fullmatch(r"[A-Za-z0-9._-]+", name):
-            target = git(directory, "symbolic-ref", "--quiet", "--short", f"refs/remotes/{name}/HEAD")
-            if target and target.startswith(name + "/"):
-                return [target[len(name) + 1:]]
-    return ["main", "master"]
+            target = git(directory, "symbolic-ref", "--quiet", f"refs/remotes/{name}/HEAD")
+            prefix = f"refs/remotes/{name}/"
+            if target and target.startswith(prefix) and git(
+                    directory, "rev-parse", "--verify", "--quiet", target) is not None:
+                names.append(target[len(prefix):])
+                break
+    return list(dict.fromkeys(names + ["main", "master"]))
 
 
 def push_remote(directory, current):
@@ -487,6 +494,12 @@ def deny_default_branch_push(args, directory):
     delete = "d" in shorts or "--delete" in longs
     prune = "--prune" in longs
     every = longs & {"--all", "--branches", "--mirror"}
+    # The shell expands $VAR, $(...), backquotes and $'...' after this check sees the words,
+    # so a destination built from them cannot be judged; a forcing push of one is denied.
+    # (\x60 is the backquote: a literal one inside this heredoc breaks bash 3.2's parse.)
+    if (force or delete or prune) and any(re.search("[$\x60]", w) for w in positionals + repo):
+        add(denials, UNRESOLVED_PUSH)
+        return
     implicit = not refspecs and not every and "--tags" not in longs
     if implicit:
         refspecs = implicit_refspecs(directory, remote, current)
@@ -524,6 +537,24 @@ def deny_default_branch_push(args, directory):
         ref = f"refs/heads/{name}"
         return full(src).replace("*", ref[len(prefix):len(ref) - len(suffix)], 1)
 
+    def mapped(src):
+        # A refspec without a destination goes where remote.<name>.push maps its source
+        # (git push -f origin feat lands on main under refs/heads/feat:refs/heads/main).
+        if implicit or not re.fullmatch(r"[A-Za-z0-9._-]+", remote):
+            return src
+        for spec in (git(directory, "config", "--get-all", f"remote.{remote}.push") or "").split("\n"):
+            s, colon, d = spec.lstrip("+").partition(":")
+            if not colon or not d or s.startswith("^"):
+                continue
+            ref = full(src)
+            if "*" in s:
+                prefix, _, suffix = full(s).partition("*")
+                if ref.startswith(prefix) and ref.endswith(suffix) and len(ref) >= len(prefix) + len(suffix):
+                    return full(d).replace("*", ref[len(prefix):len(ref) - len(suffix)], 1)
+            elif full(s) == ref:
+                return d
+        return src
+
     # A negative refspec (^<ref>) takes refs out of the pattern refspecs.
     excluded = {d for d in defaults for r in refspecs if r.startswith("^") and matches(d, r[1:])}
     hit = None
@@ -543,7 +574,7 @@ def deny_default_branch_push(args, directory):
             elif prune and any(pruned(d) and not local(d) for d in defaults):
                 hit = "git push --prune (ローカルに無い既定ブランチを消す)"
             continue
-        target = dst if colon else src
+        target = dst if colon else (src if "*" in src else mapped(src))
         reached = False
         for d in defaults:
             if not matches(d, target):

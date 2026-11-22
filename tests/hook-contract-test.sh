@@ -294,12 +294,31 @@ git -C "$pushes" config remote.origin.push '+refs/heads/feat:refs/heads/main'
 expect_push deny "$pushes" 'git push'
 git -C "$pushes" config --unset remote.origin.push
 git -C "$pushes" config --unset branch.feat.merge
-# The remote's HEAD wins over the main / master guess.
+# S5: a refspec without a destination goes where remote.<name>.push maps it.
+git -C "$pushes" config remote.origin.push 'refs/heads/feat:refs/heads/main'
+expect_push deny "$pushes" 'git push -f origin feat' 'git push origin +feat' 'git push -f origin HEAD'
+git -C "$pushes" config --replace-all remote.origin.push 'refs/heads/*:refs/heads/team/*'
+expect_push allow "$pushes" 'git push -f origin feat'
+git -C "$pushes" config --replace-all remote.origin.push 'refs/heads/feat*:refs/heads/main*'
+expect_push deny "$pushes" 'git push -f origin feat'
+git -C "$pushes" config --unset-all remote.origin.push
+expect_push allow "$pushes" 'git push -f origin feat'
+# S6: a forcing push whose destination the shell builds later cannot be judged, so it is denied.
+expect_push deny "$pushes" 'git push -f origin "$BRANCH"' 'git push -f origin $(git branch --show-current)' \
+  'git push -f origin `git branch --show-current`' 'git push --delete "$REMOTE" feat' 'git push -f origin HEAD:$B' \
+  "git push -f origin \$'main'" 'git push --prune origin "$X"'
+expect_push allow "$pushes" 'git push origin "$BRANCH"' 'git push -n -f origin "$BRANCH"'
+# The remote's HEAD adds its branch; main and master stay protected (a fork's main too).
 git -C "$pushes" update-ref refs/remotes/origin/trunk HEAD
 git -C "$pushes" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/trunk
-expect_push deny "$pushes" 'git push -f origin trunk' 'git push --delete origin trunk' 'git push https://example.com/x.git +trunk'
-expect_push allow "$pushes" 'git push -f origin main' 'git push --delete origin master'
+expect_push deny "$pushes" 'git push -f origin trunk' 'git push --delete origin trunk' 'git push https://example.com/x.git +trunk' \
+  'git push -f origin main' 'git push --delete origin master' 'git push -f fork main'
+expect_push allow "$pushes" 'git push -f origin feat' 'git push -f origin release'
 AIDD_DISABLE_GIT_SAFETY=1 expect_push allow "$pushes" 'git push -f origin trunk'
+# S3: a HEAD aimed at a branch that does not exist adds nothing and lifts nothing.
+git -C "$pushes" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/nonexistent
+expect_push deny "$pushes" 'git push -f origin main' 'git push --delete origin master'
+expect_push allow "$pushes" 'git push -f origin nonexistent' 'git push -f origin trunk'
 
 # #21 (2): a main tree used by another live session warns once per other session.
 shared="$tmp_dir/shared"
