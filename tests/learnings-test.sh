@@ -214,6 +214,8 @@ for label, rule, text in [
     ("email next to kana", "email address", "連絡先someone@mailhost.zzまで。"),
     ("company next to kana", "company name", "サンプルInc.の案件。"),
     ("ipv6 loopback", "IP address", "It listened on ::1 only."),
+    ("ipv6 trailing compression", "IP address", "It bound to fe80:: first."),
+    ("absolute path with Japanese directories", "absolute path", "設定は/ユーザー/作業/設定.json にあった。"),
     ("32 hex in fact", "long hex", "Digest " + "0123456789abcdef" * 2 + " matched."),
     ("40-char SHA in fact", "long hex", "Commit " + "0123456789abcdef" * 2 + "01234567 reverted it."),
     ("separated random", "high-entropy", "Value " + "-".join(["Zq8L", "m2Rt", "7Vx4", "Bn9K", "c3Wp", "6Hy1"]) + " leaked."),

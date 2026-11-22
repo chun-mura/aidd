@@ -36,13 +36,15 @@ TLDS = ("com|net|org|edu|gov|mil|int|io|dev|app|cloud|ai|co|jp|us|uk|de|fr|cn|kr
         "|me|tech|online|site|xyz|local|localdomain|internal|intranet|corp|lan|home|example|invalid")
 # Boundaries are ASCII (re.A): a value written straight against Japanese text is still a value.
 PATTERNS = [
-    ("absolute path", re.compile(r"(?<![\w.~:/-])/[\w.-]+/[\w./-]*|(?<![A-Za-z0-9])[A-Za-z]:[\\/]", re.A)),
+    # The lookbehind is ASCII; the body is any non-space so Japanese directory names still match.
+    ("absolute path", re.compile(r"(?<![\w.~:/-])/[^\s/]+/\S*|(?<![A-Za-z0-9])[A-Za-z]:[\\/]", re.A)),
     ("email address", re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", re.A)),
     ("URL", re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://|(?<![\w.])www\.", re.I | re.A)),
     ("IP address", re.compile(
         r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.]*\w)"
         r"|(?<![\w:])(?:[0-9a-f]{1,4}:){3,7}[0-9a-f]{1,4}(?![\w:])"
-        r"|(?<![\w:])(?:(?:[0-9a-f]{1,4}:)+|:):[0-9a-f]{1,4}(?::[0-9a-f]{1,4})*(?![\w:])", re.I | re.A)),
+        r"|(?<![\w:])(?:(?:[0-9a-f]{1,4}:)+:(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4})*)?"
+        r"|::[0-9a-f]{1,4}(?::[0-9a-f]{1,4})*)(?![\w:])", re.I | re.A)),
     ("host name (FQDN)", re.compile(r"(?<![\w.-])(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+(?:" + TLDS + r")(?![\w-]|\.\w)", re.I | re.A)),
     ("token prefix", re.compile(
         r"(?<![A-Za-z0-9])(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,}|sk-[A-Za-z0-9_-]{16,}"
