@@ -32,6 +32,12 @@ grep -F -- '全体再レビュー' "$design_review"
 # Agent 2 covers the data model and the design-level part of performance (#85).
 # N+1 is decided in the implementation, so the perspective must exclude it explicitly.
 grep -F -- 'スキーマを緩める選択に、理由と検討した代替案' "$design_review"
+# design-doc asks for a rationale only for schema-loosening choices, so the review must
+# not ask for one on ordinary type choices (#93).
+grep -F -- 'それ以外の型の選択には根拠の記載を求めない' "$design_review"
+if grep -Fq -- '型の選択と正規化に根拠があるか' "$design_review"; then
+  exit 1
+fi
 grep -F -- 'インデックスの前提' "$design_review"
 grep -F -- '件数の上限なく全件を読む経路' "$design_review"
 grep -F -- 'N+1 などクエリの実装で決まることは扱わない' "$design_review"
