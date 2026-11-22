@@ -1,6 +1,22 @@
 {
   "permissions": {
     "blockWritesOutsideWorkingDirectories": true,
+    "ask": [
+      "Bash(rm -r*)",
+      "Bash(rm -R*)",
+      "Bash(rm -fr*)",
+      "Bash(rm -fR*)",
+      "Bash(rm -f -r*)",
+      "Bash(rm -f -R*)",
+      "Bash(rm --recursive*)",
+      "Bash(git push --force*)",
+      "Bash(git push * --force*)",
+      "Bash(git push -f*)",
+      "Bash(git push * -f*)",
+      "Bash(git push * +*)",
+      "Bash(git branch -D*)",
+      "Bash(git branch * -D*)"
+    ],
     "deny": [
       "Bash(gh extension *)",
       "Bash(gh alias *)",

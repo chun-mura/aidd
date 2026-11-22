@@ -17,7 +17,7 @@ fi
 
 # The payload stays on stdin (a command can exceed ARG_MAX, see usage-log.sh).
 PY_CODE=$(cat <<'PYEOF'
-import fcntl, glob, json, os, re, shlex, subprocess, sys, time
+import fcntl, fnmatch, glob, json, os, re, shlex, subprocess, sys, time
 
 try:
     event = json.load(sys.stdin)
@@ -381,6 +381,61 @@ def warn_review_before_pr(args, directory):
 DISCARDS = "aidd: {} は未コミットの変更を取り戻せない形で捨てるため拒否した。捨ててよいかをユーザーに確認し、必要ならユーザー自身に実行してもらうこと。"
 UNNAMED_STAGE = "aidd: {} は変更を名指しせずにステージするため拒否した (別のセッションや別の作業の変更まで取り込む)。git add <path>... でファイルを名指ししてから git commit すること。"
 STASH = "aidd: git stash は拒否した。stash のスタックは worktree とセッションの間で共有され、別のセッションの変更を pop したり消したりする。退避は一時コミットか別の worktree で行うこと (git stash list / show は可)。"
+DEFAULT_BRANCH_PUSH = "aidd: {} は既定ブランチ {} の履歴をリモートで書き換えるか消すため拒否した (ほかの人がその上に積んだ作業を失う)。必要ならユーザーに確認し、ユーザー自身に実行してもらうこと。自分の作業ブランチへの force push は止めない。"
+
+
+def default_branch(directory, remote):
+    # The remote's HEAD names its default branch; a remote given as a URL or path has no
+    # remote-tracking refs, so origin's is the next guess, then main / master.
+    for name in dict.fromkeys([remote, "origin"]):
+        if name and re.fullmatch(r"[A-Za-z0-9._-]+", name):
+            target = git(directory, "symbolic-ref", "--quiet", "--short", f"refs/remotes/{name}/HEAD")
+            if target and target.startswith(name + "/"):
+                return [target[len(name) + 1:]]
+    return ["main", "master"]
+
+
+def deny_default_branch_push(args, directory):
+    shorts, longs, positionals = scan(
+        args, "o", ("--repo", "--push-option", "--receive-pack", "--exec"))
+    if "n" in shorts or "--dry-run" in longs:
+        return
+    positionals = [p for p in positionals if p != "--"]
+    force = "f" in shorts or longs & {"--force", "--force-with-lease", "--mirror"}
+    delete = "d" in shorts or "--delete" in longs
+    if not (force or delete or any(r.startswith(("+", ":")) for r in positionals[1:])):
+        return
+    defaults = default_branch(directory, positionals[0] if positionals else None)
+    current = git(directory, "symbolic-ref", "--quiet", "--short", "HEAD")
+
+    def branch(ref):
+        ref = ref[len("refs/heads/"):] if ref.startswith("refs/heads/") else ref
+        return current if ref in ("HEAD", "@") else ref
+
+    def hits(dst):
+        return bool(dst) and any(fnmatch.fnmatchcase(d, dst) for d in defaults)
+
+    refspecs = positionals[1:]
+    hit = None
+    if longs & {"--all", "--branches", "--mirror"} and force:
+        hit = "git push --force --all / --mirror"
+    elif not refspecs:
+        # No refspec pushes the current branch (push.default simple / current / upstream).
+        if force and hits(current):
+            hit = "git push --force (現在のブランチ)"
+    for refspec in refspecs:
+        if refspec.startswith("^"):
+            continue
+        plus = refspec.startswith("+")
+        src, colon, dst = refspec.lstrip("+").partition(":")
+        if not hits(branch(dst if colon else src)):
+            continue
+        if delete or (colon and not src):
+            hit = "git push --delete <既定ブランチ> / git push <remote> :<既定ブランチ>"
+        elif force or plus:
+            hit = "git push --force / +<refspec>"
+    if hit:
+        add(denials, DEFAULT_BRANCH_PUSH.format(hit, " / ".join(defaults)))
 
 
 def is_whole_tree(pathspec, directory, top):
@@ -465,6 +520,8 @@ def deny_unsafe_git(sub, args, directory):
         )
         if "a" in shorts or "--all" in longs:
             add(denials, UNNAMED_STAGE.format("git commit -a"))
+    elif sub == "push":
+        deny_default_branch_push(args, directory)
 
 
 def main_tree_of(directory):

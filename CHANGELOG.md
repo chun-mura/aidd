@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.62.0 (2026-11-22)
+
+- `tool-reminder.sh`: 既定ブランチ (push 先のリモートの `HEAD` が指すもの。取れなければ `main` / `master`) への force push (`--force`・`-f`・`--force-with-lease`・`+<refspec>`・`--mirror`・`--force --all`、refspec を省いて現在のブランチが既定ブランチの場合) と、既定ブランチのリモート削除 (`push --delete`・`push <remote> :<branch>`) を拒否する。既定ブランチの上に積んだほかの人の作業を確実に失うため。作業ブランチへの force push と `-n` / `--dry-run` は止めない。既存の拒否と同じく `&&` / `;`・`cd`・`git -C`・ラッパーを見分け、`AIDD_DISABLE_GIT_SAFETY=1` で止められる (#97)
+- `sandbox-settings.json.template`: `permissions.ask` に `rm -rf` (と `rm -fr`・`rm -r`・`rm --recursive` など)・`git push --force` / `-f` / `+<refspec>`・`git branch -D` を足した。正当な用途があり、環境によって許容度が違うため、拒否ではなく確認にする (#97)
+- README に「破壊的な操作をどこで止めるか」を足し、操作ごとに hook で拒否 / 雛形で確認 / 利用側で書く (DB の drop・truncate、本番環境へのコマンド。例つき) / 止めない を表にした (#97)
+- `tests/hook-contract-test.sh` が、既定ブランチへの force push・削除を拒否し、作業ブランチへの force push・通常の push・作業ブランチの削除を拒否しないことを検査する (#97)
+
 ## 0.61.0 (2026-11-22)
 
 - `design-review`: Agent 2 のデータフローの観点に並行性を足した。複数のプロセス・セッション・ジョブ・リクエストが同じ状態を同時に読み書きすることが設計書から読み取れる場合は、競合・二重実行・破損への対策 (排他、冪等、楽観ロック、原子的な書き込みなど) が書かれているかを見る。同時アクセスが読み取れない設計には推測で指摘しない。`design-doc` のデータフローの節にも、同時に読み書きされる状態があれば対策を書かせる (観点と節の1対1対応を保つため)。観点と節の数は変えていない。PR #1 のレビューで、`usage-log.sh` の read-modify-write に排他も原子的な書き込みも無いことを外部のレビューが指摘し、標準の観点では構造的に拾えなかったため (#3)

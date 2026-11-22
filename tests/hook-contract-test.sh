@@ -218,6 +218,46 @@ assert "git add -A" in reply["permissionDecisionReason"], reply
 assert "/aidd:test-perspectives" in reply["additionalContext"], reply
 PYEOF
 
+# #97: a force push to, or a remote delete of, the default branch is denied; the same on a work
+# branch is not. The default branch is the remote's HEAD, else main / master.
+pushes="$tmp_dir/pushes"
+git init -q --template= -b main "$pushes"
+git -C "$pushes" commit -q --allow-empty -m 'chore: base'
+git -C "$pushes" branch feat
+expect_push() {
+  local want=$1 dir=$2 c
+  shift 2
+  for c in "$@"; do
+    got=$(hook PreToolUse "$dir" "$c" | decision_of)
+    if [ "$want" = deny ]; then
+      [ "$got" = deny ] || { echo "not denied in $dir: $c" >&2; exit 1; }
+    else
+      [ "$got" != deny ] || { echo "denied in $dir: $c" >&2; exit 1; }
+    fi
+  done
+}
+expect_push deny "$pushes" 'git push --force origin main' 'git push -f origin main' 'git push origin main -f' \
+  'git push --force-with-lease origin main' 'git push --force-with-lease=main:abc origin main' \
+  'git push origin +main' 'git push origin +HEAD:main' 'git push -f origin feat:main' 'git push -f origin feat:refs/heads/main' \
+  'git push --force' 'git push -f origin' 'git push -uf origin HEAD' 'git push --force origin HEAD' \
+  'git push --force origin master' 'git push --force --all origin' 'git push --mirror origin' \
+  'git push --delete origin main' 'git push -d origin main' 'git push origin :main' 'git push origin :refs/heads/main' \
+  "git -C $pushes push -f origin main" "cd $pushes && git push -f origin main" 'rtk git push -f origin main' \
+  'git status && git push --force origin main' 'git push -o ci.skip -f origin main'
+expect_push allow "$pushes" 'git push origin main' 'git push' 'git push origin HEAD' 'git push -u origin feat' \
+  'git push --force origin feat' 'git push -f origin HEAD:feat' 'git push origin +feat' 'git push --force-with-lease origin feat' \
+  'git push --delete origin feat' 'git push origin :feat' 'git push -n -f origin main' 'git push --dry-run --force origin main' \
+  'git push -o main -f origin feat' 'git push origin feat:main' 'echo "git push -f origin main"'
+git -C "$pushes" switch -q feat
+expect_push allow "$pushes" 'git push --force' 'git push -f origin' 'git push --force origin HEAD'
+expect_push deny "$pushes" 'git push --force origin main'
+# The remote's HEAD wins over the main / master guess.
+git -C "$pushes" update-ref refs/remotes/origin/trunk HEAD
+git -C "$pushes" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/trunk
+expect_push deny "$pushes" 'git push -f origin trunk' 'git push --delete origin trunk' 'git push https://example.com/x.git +trunk'
+expect_push allow "$pushes" 'git push -f origin main' 'git push --delete origin master'
+AIDD_DISABLE_GIT_SAFETY=1 expect_push allow "$pushes" 'git push -f origin trunk'
+
 # #21 (2): a main tree used by another live session warns once per other session.
 shared="$tmp_dir/shared"
 git init -q --template= -b main "$shared"
