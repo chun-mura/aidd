@@ -41,6 +41,9 @@ AI駆使のための実行可能資産 + 知見。Claude Code プラグインと
 1. **sandbox を有効にする**: `templates/sandbox-settings.json.template` の内容を利用プロジェクトの `.claude/settings.json` (自分だけなら `.claude/settings.local.json`) にマージする。効いているかは、Claude に `touch ~/sandbox-probe` を実行させて 失敗する (macOS は `Operation not permitted`、Linux・WSL2 は `Read-only file system`) ことで確かめる (公式の確認手順。`!` から自分で打つと sandbox の外で動くので確認にならない)。
    - Bash の書き込みは作業ディレクトリと `$TMPDIR` に限られる (sandbox の既定)。`Write` / `Edit` も `permissions.blockWritesOutsideWorkingDirectories` で作業ディレクトリの外を拒否する (Claude Code v2.1.314 以降)
    - Bash の通信は `allowedDomains` (GitHub と npm・PyPI のレジストリ) だけが確認なしで通る。ほかのホストは許可モードに応じて確認か拒否になり、`bypassPermissions` モードでは確認なしで通る。確認ではなく拒否にしたいときは `"sandbox": {"network": {"strictAllowlist": true}}` を `~/.claude/settings.json` に書く (プロジェクトの設定ファイルでは効かない)。このときプロジェクトの `allowedDomains` は無視されるので、雛形の `allowedDomains` も `~/.claude/settings.json` に移す。使うレジストリが違えば `allowedDomains` を書き換える。`github.com` のような広いドメインを許すと、そこへデータを送り出す経路は残る (公式の Security limitations)
+   - npm と pip は既定のキャッシュ (`~/.npm`、macOS の pip は `~/Library/Caches/pip`) に書けない。npm は `EPERM` で失敗し、pip は警告を出してキャッシュなしで動く。どちらかで対処する
+     - コマンドごとに `$TMPDIR` の下を使う (`npm --cache "$TMPDIR/npm-cache" ...`、`PIP_CACHE_DIR="$TMPDIR/pip-cache" pip ...`): 共有のキャッシュに触れないが、セッションをまたいで再利用されない
+     - `sandbox.filesystem.allowWrite` に `~/.npm` などを足す: キャッシュが残るが、sandbox 内のコマンドがほかのプロジェクトと共有するキャッシュを書き換えられるようになる
    - `~/.ssh`・`~/.aws`・`~/.config/gh`・`~/.netrc`・git の credential store (`~/.git-credentials`・`~/.config/git/credentials`) は sandbox 内のコマンドから読めない。認証情報の既定の拒否リストは無いので、ほかの認証情報のパスは利用側で足す。SSH の鍵が読めないため、git の remote は HTTPS にする
    - sandbox が使えない環境では起動を止め (`failIfUnavailable`)、エージェントによる sandbox の外での再実行を許さない (`allowUnsandboxedCommands: false`)。sandbox の外で動かす必要があるコマンドは `excludedCommands` に足す。足したコマンドは利用者の全権限で動く
    - sandbox がかかるのは Bash のコマンドだけ。`Read` ツールには効かないので、雛形は同じ認証情報のパスを `permissions.deny` の `Read(...)` でも拒否している。ほかに `Read` ツールで読ませたくないファイルも `permissions.deny` に書く
