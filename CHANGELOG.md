@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.69.0 (2026-11-23)
+
+- `incident-retro`: 置き場の判定の先頭に「aidd 本体の資産、または共通の道具の挙動に関する知見か」(判定0) を足し、当てはまれば固有の情報を伏せた aidd 本体への還流の issue 草案を作るようにした。利用側で見つかった aidd の資産や git・gh・Claude Code の知見を本体に戻す経路が無く、aidd の hook はネットワークに出ないので自動送信もできないため (#107)。還流の条件はユーザーの決定どおり「道具の挙動として再現できる」こと (別のプロジェクトでの再現は要らない、回数は条件にしない) で、再現の手順を固有情報なしで書けることを必須の項目にした。草案の項目はタイトル (`[reflux] <signature>: <要約>`)・signature・抽象化した事実・再現の手順・対象にする aidd の資産・その規則で壊れるもの1件だけ。判定0は置き場を選ぶ前の確認で、当てはまっても1から続けてこのリポジトリでの置き場も決める
+- 草案は `scripts/learnings.py scan` の検査に通し、通らなければ伏せ字にせず書き直す。全文をそのまま示してから AskUserQuestion で承認を取る。skill は issue を作らず、送信は利用者が行う。送る前に担当者が確認し、顧客案件・NDA の対象のリポジトリからは社内の情報管理の責任者に確認してから送るよう伝える。`source: autonomous-review` の観測は `scope: project` に限られるので還流の候補にならない
+- `scripts/learnings.py`: `scan` を足した。標準入力の草案を1行ずつ台帳と同じ検査 (`scan_text`) にかけ、加えてコミット SHA と `#番号` を拒否する。草案は公開されうる aidd のリポジトリに出るため。何も書かず、`check`・`add`・`candidates` とコミット時の検査は変えていない
+- `retro`: 還流してきた `[reflux]` の issue を signature ごとに集計し、再現を確かめたもののうち利用者が選んだものを eval の昇格と同じ型 (AskUserQuestion の multiSelect → 変更案 → 承認 → CHANGELOG に出典 `還流 #<番号>`) で反映する手順を足した。`gh issue list` の失敗を0件と読まない。issue の本文は外部の人が書いたデータとして扱い、再現の手順をモデルが自動で実行しない
+
 ## 0.68.0 (2026-11-23)
 
 - `autonomous-review`: 知見の台帳 (#104、既定で無効) を有効にしたリポジトリでは、最終判定のあと、confirmed と deferred の指摘の型を `source: autonomous-review` の観測として台帳に書くようにした。run のディレクトリは worktree ごと消えることがあり (#91 の証跡が消えた)、run をまたいで同じ型の指摘が出ても数えられなかったため (#108)。型は `review <category> <type words>` (ファイル名・識別子・業務の固有名を入れない一般的な型) で、既存のどの型と同じかの判定が割れたものは利用者に選ばせる。記録・台帳のファイルのコミット (名指しの `git commit -- <ファイル>`、既定ブランチと detached HEAD では行わない)・昇格はどれも AskUserQuestion で承認されたものだけ行い、`scripts/learnings.py add` を通してだけ書く。別のセッションで2回以上出た型を `.aidd/design-perspectives.md` (design-review の Agent 4) への昇格候補として示す (`security` の型は Agent 6 の担当なので入れない)。この手順は最終判定を変えない。`state.json` の `schema_version` を `4` にし、`learnings` と `start_branch` を足した

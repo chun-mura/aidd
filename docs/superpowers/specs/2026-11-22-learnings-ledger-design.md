@@ -121,6 +121,9 @@ hook が書いてよいのは `~/.claude/aidd/` だけという方針は変え�
   - 残るリスク: 同じ memory を取り込み直すと、同じ観測のファイルが台帳に重複しうる。`session` に残る `originSessionId` の12桁のハッシュは、セッション ID (UUID) を知らない人には元に戻せない。ただし生のセッション ID を持つ人 (同じマシンの transcript や memory を読める人) は、ハッシュを計算して台帳の観測と照合できる。Codex・Cursor で使う代わりの ID (実行の開始時刻) は取りうる値が少ないので、総当たりで元の値に戻せる。ハッシュに固定の値を混ぜる対策は `learnings.py` の変更になるので、今回はしない。
 - #106 (asset-audit): 昇格の記録 (`promotions/`) ができてから、それを読んで memory の削除候補を出す。検査に `promotions/` の規則を足すのは #106 か昇格の記録を作る変更。
 - #107 (還流): `scope` が `tool`・`aidd` の観測を草案の候補にする。草案に入れる signature・事実は検査を通ったものなので、固有の情報を伏せる手間が減る。
+  - 実装: incident-retro の置き場の判定の先頭 (判定0) で、aidd の資産か共通の道具の挙動の知見なら、台帳の有効・無効に関係なく issue の草案を作る。条件はユーザーの決定どおり「道具の挙動として再現できる」ことで、再現の手順を固有情報なしで書けることを必須の項目にした。回数は条件にしない。`source: autonomous-review` の観測は `scope: project` に限られ、`review` の signature もほかの source では使えないので、還流の候補にならない。
+  - 草案の検査: `learnings.py scan` を足した。草案の全文を1行ずつ `scan_text` (台帳と同じ規則) にかけ、加えてコミット SHA と `#番号` (利用側の証拠) を拒否する。何も書かず、台帳の有効化も要らない。`check`・`add`・`candidates` とコミット時の検査は変えていない (4層は弱めていない)。
+  - 送信は人が行う。skill は issue を作らない。本体側では `/aidd:retro` が `[reflux]` の issue を集計し、eval の昇格と同じ型で反映する。
 - #108 (autonomous-review): `source: autonomous-review` で `add` を呼び、指摘の型を `signature` に入れる。語の規則は広げず、上の「`autonomous-review` の観測」の規則で狭めた。数え方 (`candidates`) は変えない (review の型を autonomous-review だけのものにしたので、signature だけで束ねても source が混ざらない)。型の正規化 (既存のどの型と同じか) の判定が割れたものは利用者に選ばせ、記録が承認されて書けた型だけを書いたあとに数え直し、2回以上の型を `.aidd/design-perspectives.md` への昇格候補として示す。追記する文はそのまま利用者に示して承認を取り、ほかの人の `fact` を文の材料にしない。incident-retro の置き場の選択肢に「利用側のレビュー観点」を足すのは、#105 と同時に incident-retro を変えないため、#108 では行っていない。
 
 ## 検証

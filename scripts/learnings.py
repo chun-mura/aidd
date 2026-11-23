@@ -3,6 +3,7 @@
 
 Run with `python3 -I` (standard library only). The same check_document() backs the write
 (`add`, called by /aidd:incident-retro and /aidd:autonomous-review) and the commit-time check in hooks/scripts/tool-reminder.sh.
+`scan` puts a reflux draft for the aidd repository (#107) through the same pattern check, line by line.
 A finding is rejected, never masked, and its reason never repeats the offending value.
 Design: docs/superpowers/specs/2026-11-22-learnings-ledger-design.md
 """
@@ -243,6 +244,28 @@ def display_name(name):
     return name if FILE_NAME.match(name) else "(a file under .aidd/learnings/ whose name breaks the pattern)"
 
 
+# A reflux draft (#107) leaves the using repository for the aidd one, which may be public. It cites
+# no evidence of the using repository, so on top of scan_text it rejects commit SHAs and #numbers.
+MAX_DRAFT_BYTES = 16384
+DRAFT_EVIDENCE = re.compile(
+    r"(?<![\w#])#[0-9]+(?!\w)"
+    r"|(?<![0-9A-Za-z])(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}(?![0-9A-Za-z])", re.A)
+
+
+def scan_draft(text):
+    """Return the rules a reflux draft breaks, one reason per line and rule, never the value."""
+    if not text.strip():
+        return ["draft: empty"]
+    errors = []
+    for number, line in enumerate(text[:-1].split("\n") if text.endswith("\n") else text.split("\n"), 1):
+        field = f"line {number}"
+        found = scan_text(field, line)
+        if not found and DRAFT_EVIDENCE.search(unicodedata.normalize("NFKC", line)):
+            found = [f"{field}: contains a commit SHA or #number of the using repository"]
+        errors += found
+    return errors
+
+
 # --- repository helpers ----------------------------------------------------------------------
 
 def _git(repo, *args, binary=False):
@@ -406,6 +429,24 @@ def cmd_candidates(args):
     return 0
 
 
+def cmd_scan(args):
+    raw = sys.stdin.buffer.read(MAX_DRAFT_BYTES + 1)
+    if len(raw) > MAX_DRAFT_BYTES:
+        errors = [f"draft: larger than {MAX_DRAFT_BYTES} bytes"]
+    else:
+        try:
+            errors = scan_draft(raw.decode("utf-8"))
+        except UnicodeDecodeError:
+            errors = ["draft: not valid UTF-8"]
+    if errors:
+        print("rejected (rewrite the draft; do not mask it):", file=sys.stderr)
+        for error in errors:
+            print(f"  {error}", file=sys.stderr)
+        return 1
+    print("draft passed the check")
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -420,8 +461,9 @@ def main(argv=None):
     cand.add_argument("--session-id")
     cand.add_argument("--signature", action="append", default=[])
     cand.add_argument("--all", action="store_true", help="print every counted signature, not only candidates")
+    sub.add_parser("scan", help="check a reflux draft from stdin line by line; exit 1 if rejected (writes nothing)")
     args = parser.parse_args(argv)
-    return {"check": cmd_check, "add": cmd_add, "candidates": cmd_candidates}[args.command](args)
+    return {"check": cmd_check, "add": cmd_add, "candidates": cmd_candidates, "scan": cmd_scan}[args.command](args)
 
 
 if __name__ == "__main__":

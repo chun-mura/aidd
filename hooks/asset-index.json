@@ -54,7 +54,7 @@
     {
       "kind": "skill",
       "name": "incident-retro",
-      "description": "セッションで起きた事故を棚卸しし、再発防止の置き場 (コード・hook・CLAUDE.md・memory・コマンド・ADR・issue) を決めて定着させる"
+      "description": "セッションで起きた事故を棚卸しし、再発防止の置き場 (コード・hook・CLAUDE.md・memory・コマンド・ADR・issue) を決めて定着させる。aidd や共通の道具の知見は、固有情報を伏せた還流の issue 草案にする"
     },
     {
       "kind": "skill",
@@ -94,7 +94,7 @@
     {
       "kind": "skill",
       "name": "retro",
-      "description": "aidd 資産の棚卸し。利用実績と陳腐化した資産を洗い出す"
+      "description": "aidd 資産の棚卸し。利用実績と陳腐化した資産を洗い出し、利用側から還流した issue を集計して選ばれたものを反映する"
     },
     {
       "kind": "skill",

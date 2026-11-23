@@ -509,4 +509,65 @@ set -e
 [ "$status" -eq 4 ]
 grep -F 'could not list the ledger on the default branch' "$tmp_dir/t2.err"
 
+# --- scan: a reflux draft for the aidd repository (#107) ------------------------------------
+# The draft goes outside the using repository, so it gets the same pattern check line by line,
+# and cites no evidence of the using repository (commit SHA, #number). No git repository or
+# enabled ledger is needed, and nothing is written.
+draft_ok='[reflux] git stash: a shared worktree loses another session'"'"'s edits
+
+## signature
+git stash
+
+## 起きたこと
+Two sessions shared one worktree; git stash in one session hid the other session'"'"'s edits.
+
+## 再現の手順
+1. git init in an empty directory, edit a tracked file, run git stash from a second shell.
+
+## 対象にする aidd の資産
+hooks/scripts/tool-reminder.sh (/aidd:incident-retro)
+
+## その規則で壊れるもの
+A single-session worktree where stashing is intended.'
+out=$(cd "$tmp_dir" && printf '%s\n' "$draft_ok" | python3 -I "$script" scan)
+printf '%s\n' "$out" | grep -F 'draft passed the check'
+[ -z "$(find "$tmp_dir" -name '__pycache__')" ]
+scan_reject() {  # scan_reject LABEL RULE TEXT: rejected (exit 1), reason names the rule, not the value
+  local label=$1 rule=$2 text=$3 got status
+  set +e
+  got=$(printf '%s\n%s\n' "$draft_ok" "$text" | python3 -I "$script" scan 2>&1)
+  status=$?
+  set -e
+  if [ "$status" -ne 1 ] || ! printf '%s\n' "$got" | grep -Fq -- "$rule"; then
+    echo "scan should reject with $rule: $label (exit $status): $got" >&2
+    exit 1
+  fi
+  if printf '%s\n' "$got" | grep -Fq -- "$text"; then
+    echo "scan echoed the rejected value: $label" >&2
+    exit 1
+  fi
+}
+scan_reject "URL" "URL" "See https://intra.zz/run/42 for the log."
+scan_reject "absolute path" "absolute path" "It failed under /work/customer-app/src."
+scan_reject "email" "email address" "Reported by someone@mailhost.zz."
+scan_reject "token" "token prefix" "Value gh""p_Ab3dE5gH7jK9mN1pQ3sT5vX7zA9cE1gH3jK5 leaked."
+scan_reject "issue number" "commit SHA or #number" "Same as #123 in our tracker."
+scan_reject "full-width issue number" "commit SHA or #number" "Same as ＃１２３ in our tracker."
+scan_reject "short SHA" "commit SHA or #number" "Reverted in 1a2b3c4 later."
+scan_reject "company" "company name" "Seen at Sample Inc. last week."
+scan_reject "tab" "invisible or control character" "$(printf 'col\tcol')"
+# Reasons point at the line, so the rewrite can find it without the value being repeated.
+set +e
+got=$(printf 'clean line\nSee https://intra.zz/x\n' | python3 -I "$script" scan 2>&1)
+set -e
+printf '%s\n' "$got" | grep -F 'line 2: contains a URL'
+# Not valid UTF-8, empty: rejected.
+set +e
+printf '\xff\xfe\n' | python3 -I "$script" scan >/dev/null 2>&1
+s1=$?
+printf '\n' | python3 -I "$script" scan >/dev/null 2>&1
+s2=$?
+set -e
+[ "$s1" -eq 1 ] && [ "$s2" -eq 1 ]
+
 echo "learnings-test: ok"
