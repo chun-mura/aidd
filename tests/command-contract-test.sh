@@ -52,6 +52,11 @@ grep -F -- '機微情報 (個人情報・プロンプト・認証情報など) �
 grep -F -- 'stored in files, logs, or caches that other users or processes may read' "$repo_root/agents/security-reviewer.md"
 grep -F -- 'または機微情報をファイル・ログ・キャッシュに保存する場合は、レビュー結果の最後に実装後の `/security-review`' "$design_review"
 grep -F -- 'or store sensitive data in files, logs, or caches. Launched' "$repo_root/agents/security-reviewer.md"
+# The implementation-side security checks use the same storage condition as Agent 6, so a
+# design flagged at design time is not dropped at implementation time (#110).
+grep -F -- '公開エンドポイント、権限設定)、または機微情報 (個人情報・プロンプト・認証情報など) をファイル・ログ・キャッシュに保存する。' "$issue_implement"
+grep -F -- '外部公開エンドポイント) に触れる場合、または機微情報 (個人情報・プロンプト・認証情報など) をファイル・ログ・キャッシュに保存する場合のみ出力する' "$test_perspectives"
+grep -F -- '保存先の権限 (他のユーザー・プロセスから読めないか)' "$test_perspectives"
 grep -F -- '初回を含めて最大3ラウンド' "$review_loop"
 grep -F -- 'deferred mid' "$review_loop"
 grep -F -- '`/aidd:issue-split`' "$review_loop"

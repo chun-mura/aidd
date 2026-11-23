@@ -239,7 +239,7 @@ jobs:
 | `doctor/` | aidd/superpowers の導入状態・バージョン整合・hooks 実行可否・Codex custom agents の導入を診断する。利用側の sandbox 設定も見て、`sandbox.enabled` が true でなければ、`gh` を `excludedCommands` で sandbox の外に出していれば、また sandbox の中の `gh` に `GH_TOKEN`・`GITHUB_TOKEN` か (macOS では) `SSL_CERT_FILE`・`GH_CONFIG_DIR` が無ければ WARN を出す (token の値は表示しない)。項目1–2（`claude plugin list` と `installed_plugins.json`）と sandbox 設定の項目は Claude Code 以外ではスキップして「Claude Code のみ」と書く | `/aidd:doctor` | `$aidd:doctor` | `/doctor` |
 | `infra-audit/` | 利用側プロジェクトの静的解析(複雑度制御)・重複コード検出(jscpd/knip)・多OS CI の導入状況を診断する。doctor が aidd 自身を診断するのに対し、こちらは利用側プロジェクトの品質ガードを対象とする | `/aidd:infra-audit` | `$aidd:infra-audit` | `/infra-audit` |
 | `issue-implement/` | issue 1本を着手ゲート (要件が受領した原文か起票時の推測か、ADR の決定の節) → 曖昧さの3分類 (仕様の選択だけを人に上げる) → レーン判定 (行数でなくスキーマ・エントリポイント・認可・画面・採否・ファイル数で設計から入るか決める) → 実装 → 条件付きレビュー追加 → 完了条件の順に進める入口。実装の中身は superpowers と aidd の既存資産に委ねる。完了前に差分を設計書の配置と照らし、配置からのずれと責務の集中を確かめる。deferred を issue か棄却一覧に落とすまで完了にしない。完了報告に観点とテストの対応表 (must は全件、前提を壊して落ちたか、未実装の理由) を書く。push・PR作成は行わない | `/aidd:issue-implement` | `$aidd:issue-implement` | `/issue-implement` |
-| `test-perspectives/` | 実装対象・変更差分からテスト観点 (6分類 + 信頼境界に触れる変更のみセキュリティ分類) を洗い出し、BVA/ECP 適用フラグを付ける (手法の導出は stdd の担当) | `/aidd:test-perspectives` | `$aidd:test-perspectives` | `/test-perspectives` |
+| `test-perspectives/` | 実装対象・変更差分からテスト観点 (6分類 + 信頼境界に触れる変更・機微情報をファイル・ログ・キャッシュに保存する変更のみセキュリティ分類) を洗い出し、BVA/ECP 適用フラグを付ける (手法の導出は stdd の担当) | `/aidd:test-perspectives` | `$aidd:test-perspectives` | `/test-perspectives` |
 
 ### Agents (サブエージェント定義)
 
