@@ -151,7 +151,7 @@ printf '%s' "$input" | CLAUDE_PROJECT_DIR="$tmp_dir/wt" AIDD_TEST_STATE_DIR="$wt
 wt_key=$(basename "$(find "$wt_state/projects" -mindepth 1 -maxdepth 1)")
 audit_md="$repo_root/skills/asset-audit/SKILL.md"
 [ "$(grep -cF 'rev-parse --path-format=absolute --git-common-dir' "$audit_md")" -eq 3 ]
-audit_key=$(cd "$tmp_dir/wt" && env -u CLAUDE_PROJECT_DIR bash -c "$(awk '/^project_root=/{p=1} p{print} /^project_key=/{exit}' "$audit_md"); printf '%s' \"\$project_key\"")
+audit_key=$(cd "$tmp_dir/wt" && env -u CLAUDE_PROJECT_DIR bash -c "$(awk '/^\*\*2\./{s=1} s && /^project_root=/{p=1} p{print} p && /^project_key=/{exit}' "$audit_md"); printf '%s' \"\$project_key\"")
 [ "$audit_key" = "$wt_key" ]
 
 # The audit's step 2 counts only failures within the interval (an old error no longer keeps
@@ -173,24 +173,68 @@ step2=$(awk '/^\*\*2\./{p=1} p && /^```bash/{q=1; next} q && /^```/{exit} q{prin
   grep -Fx 'lint.jsonl error=1 killed=1 unpaired_start=1'
 
 # The audit's step 1 lists the auto memory of the same repository (shared by its worktrees):
-# each memory file with its type and whether MEMORY.md names it, and never the memory body.
+# each memory file with its type, whether a MEMORY.md link names it, and its date, and never
+# the memory body. Names outside [A-Za-z0-9._-] are only counted, so a name cannot forge a line.
 memory_dir="$fake_home/.claude/projects/$wt_key/memory"
 mkdir -p "$memory_dir"
-printf '%s\n' '- [Data](data.md) - indexed' '- [Gone](gone.md) - file removed' > "$memory_dir/MEMORY.md"
+printf '%s\n' '- [Data](data.md) - indexed' '- [Other](sub/a.md) - same name, other path' \
+  '- [Quoted](./quoted.md)' '- [Gone](gone.md) - file removed' > "$memory_dir/MEMORY.md"
 printf '%s\n' '---' 'name: data' 'metadata:' '  node_type: memory' '  type: project' '---' 'BODY_SENTINEL' > "$memory_dir/data.md"
 printf '%s\n' '---' 'name: a' 'type: feedback' '---' 'BODY_SENTINEL' > "$memory_dir/a.md"
 printf '%s\n' '---' 'type: BODY_SENTINEL' '---' 'type: user' > "$memory_dir/odd.md"
 printf '%s\n' 'BODY_SENTINEL' 'type: user' > "$memory_dir/plain.md"
+printf '%s\n' '---' 'type: "reference"' '---' > "$memory_dir/quoted.md"
+printf '%s\n' '---' 'type: user # set by hand' 'metadata:' '  type: project' '---' > "$memory_dir/top.md"
+printf '%s\n' '---' 'links:' '  type: user' 'metadata:' '  extra:' '    type: user' '---' > "$memory_dir/nested.md"
+printf '%s\n' '---' 'type: user' '---' > "$memory_dir/bad name.md"
+printf '%s\n' '---' 'type: user' '---' > "$memory_dir/evil"$'\n'"fake.md type=user indexed modified=2020-01-01.md"
+touch -t 202001020304 "$memory_dir"/*.md
 step1=$(awk '/^\*\*1\./{p=1} p && /^```bash/{q=1; next} q && /^```/{exit} q{print}' "$audit_md")
 memory_out=$(cd "$tmp_dir/wt" && env -u CLAUDE_PROJECT_DIR -u CLAUDE_CONFIG_DIR HOME="$fake_home" bash -c "$step1")
-[ "$memory_out" = "a.md type=feedback unindexed
-data.md type=project indexed
-odd.md type=other unindexed
-plain.md type=none unindexed" ] || { echo "asset-audit memory listing: $memory_out" >&2; exit 1; }
+[ "$memory_out" = "a.md type=feedback unindexed modified=2020-01-02
+data.md type=project indexed modified=2020-01-02
+nested.md type=none unindexed modified=2020-01-02
+odd.md type=other unindexed modified=2020-01-02
+plain.md type=none unindexed modified=2020-01-02
+quoted.md type=reference indexed modified=2020-01-02
+top.md type=user unindexed modified=2020-01-02
+2 file(s) outside the naming rule [A-Za-z0-9._-] (names not shown)" ] \
+  || { echo "asset-audit memory listing: $memory_out" >&2; exit 1; }
 # CLAUDE_CONFIG_DIR moves the projects directory; without memory the listing says so.
 memory_out=$(cd "$tmp_dir/wt" && env -u CLAUDE_PROJECT_DIR HOME="$fake_home" CLAUDE_CONFIG_DIR="$tmp_dir/nocfg" bash -c "$step1")
-[ "$memory_out" = "no auto memory at $tmp_dir/nocfg/projects/$wt_key/memory" ] \
+[ "$memory_out" = "no auto memory at $tmp_dir/nocfg/projects/$wt_key/memory (no such directory: no memory here, or the key differs)" ] \
   || { echo "asset-audit memory listing without memory: $memory_out" >&2; exit 1; }
+# The memory key does not depend on the shell locale: one "-" per non-ASCII character (BMP).
+"${git_env[@]}" git init -q "$tmp_dir/日本"
+real_tmp=$(cd "$tmp_dir" && pwd -P)
+mkdir -p "$fake_home/.claude/projects/${real_tmp//[^A-Za-z0-9]/-}---/memory"
+memory_out=$(cd "$tmp_dir/日本" && env -u CLAUDE_PROJECT_DIR -u CLAUDE_CONFIG_DIR LC_ALL=C HOME="$fake_home" bash -c "$step1")
+[ -z "$memory_out" ] || { echo "asset-audit memory key for a non-ASCII path: $memory_out" >&2; exit 1; }
+# A git common directory that does not end in .git (a separate git dir) leaves the key undetermined.
+"${git_env[@]}" git init -q --separate-git-dir "$tmp_dir/sepdir" "$tmp_dir/sep"
+memory_out=$(cd "$tmp_dir/sep" && env -u CLAUDE_PROJECT_DIR HOME="$fake_home" bash -c "$step1")
+[ "$memory_out" = "auto memory location undetermined (the git common directory does not end in .git)" ] \
+  || { echo "asset-audit memory listing with a separate git dir: $memory_out" >&2; exit 1; }
+
+# The ledger step passes only signature and sessions on (never facts or file names), reports
+# the exit code of learnings.py candidates, and reads nothing while the ledger is disabled.
+ledger="$tmp_dir/ledger"
+"${git_env[@]}" git init -q -b main "$ledger"
+mkdir -p "$ledger/.aidd/learnings"
+for obs in 20261122T031500Z-1a2b3c4d:aaaaaaaaaaaa 20261122T031600Z-5e6f7a8b:bbbbbbbbbbbb; do
+  printf '{"schema_version": 1, "source": "incident-retro", "scope": "tool", "status": "observed", "signature": "git stash", "fact": "台帳の事実の目印", "evidence": [], "session": "%s"}\n' \
+    "${obs#*:}" > "$ledger/.aidd/learnings/${obs%%:*}.json"
+done
+"${git_env[@]}" git -C "$ledger" add .aidd
+"${git_env[@]}" git -C "$ledger" -c user.name=t -c user.email=t@t commit -q -m ledger
+ledger_step=$(awk '/^\*\*台帳との照合\*\*/{p=1} p && /^```bash/{q=1; next} q && /^```/{exit} q{print}' "$audit_md")
+ledger_step=${ledger_step//<learnings.py>/$repo_root/scripts/learnings.py}
+ledger_out=$(cd "$ledger" && "${git_env[@]}" bash -c "$ledger_step")
+[ "$ledger_out" = "learnings ledger disabled" ] || { echo "asset-audit ledger step while disabled: $ledger_out" >&2; exit 1; }
+"${git_env[@]}" git -C "$ledger" config aidd.learnings true
+ledger_out=$(cd "$ledger" && "${git_env[@]}" bash -c "$ledger_step")
+[ "$ledger_out" = '{"signature": "git stash", "sessions": 2}
+exit=0' ] || { echo "asset-audit ledger step: $ledger_out" >&2; exit 1; }
 
 # The hook id becomes a file name, so path characters are neutralized.
 printf '%s' "$input" | run_wrapped '../escape' "$fake_hook" 0 > /dev/null 2>&1

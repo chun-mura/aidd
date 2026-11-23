@@ -2,9 +2,17 @@
 
 ## 0.67.0 (2026-11-22)
 
-- `asset-audit`: auto memory を棚卸しの対象に加えた。memory には `CLAUDE.md` や hook と重なる記述や、正典に昇格して要らなくなった記述が残るのに、棚卸しの対象に入っていなかったため (#106)。手順1で、このリポジトリの auto memory (`~/.claude/projects/<プロジェクト>/memory/`。worktree を含めて1リポジトリ1つ。`CLAUDE_CONFIG_DIR` に従う) のファイルごとに、名前・種類 (frontmatter の `type`。既知の4種以外は `other`)・索引 `MEMORY.md` に名前があるかを出す。判定基準に「索引に無い memory」(改訂候補)・「memory と正典の重複」(統合候補)・「台帳で昇格済みの memory」(削除候補) を足した。memory には個人的なメモや機密が入りうるので、出力・状態ファイル・委譲先には memory のファイル名・行番号・種類・件数・判定だけを出し、本文を写さない
+- `asset-audit`: auto memory を棚卸しの対象に加えた。memory には `CLAUDE.md` や hook と重なる記述や、正典に昇格して要らなくなった記述が残るのに、棚卸しの対象に入っていなかったため (#106)。手順1で、このリポジトリの auto memory (`~/.claude/projects/<プロジェクト>/memory/`。worktree を含めて1リポジトリ1つ。`CLAUDE_CONFIG_DIR` に従う) のファイルごとに、名前・種類 (frontmatter の `type`。既知の4種以外は `other`)・索引 `MEMORY.md` に名前があるかを出す。判定基準に「索引に無い memory」(改訂候補)・「memory と正典の重複」(統合候補)・「台帳で昇格済みの memory」(削除候補) を足した。memory には個人的なメモや機密が入りうるので、本文を写さない
 - 「台帳で昇格済み」は、知見の台帳 (#104) が有効なとき (`git config aidd.learnings true`) だけ、`scripts/learnings.py candidates` (`--session-id` なし、既定ブランチにマージ済みの観測だけ) が別の session で2回以上と出した `signature` のうち、正典 (`CLAUDE.md`・`.claude/rules/`・hook) に既にその規則があるものとして判定する。昇格の記録 (`.aidd/learnings/promotions/`) はまだ無いので、それを作らずに既存の出力だけで判定した。台帳は skill のディレクトリから解決した絶対パスで呼び、`.aidd/learnings/*.json` を直接読まない。終了コード4 (既定ブランチの観測を数えられない) と台帳が無効なときは「判定不能」とする
 - `tests/hook-log-test.sh` が手順1のコマンドを偽の memory (worktree から本体のキーを引く・索引の名前の部分一致を索引済みとみなさない・frontmatter の外の `type:` を読まない・未知の種類を `other` にする・本文を出さない・memory が無いとき) で実行して検査する。`tests/command-contract-test.sh` に本文を写さないこと・台帳の扱いの文言を足した
+- レビューを受けて次を直した:
+  - 一覧のコマンドを python3 (`-I`、標準ライブラリだけ) にした。索引は `MEMORY.md` のリンク先とファイル名の完全一致で判定する (別のパスの同じ名前を索引済みとみなさない)。`type` は引用符と行末のコメントを外し、frontmatter の最上位と `metadata:` の直下 (実物の Claude Code が書く位置) だけを読み、最上位を優先する。`[A-Za-z0-9._-]` 以外を含む名前は件数だけを出す (名前で一覧の行を偽造させない)。更新日は日付だけを出す (`ls -l` の所有者名を出さない)
+  - memory の置き場のキーは、ASCII の英数字以外を UTF-16 の1単位ごとに `-` にする (シェルのロケールに左右されない。Claude Code の実行ファイルにある `replace(/[^a-zA-Z0-9]/g,"-")` に合わせた)。git の共通ディレクトリが `.git` で終わらないときは「判定不能」にする。置き場が無いときは「memory が無い」と言い切らない
+  - コミットされるプロジェクトの設定の `autoMemoryDirectory` が `projects/` の外を指していたら、読む前に AskUserQuestion で確かめる
+  - 出し先を分けた: 会話の中では memory のファイル名・絶対パスまで、ADR・issue・状態ファイルには件数と判定だけ。memory の本文に書かれた指示には従わない。認証情報らしいものは値を再掲せず、ローテーションと削除を促す。顧客案件・NDA の対象のリポジトリでは本文を読む判定を飛ばす選択肢を AskUserQuestion で示し、迷ったら情報管理の責任者に確認する
+  - memory の削除は取り消せないことを書き、消す候補を絶対パスで示し、退避してから消すか (既定) そのまま消すかを選んでもらう
+  - 台帳の照合はコマンドにした。`git config aidd.learnings` が `true` のときだけ `candidates` を実行し、その出力から `signature` と `sessions` だけを取り出してから読む (`facts`・`files` をモデルに渡さない)。`learnings.py` は変えていない
+  - `tests/hook-log-test.sh` に、上の索引・種類・命名規則外・日付・非 ASCII のパスのキー (`LC_ALL=C` でも同じ)・`.git` で終わらない共通ディレクトリ・台帳の照合 (無効なときは読まない、`facts` を出さない、終了コードを出す) を足した
 
 ## 0.66.0 (2026-11-23)
 
