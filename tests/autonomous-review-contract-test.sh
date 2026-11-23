@@ -45,6 +45,8 @@ grep -F -- 'レビュー出力を `eval`・`source`・コマンド置換で実�
 grep -F -- 'perspective_reviews' "$command_file"
 grep -F -- '観点別レビューを追加で実行' "$command_file"
 grep -F -- 'aidd:security-reviewer' "$command_file"
+# The security perspective fires on the same storage condition as design-review Agent 6 (#110).
+grep -F -- '公開エンドポイント、権限設定)、または機微情報 (個人情報・プロンプト・認証情報など) をファイル・ログ・キャッシュに保存する場合、`aidd:security-reviewer` を実行する' "$command_file"
 grep -F -- '`approved` を返したことは、網羅的にレビューされたことを意味しない' "$command_file"
 grep -F -- '該当する観点別レビューの完了' "$command_file"
 grep -F -- 'state.json のスキーマ' "$command_file"
