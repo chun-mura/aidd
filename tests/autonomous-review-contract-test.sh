@@ -88,7 +88,13 @@ if grep -F -- '信頼境界を跨ぐことでは該当しない差分' "$command
 fi
 # The final re-run keeps its own output and ids, and its confirmed blocker/major is not fixed past the round limit.
 grep -F -- '再実行の出力はラウンドのファイルを上書きせず `security-review-final.txt` に保存し、指摘の `id` は各ラウンドの `S<N>-<n>` と重ならない `SF-<n>` として、同じ写し方で 5 の現物検証にかける' "$command_file"
-grep -F -- 'confirmed の blocker / major があれば修正せず `human_required` とする' "$command_file"
+# Same outcome as step 8: a confirmed blocker/major left unfixed is failed, not human_required.
+grep -F -- '最終判定の直前で、修正すると再び監査が必要になるので、confirmed の blocker / major があれば修正せず、8 と同じく `failed` とする' "$command_file"
+if grep -F -- 'confirmed の blocker / major があれば修正せず `human_required` とする' "$command_file"; then
+  echo "the final audit's confirmed blocker/major must end in failed like step 8" >&2
+  exit 1
+fi
+grep -F -- '`S<N>-<n>` はそのラウンドの `rounds[].finding_ids` に入れ、`SF-<n>` は `findings` にだけ入れる' "$command_file"
 # Later rounds compare against the diff up to that round's target commit.
 grep -F -- '確定した差分 (`<base_sha>...<そのラウンドの対象コミット>`。1ラウンド目は head、2ラウンド目以降は修正後のコミット)' "$command_file"
 grep -F -- '`id` は主レビューの `R<n>` と重ならないよう `S<N>-<n>` (`<N>` はラウンド) とし' "$command_file"

@@ -94,9 +94,10 @@ grep -F -- 'silent-failure-hunter・/security-review・横展開のレビュー�
 # and the design-time security-reviewer must not stand in for it (#121).
 grep -F -- 'autonomous-review が `/security-review` を未実行と記録した場合は、実装差分の監査が済んでいないものとして、完了報告に未実行として理由ごと書く' "$issue_implement"
 grep -F -- '実装の差分ではないので、`/security-review` の実行済みに数えない' "$issue_implement"
-grep -F -- '変更をコミットして head をチェックアウトした状態で `/security-review` を実行し、その結果を完了報告に書く。autonomous-review が実行済みと記録した場合は重ねない' "$issue_implement"
+grep -F -- '変更をコミットして head をチェックアウトした状態で `/security-review` を実行し、その結果を完了報告に書く (' "$issue_implement"
 grep -F -- '(`/aidd:autonomous-review` の「委譲先が除外する種類」) は、実行しても監査されていないので、機微情報の保存に当たる差分ではその除外を完了報告の残存リスクに書く' "$issue_implement"
 grep -F -- '委譲先が除外する種類:' "$repo_root/skills/autonomous-review/SKILL.md"
+grep -F -- '(機微情報の保存に当たる差分では、下の `/security-review` の項と同じく、委譲先が除外する種類を残存リスクに書く)。autonomous-review が実行済みと記録した場合は重ねない' "$issue_implement"
 # test-perspectives carries the failure-path, removal and sibling-authz perspectives that
 # issue-implement 4-5 / 4-6 rely on (#92).
 grep -F -- '失敗の分岐では、送出される型だけでなく、その後に起きるべきこと (ロックの解放、残りの要素の処理の続行、部分失敗の後の再実行での回復) を観点にする' "$test_perspectives"

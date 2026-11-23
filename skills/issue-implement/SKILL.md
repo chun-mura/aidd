@@ -54,7 +54,7 @@ GitHub issue を1本、着手から完了報告まで進めてください。使
 
 ## 5. レビュー
 
-`superpowers:requesting-code-review` でレビューを受け、指摘への対応は `superpowers:receiving-code-review` に、反復の終了条件は `review-loop` skill に従う。自動マージ可否の判定まで要るなら、代わりに `/aidd:autonomous-review` を使う (観点別レビューと deferred の追跡を内包するので、下の追加分のうち silent-failure-hunter・/security-review・横展開のレビューは重ねない)。autonomous-review が `/security-review` を未実行と記録した場合は、実装差分の監査が済んでいないものとして、完了報告に未実行として理由ごと書く。未実行の理由が対象の範囲 (作業ツリーの差分だけ、head がチェックアウトされていない) なら、変更をコミットして head をチェックアウトした状態で `/security-review` を実行し、その結果を完了報告に書く。autonomous-review が実行済みと記録した場合は重ねない。
+`superpowers:requesting-code-review` でレビューを受け、指摘への対応は `superpowers:receiving-code-review` に、反復の終了条件は `review-loop` skill に従う。自動マージ可否の判定まで要るなら、代わりに `/aidd:autonomous-review` を使う (観点別レビューと deferred の追跡を内包するので、下の追加分のうち silent-failure-hunter・/security-review・横展開のレビューは重ねない)。autonomous-review が `/security-review` を未実行と記録した場合は、実装差分の監査が済んでいないものとして、完了報告に未実行として理由ごと書く。未実行の理由が対象の範囲 (作業ツリーの差分だけ、head がチェックアウトされていない) なら、変更をコミットして head をチェックアウトした状態で `/security-review` を実行し、その結果を完了報告に書く (機微情報の保存に当たる差分では、下の `/security-review` の項と同じく、委譲先が除外する種類を残存リスクに書く)。autonomous-review が実行済みと記録した場合は重ねない。
 
 差分の性質に応じて次を足す。該当したのに実行できなかったものは、完了報告に未実行として理由とともに書く。
 
