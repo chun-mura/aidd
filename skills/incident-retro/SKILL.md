@@ -30,13 +30,16 @@ disable-model-invocation: true
 **auto memory の取り込み** (台帳が有効なときだけ): Claude Code の auto memory には、ユーザーの訂正 (`type: feedback`) が溜まる。ただし auto memory はマシンの中だけにあり、強制力が無く、サブエージェントにも読み込まれない。前のセッションの訂正を2回ルールの回数に入れるため、feedback を台帳の観測の候補にする。
 
 1. ディレクトリは、このセッションに読み込まれた auto memory の `MEMORY.md` があるディレクトリ (以下 `<memory-dir>`)。分からない・存在しない (Codex・Cursor、auto memory が無効) ときは取り込みを飛ばし、そう伝える。ほかのプロジェクトの memory ディレクトリを探して読まない。下の snippet は、`<memory-dir>` が `<設定ディレクトリ (CLAUDE_CONFIG_DIR、無ければ ~/.claude)>/projects/<名前>/memory` の形でなければ何も読まずに終わる (`autoMemoryDirectory` で別の場所に移した memory も取り込まない)。そのときは取り込みを飛ばし、そう伝える。
-2. 次を実行し、feedback のファイルを列挙する。`<memory-dir>` はシェルに渡さず、snippet の中の `MEMORY_DIR` の値として書く (パスに引用符が入っていても崩れない)。frontmatter のトップレベルと `metadata:` の直下だけを読み、1行に「そのメモを書いたセッションの ID (`originSessionId`) (タブ) ファイルの絶対パス」を出す。`originSessionId` が無い memory は取り込まず、件数だけを伝える。値が UUID の形 (小文字の16進) でないものも、無いものと同じに扱う (値をシェルに渡すため)。シンボリックリンク・ディレクトリの外を指すもの・名前に制御文字 (タブ・改行を含む) や書式文字があるものも読まず、件数だけを伝える (どちらも stderr に件数だけが出る。ファイル名も本文も示さない)。
+2. 次を実行し、feedback のファイルを列挙する。`<memory-dir>` はシェルの引用にも Python のコードにも埋め込まず、snippet の引用付きヒアドキュメント (`AIDD_MEMORY_DIR_END` の行の前の1行) にそのまま書く。パスは環境変数 `AIDD_MEMORY_DIR` で Python に渡るので、`'`・`"""`・`$`・バッククォートを含むパスでも崩れない。パスのどこかに制御文字・書式文字 (タブ・改行を含む) があれば、何も読まずに理由だけを出して終わる。frontmatter のトップレベルと `metadata:` の直下だけを読み、1行に「そのメモを書いたセッションの ID (`originSessionId`) (タブ) ファイルの絶対パス」を出す。`originSessionId` が無い memory は取り込まず、件数だけを伝える。値が UUID の形 (小文字の16進) でないものも、無いものと同じに扱う (値をシェルに渡すため)。シンボリックリンク・ディレクトリの外を指すもの・名前に制御文字 (タブ・改行を含む) や書式文字があるものも読まず、件数だけを伝える (どちらも stderr に件数だけが出る。ファイル名も本文も示さない)。
 
 ```bash
 # auto memory intake: list feedback memories (frontmatter only)
-python3 -I - <<'PY'
+IFS= read -r AIDD_MEMORY_DIR <<'AIDD_MEMORY_DIR_END'
+<memory-dir>
+AIDD_MEMORY_DIR_END
+AIDD_MEMORY_DIR="$AIDD_MEMORY_DIR" python3 -I - <<'PY'
 import os, re, sys, unicodedata
-MEMORY_DIR = r"""<memory-dir>"""
+MEMORY_DIR = os.environ.get("AIDD_MEMORY_DIR", "")
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 KEYS = ("type", "originSessionId")
 
@@ -68,15 +71,21 @@ def frontmatter(path):
     return None
 
 
+def unsafe(text):
+    return any(unicodedata.category(ch) in ("Cc", "Cf", "Zl", "Zp") for ch in text)
+
+
 config = os.path.realpath(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude"))
-d = os.path.realpath(MEMORY_DIR)
+d = os.path.realpath(MEMORY_DIR) if MEMORY_DIR else ""
+if not d or unsafe(MEMORY_DIR) or unsafe(d):
+    sys.exit("the memory directory path is empty or holds a control or format character; intake skipped")
 if os.path.basename(d) != "memory" or os.path.dirname(os.path.dirname(d)) != os.path.join(config, "projects") \
         or not os.path.isdir(d):
     sys.exit("not an auto memory directory (<config dir>/projects/<name>/memory); intake skipped")
 no_session = skipped = 0
 for entry in sorted(os.listdir(d)):
     path = os.path.join(d, entry)
-    if any(unicodedata.category(ch) in ("Cc", "Cf", "Zl", "Zp") for ch in entry) or os.path.islink(path) \
+    if unsafe(entry) or os.path.islink(path) \
             or os.path.dirname(os.path.realpath(path)) != d:
         skipped += 1
         continue

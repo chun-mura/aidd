@@ -14,16 +14,18 @@ tmp_dir=$(cd "$tmp_dir" && pwd -P)
 trap 'rm -rf "$tmp_dir"' EXIT
 
 # --- the listing snippet: feedback files with a UUID originSessionId only, frontmatter only -----
-# The config dir path holds a quote: the snippet takes the path inside Python, never via the shell.
-config="$tmp_dir/cfg'q"
+# The config dir path holds a quote, a Python triple quote, a command substitution and backquotes:
+# the snippet takes the path through a quoted heredoc and an environment variable, so none of them
+# ends a string or runs (the snippet runs in $tmp_dir, where a "pwned" file would appear).
+config="$tmp_dir/cfg'q\"\"\"\$(touch pwned)\`touch pwned\`"
 memory="$config/projects/-fake-project/memory"
 mkdir -p "$memory" "$tmp_dir/outside"
 sed -n '/^# auto memory intake: list feedback memories/,/^PY$/p' "$skill" > "$tmp_dir/list.sh"
 grep -Fq '<memory-dir>' "$tmp_dir/list.sh" || { echo "listing snippet not found in $skill" >&2; exit 1; }
-run_listing() {  # run_listing MEMORY_DIR -> stdout; stderr to $tmp_dir/list.err
+run_listing() {  # run_listing MEMORY_DIR [SHELL [CONFIG_DIR]] -> stdout; stderr to $tmp_dir/list.err
   python3 -c 'import sys; print(open(sys.argv[1]).read().replace("<memory-dir>", sys.argv[2]), end="")' \
     "$tmp_dir/list.sh" "$1" > "$tmp_dir/list-run.sh"
-  CLAUDE_CONFIG_DIR="$config" bash "$tmp_dir/list-run.sh" 2> "$tmp_dir/list.err"
+  (cd "$tmp_dir" && CLAUDE_CONFIG_DIR="${3:-$config}" "${2:-bash}" "$tmp_dir/list-run.sh" 2> "$tmp_dir/list.err")
 }
 
 cur=11111111-1111-4111-8111-111111111111
@@ -81,6 +83,25 @@ if grep -Fq BODY_SENTINEL <<<"$listing$(cat "$tmp_dir/list.err")" || grep -Fq -e
   exit 1
 fi
 [ ! -e "$tmp_dir/pwned" ]
+# zsh (the default shell on macOS) reads the snippet the same way.
+if command -v zsh > /dev/null; then
+  [ "$(run_listing "$memory" zsh)" = "$expected" ] || { echo "listing snippet differs under zsh" >&2; exit 1; }
+  [ ! -e "$tmp_dir/pwned" ]
+fi
+
+# A control character anywhere in the directory path: nothing is read, only the reason is printed.
+tab_config="$tmp_dir/cfg	tab"
+mkdir -p "$tab_config/projects/-fake-project/memory"
+cp "$memory/fb-nested.md" "$tab_config/projects/-fake-project/memory/"
+if out=$(run_listing "$tab_config/projects/-fake-project/memory" bash "$tab_config"); then
+  echo "listing snippet read a directory whose path holds a tab" >&2
+  exit 1
+fi
+[ -z "$out" ] && grep -Fq 'holds a control or format character; intake skipped' "$tmp_dir/list.err"
+if grep -Fq "$tmp_dir" "$tmp_dir/list.err"; then
+  echo "listing snippet printed the rejected path" >&2
+  exit 1
+fi
 
 # A directory outside <config dir>/projects/<name>/memory is not read at all.
 mkdir -p "$tmp_dir/elsewhere/memory"

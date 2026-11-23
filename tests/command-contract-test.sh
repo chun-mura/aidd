@@ -155,9 +155,11 @@ grep -F -- '**memory の候補は、台帳に書く `signature`・`fact`・`scop
 grep -F -- '`fact` と `signature` に社内のツール名・システム名を入れない' "$incident_retro"
 grep -F -- '**認証情報・個人情報・顧客の機密を含む memory は取り込まず、その値を会話に引用しない。**' "$incident_retro"
 grep -F -- '認証情報ならローテーション' "$incident_retro"
-grep -F -- 'MEMORY_DIR = r"""<memory-dir>"""' "$incident_retro"
-if grep -Eq -- "python3 -I - '<memory-dir>'" "$incident_retro"; then
-  echo "incident-retro passes the memory path through the shell" >&2
+grep -F -- "IFS= read -r AIDD_MEMORY_DIR <<'AIDD_MEMORY_DIR_END'" "$incident_retro"
+grep -F -- 'AIDD_MEMORY_DIR="$AIDD_MEMORY_DIR" python3 -I - <<'"'PY'" "$incident_retro"
+grep -F -- 'MEMORY_DIR = os.environ.get("AIDD_MEMORY_DIR", "")' "$incident_retro"
+if grep -Eq -- "python3 -I - '<memory-dir>'|r\"\"\"<memory-dir>" "$incident_retro"; then
+  echo "incident-retro puts the memory path in shell quotes or Python code" >&2
   exit 1
 fi
 if grep -Eq -- 'auto-memory:|数を足[しす]|`sessions` が同じなら' "$incident_retro"; then
