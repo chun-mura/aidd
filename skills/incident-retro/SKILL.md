@@ -29,8 +29,8 @@ disable-model-invocation: true
 
 **auto memory の取り込み** (台帳が有効なときだけ): Claude Code の auto memory には、ユーザーの訂正 (`type: feedback`) が溜まる。ただし auto memory はマシンの中だけにあり、強制力が無く、サブエージェントにも読み込まれない。前のセッションの訂正を2回ルールの回数に入れるため、feedback を台帳の観測の候補にする。
 
-1. 置き場は snippet が自分で決める。モデルはパスを書き写さない。snippet は、git の共通ディレクトリ (`git rev-parse --git-common-dir`) の親のパスの ASCII の英数字以外を UTF-16 の1単位ごとに `-` にした名前 (`/aidd:asset-audit` と同じ規則) で `<設定ディレクトリ (CLAUDE_CONFIG_DIR、無ければ ~/.claude)>/projects/<名前>/memory` を組み立てる。共通ディレクトリが `.git` で終わらない・git の外のときは置き場を決められないので、何も読まずに終わる。組み立てたパスに制御文字・書式文字 (タブ・改行を含む) があるとき、そのディレクトリが実在しないとき、実体が `<設定ディレクトリ>/projects/<名前>/memory` の外にあるとき、`MEMORY.md` が無いときも、何も読まずに理由だけを出して終わる (実在しなくても「memory が無い」とは言い切らない。名前の規則が Claude Code と違う可能性があるため)。`autoMemoryDirectory` で別の場所に移した memory は取り込まない。Codex・Cursor のように auto memory が無い環境では取り込みを飛ばし、そう伝える。ほかのプロジェクトの memory ディレクトリを探して読まない。
-2. 次を実行し、feedback のファイルを列挙する。frontmatter のトップレベルと `metadata:` の直下だけを読み (両方あればトップレベル。値の引用符と行末の `# コメント` は外す)、1行に「そのメモを書いたセッションの ID (`originSessionId`) (タブ) ファイルの絶対パス」を出し、最後に `scanned N file(s), M feedback (done)` の行を必ず出す。`originSessionId` が無い memory は取り込まず、件数だけを伝える。値が UUID の形 (小文字の16進) でないものも、無いものと同じに扱う (値をシェルに渡すため)。シンボリックリンク・ディレクトリの外を指すもの・名前に制御文字 (タブ・改行を含む) や書式文字があるもの、読めないファイル、frontmatter が `---` で始まって `---` で閉じていないファイル (BOM 付きを含む。unparsed) も、件数だけを伝える (どれも stderr に件数だけが出る。ファイル名も本文も示さない)。**snippet の終了コードが0で最後の行が done の行のときだけ一覧を使う。終了コード2は意図して飛ばした (理由が stderr に出る) という意味なので、取り込みを飛ばして理由を伝える。それ以外の0でない終了コード、または done の行が無いときは、標準出力が部分的に出ていても一覧を使わず、取り込みの失敗として stderr とともに利用者に伝える。** 0件のときも、done の行の走査数を利用者に伝える。
+1. 置き場は snippet が自分で決める。モデルはパスを書き写さない。snippet は、git の共通ディレクトリ (`git rev-parse --git-common-dir`) の親のパスの ASCII の英数字以外を UTF-16 の1単位ごとに `-` にした名前 (`/aidd:asset-audit` と同じ規則) で `<設定ディレクトリ (CLAUDE_CONFIG_DIR、無ければ ~/.claude)>/projects/<名前>/memory` を組み立てる。共通ディレクトリが `.git` で終わらない・git の外のときは置き場を決められないので、何も読まずに終わる。組み立てたパスに制御文字・書式文字 (タブ・改行を含む) があるとき、そのディレクトリが実在しないとき、実体が組み立てた `<設定ディレクトリ>/projects/<名前>/memory` と違うとき (`projects/<名前>` か `memory` がシンボリックリンクで、ほかのプロジェクトの memory などを指すとき)、`MEMORY.md` が無いときも、何も読まずに理由だけを出して終わる (実在しなくても「memory が無い」とは言い切らない。名前の規則が Claude Code と違う可能性があるため)。`autoMemoryDirectory` で別の場所に移した memory は取り込まない。Codex・Cursor のように auto memory が無い環境では取り込みを飛ばし、そう伝える。ほかのプロジェクトの memory ディレクトリを探して読まない。
+2. 次を実行し、feedback のファイルを列挙する。frontmatter のトップレベルと `metadata:` の直下だけを読み (両方あればトップレベル。値は `/aidd:asset-audit` と同じく、引用符で囲んだ値は閉じる引用符までを中身とし、後ろが `# コメント` か空のときだけ採る。囲んでいない値は行末の `# コメント` を外す)、1行に「そのメモを書いたセッションの ID (`originSessionId`) (タブ) ファイルの絶対パス」を出し、最後に `scanned N file(s), M feedback (done)` の行を必ず出す。`originSessionId` が無い memory は取り込まず、件数だけを伝える。値が UUID の形 (小文字の16進) でないものも、無いものと同じに扱う (値をシェルに渡すため)。シンボリックリンク・ディレクトリの外を指すもの・名前に制御文字 (タブ・改行を含む) や書式文字があるもの、読めないファイル、frontmatter が `---` で始まって `---` で閉じていないファイル (BOM 付きを含む) と、引用符が閉じない・閉じた後ろにコメント以外がある値を持つファイル (どちらも unparsed) も、件数だけを伝える (どれも stderr に件数だけが出る。ファイル名も本文も示さない)。**snippet の終了コードが0で最後の行が done の行のときだけ一覧を使う。終了コード2は意図して飛ばした (理由が stderr に出る) という意味なので、取り込みを飛ばして理由を伝える。それ以外の0でない終了コード、または done の行が無いときは、標準出力が部分的に出ていても一覧を使わず、取り込みの失敗として stderr とともに利用者に伝える。** 0件のときも、done の行の走査数を利用者に伝える。
 
 ```bash
 # auto memory intake: list feedback memories (frontmatter only)
@@ -38,6 +38,7 @@ python3 -I - <<'PY'
 import os, re, subprocess, sys, unicodedata
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 KEY_LINE = re.compile(r"( *)([A-Za-z_][A-Za-z0-9_-]*):(.*)\Z")
+KEYS = ("type", "originSessionId")
 
 
 def skip(reason):
@@ -50,17 +51,25 @@ def unsafe(text):
     return any(unicodedata.category(ch) in ("Cc", "Cf", "Zl", "Zp") for ch in text)
 
 
+class Malformed(Exception):
+    """A quoted value that never closes, or closes before something other than a # comment."""
+
+
 def value(raw):
-    """Quotes and a trailing # comment removed, as asset-audit reads type."""
+    """The value without quotes and a trailing # comment, parsed as asset-audit does."""
     raw = raw.strip()
-    if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in "\"'":
-        return raw[1:-1]
-    return re.sub(r"\s+#.*\Z", "", raw)
+    if raw[:1] in ("\"", "'"):
+        end = raw.find(raw[0], 1)
+        rest = raw[end + 1:].strip() if end > 0 else None
+        if rest is None or (rest and not rest.startswith("#")):
+            raise Malformed
+        return raw[1:end]
+    return re.sub(r"(\A|\s+)#.*\Z", "", raw)
 
 
 def frontmatter(path):
     """type / originSessionId at the top level (preferred) or right under metadata:.
-    None when there is no frontmatter that opens and closes with ---."""
+    None when there is no frontmatter that opens and closes with ---, or either value is malformed."""
     top, meta, parent, child = {}, {}, None, None
     with open(path, encoding="utf-8", errors="replace") as f:
         if f.readline().rstrip("\r\n") != "---":
@@ -68,17 +77,18 @@ def frontmatter(path):
         for raw in f:
             line = raw.rstrip("\r\n")
             if line == "---":
-                return {k: top.get(k, meta.get(k)) for k in ("type", "originSessionId")}
+                return {k: top.get(k, meta.get(k)) for k in KEYS}
             m = KEY_LINE.match(line)
             if not m:
                 continue
             indent, key, rest = len(m[1]), m[2], m[3]
             if indent == 0:
                 parent, child = (key if not rest.strip() else None), None
-                top.setdefault(key, value(rest))
+                if key in KEYS:
+                    top.setdefault(key, value(rest))
             elif parent == "metadata":
                 child = indent if child is None else child
-                if indent == child:
+                if indent == child and key in KEYS:
                     meta.setdefault(key, value(rest))
     return None
 
@@ -105,9 +115,10 @@ def memory_dir():
         skip("the auto memory path holds a control or format character")
     if not os.path.isdir(path):
         skip("no auto memory directory where Claude Code would put it (no memory here, or the location differs)")
+    # projects/<key> or memory linked elsewhere (another project's memory included) is not read.
     real = os.path.realpath(path)
-    if unsafe(real) or os.path.dirname(os.path.dirname(real)) != os.path.join(os.path.realpath(config), "projects"):
-        skip("the auto memory directory resolves outside <config dir>/projects/<name>/memory")
+    if unsafe(real) or real != os.path.join(os.path.realpath(os.path.join(config, "projects")), key, "memory"):
+        skip("the auto memory directory resolves somewhere other than <config dir>/projects/<name>/memory")
     if os.path.islink(os.path.join(real, "MEMORY.md")) or not os.path.isfile(os.path.join(real, "MEMORY.md")):
         skip("the auto memory directory has no MEMORY.md")
     return real
@@ -129,6 +140,8 @@ try:
         except OSError:
             unreadable += 1
             continue
+        except Malformed:
+            meta = None
         if meta is None:
             unparsed += 1
         elif meta["type"] == "feedback":
@@ -144,7 +157,7 @@ except Exception as exc:  # nothing was printed to stdout yet: rows are printed 
 for label, count in (("feedback memories have no originSessionId in the UUID form and are not taken in", no_session),
                      ("entries are skipped (symbolic link, outside the directory, or a control character in the name)", skipped),
                      ("file(s) could not be read", unreadable),
-                     ("file(s) have no frontmatter that opens and closes with --- (unparsed)", unparsed)):
+                     ("file(s) have no frontmatter that opens and closes with ---, or a malformed quoted value (unparsed)", unparsed)):
     if count:
         print(f"{count} {label}", file=sys.stderr)
 for row in rows:

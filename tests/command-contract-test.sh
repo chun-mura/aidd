@@ -170,6 +170,10 @@ grep -F -- '標準出力が部分的に出ていても一覧を使わず、取�
 grep -F -- '0件のときも、done の行の走査数を利用者に伝える' "$incident_retro"
 grep -F -- '本文を読めなかったファイルは、件数だけを利用者に伝え、候補に入れない' "$incident_retro"
 grep -F -- '実在しなくても「memory が無い」とは言い切らない' "$incident_retro"
+# A link at projects/<name> or memory (another project's memory) is not read, and values are
+# parsed as asset-audit parses them (closing quote, then only a comment or nothing).
+grep -F -- '`projects/<名前>` か `memory` がシンボリックリンクで、ほかのプロジェクトの memory などを指すとき' "$incident_retro"
+grep -F -- '後ろが `# コメント` か空のときだけ採る' "$incident_retro"
 if grep -Eq -- 'auto-memory:|数を足[しす]|`sessions` が同じなら' "$incident_retro"; then
   echo "incident-retro still keys memories by path or recounts candidates" >&2
   exit 1

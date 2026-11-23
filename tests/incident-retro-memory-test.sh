@@ -90,6 +90,12 @@ chmod 000 "$memory/unreadable.md"
 # A trailing comment and quotes are removed from values, as asset-audit reads them.
 sess_c=cccccccc-cccc-4ccc-8ccc-cccccccccccc
 memory_file "$memory/cmt.md" 'type: feedback # a note' "originSessionId: \"$sess_c\""
+# Quoted values followed by a comment are read; a quote that never closes, or text after the
+# closing quote, makes the file unparsed (asset-audit parses values the same way).
+sess_d=dddddddd-dddd-4ddd-8ddd-dddddddddddd
+memory_file "$memory/qcmt.md" 'type: "feedback" # a note' "originSessionId: '$sess_d' # the session"
+memory_file "$memory/mal-open.md" 'type: "feedback' "originSessionId: $sess_b"
+memory_file "$memory/mal-tail.md" 'type: feedback' "originSessionId: \"$sess_b\" trailing"
 # Entries that could forge a line, point outside, or repeat a file through a link: skipped and counted (4).
 memory_file "$memory/tab	name.md" 'type: feedback' "originSessionId: $sess_b"
 memory_file "$memory/new
@@ -103,15 +109,16 @@ rows=$(printf '%s\t%s\n' \
   "$sess_c" "$memory/cmt.md" \
   "$sess_b" "$memory/fb-nested.md" \
   "$sess_a" "$memory/fb-old.md" \
-  "$cur" "$memory/fb-top.md")
+  "$cur" "$memory/fb-top.md" \
+  "$sess_d" "$memory/qcmt.md")
 expected="$rows
-scanned 17 file(s), 4 feedback (done)"
+scanned 20 file(s), 5 feedback (done)"
 if [ "$listing" != "$expected" ]; then
   printf 'listing snippet output differs.\n--- got\n%s\n--- expected\n%s\n' "$listing" "$expected" >&2
   exit 1
 fi
 for line in '4 feedback memories have no originSessionId in the UUID form' '4 entries are skipped' \
-    '1 file(s) could not be read' '3 file(s) have no frontmatter that opens and closes with ---'; do
+    '1 file(s) could not be read' '5 file(s) have no frontmatter that opens and closes with ---'; do
   grep -Fq -- "$line" "$tmp_dir/list.err" \
     || { echo "listing snippet did not report '$line': $(cat "$tmp_dir/list.err")" >&2; exit 1; }
 done
@@ -157,7 +164,19 @@ mkdir -p "$tmp_dir/elsewhere/memory"
 cp "$memory/fb-nested.md" "$memory/MEMORY.md" "$tmp_dir/elsewhere/memory/"
 mkdir -p "$config/projects/$(key_for "$tmp_dir/linked")"
 ln -s "$tmp_dir/elsewhere/memory" "$config/projects/$(key_for "$tmp_dir/linked")/memory"
-expect_skip "$tmp_dir/linked" "$config" 'resolves outside'
+expect_skip "$tmp_dir/linked" "$config" 'resolves somewhere other than'
+# Another project's memory reached through a link, at memory or at projects/<name>: not read.
+git init -q --template= "$tmp_dir/link-memory"
+mkdir -p "$config/projects/$(key_for "$tmp_dir/link-memory")"
+ln -s "$memory" "$config/projects/$(key_for "$tmp_dir/link-memory")/memory"
+expect_skip "$tmp_dir/link-memory" "$config" 'resolves somewhere other than'
+git init -q --template= "$tmp_dir/link-project"
+ln -s "$config/projects/$key" "$config/projects/$(key_for "$tmp_dir/link-project")"
+expect_skip "$tmp_dir/link-project" "$config" 'resolves somewhere other than'
+# A config dir that is itself a link still reaches its own projects/<name>/memory.
+ln -s "$config" "$tmp_dir/cfg-link"
+[ "$(run_listing "$proj" bash "$tmp_dir/cfg-link")" = "$expected" ] \
+  || { echo "a linked config dir did not reach its own memory" >&2; exit 1; }
 
 # An empty memory directory is told apart from a failure: exit 0 and the done line with 0.
 git init -q --template= "$tmp_dir/empty"
