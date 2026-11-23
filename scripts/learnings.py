@@ -3,6 +3,7 @@
 
 Run with `python3 -I` (standard library only). The same check_document() backs the write
 (`add`, called by /aidd:incident-retro and /aidd:autonomous-review) and the commit-time check in hooks/scripts/tool-reminder.sh.
+`scan` puts a reflux draft for the aidd repository (#107) through the same pattern check, line by line.
 A finding is rejected, never masked, and its reason never repeats the offending value.
 Design: docs/superpowers/specs/2026-11-22-learnings-ledger-design.md
 """
@@ -243,6 +244,103 @@ def display_name(name):
     return name if FILE_NAME.match(name) else "(a file under .aidd/learnings/ whose name breaks the pattern)"
 
 
+# A reflux draft (#107) leaves the using repository for the aidd one, which may be public. On top of
+# scan_text it rejects what points back at the using repository: commit SHAs (any case, digit-only
+# short ones too, but not an 8-digit date), #numbers, a value after -R/--repo that names something
+# (see repo_value_leaks), any ~/ or ~name/ path, and @-words. The draft writes fixed placeholders
+# (<owner>, <repo>, <path>, <branch>, <file>, <dir>, <command>, <config-dir>) instead; they hold no
+# digit, #, @ or ~, so the rules run on the line as is and angle brackets let nothing else through.
+# The title and sections are what /aidd:retro reads.
+MAX_DRAFT_BYTES = 16384
+DRAFT_TITLE = "[reflux] "
+DRAFT_SECTIONS = ("## signature", "## 起きたこと", "## 再現の手順", "## 対象にする aidd の資産", "## その規則で壊れるもの")
+DRAFT_PLACEHOLDER = r"<(?:owner|repo|path|branch|file|dir|command|config-dir)>"
+DRAFT_RULES = [
+    ("a commit SHA or #number of the using repository", re.compile(
+        r"(?<!&)#[0-9]+(?![0-9])"
+        r"|(?<![0-9A-Za-z])(?=[0-9A-Fa-f]*[0-9])"
+        r"(?!(?:19|20)[0-9]{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12][0-9]|3[01])(?![0-9A-Za-z]))"
+        r"[0-9A-Fa-f]{7,40}(?![0-9A-Za-z])", re.A)),
+    ("a home-relative path", re.compile(r"(?<![\w~])~[A-Za-z0-9_.-]*/", re.A)),
+    ("an @-mention or package scope", re.compile(r"(?<![\w.@])@[A-Za-z0-9_]", re.A)),
+]
+
+
+REPO_FLAG = re.compile(r"(?<![\w-])(?:-R|--repo)(?:\s+|=)(\S+)", re.A)
+PLACEHOLDER_RUN = re.compile(DRAFT_PLACEHOLDER + r"(?:/" + DRAFT_PLACEHOLDER + r")*")
+
+
+def _mark(ch):
+    """A mark: neither a letter, a digit, white space nor "/"."""
+    return not (ch.isalnum() or ch.isspace() or ch == "/")
+
+
+def repo_value_leaks(line):
+    """True if a value after -R/--repo names something. A value that does not start with the fixed
+    placeholders leaks when it holds "/" (grep -R <word> stays allowed). A value that starts with
+    them (<owner>/<repo>, cp -R <path>/<file>) may be followed by marks; what comes next decides.
+    The end of the value or a non-ASCII character (Japanese text runs on without a space, as in
+    `-R <owner>/<repo>`を開く) ends it; an ASCII letter, digit or "/" (<path>.secret, <repo>-x,
+    <repo>/x) leaks. Text after a non-ASCII character is read as prose, so a Japanese proper noun
+    there passes, the same known limit as Japanese proper nouns anywhere in the draft. The line is
+    NFKC-normalized first, so a full-width letter counts as the ASCII letter it stands for."""
+    text = unicodedata.normalize("NFKC", line)
+    for flag in REPO_FLAG.finditer(text):
+        value = flag.group(1)
+        head = PLACEHOLDER_RUN.match(value)
+        if not head:
+            if "/" in value:
+                return True
+            continue
+        end = head.end()
+        while end < len(value) and _mark(value[end]):
+            end += 1
+        if end == len(value) or not value[end].isascii():
+            continue
+        return True
+    return False
+
+
+def draft_signature(text):
+    """The first non-empty line under "## signature", before the next section; None if there is none."""
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        if line.strip() == "## signature":
+            for rest in lines[i + 1:]:
+                if rest.strip().startswith("## "):
+                    return None
+                if rest.strip():
+                    return rest.strip()
+    return None
+
+
+def scan_draft(text):
+    """Return the rules a reflux draft breaks, one reason per line and rule, never the value."""
+    if not text.strip():
+        return ["draft: empty"]
+    lines = text[:-1].split("\n") if text.endswith("\n") else text.split("\n")
+    errors = []
+    if not (lines[0].startswith(DRAFT_TITLE) and lines[0][len(DRAFT_TITLE):].strip()):
+        errors.append("draft: the first line must be the title, starting with \"[reflux] \"")
+    headers = {line.strip() for line in lines}
+    errors += [f"draft: missing section: {section}" for section in DRAFT_SECTIONS if section not in headers]
+    signature = draft_signature(text)
+    if signature is None:
+        errors.append("draft: the ## signature section has no signature line")
+    else:
+        errors += check_signature(signature)
+        if signature.split(" ")[0] == "review":
+            errors.append("signature: a review finding type is not a reflux candidate")
+    for number, line in enumerate(lines, 1):
+        field = f"line {number}"
+        errors += scan_text(field, line)
+        normalized = unicodedata.normalize("NFKC", line)
+        errors += [f"{field}: contains {rule}" for rule, pattern in DRAFT_RULES if pattern.search(normalized)]
+        if repo_value_leaks(line):
+            errors.append(f"{field}: contains a repository name after -R/--repo")
+    return errors
+
+
 # --- repository helpers ----------------------------------------------------------------------
 
 def _git(repo, *args, binary=False):
@@ -406,6 +504,31 @@ def cmd_candidates(args):
     return 0
 
 
+def cmd_scan(args):
+    """Exit 0 passed, 1 rejected, 2 failed (a failure must not read as a rejection or a pass)."""
+    try:
+        raw = sys.stdin.buffer.read(MAX_DRAFT_BYTES + 1)
+        if len(raw) > MAX_DRAFT_BYTES:
+            errors = [f"draft: larger than {MAX_DRAFT_BYTES} bytes"]
+        else:
+            try:
+                text = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                errors = ["draft: not valid UTF-8"]
+            else:
+                errors = scan_draft(text)
+    except Exception as exc:  # the message may hold input, so only the exception's name
+        print(f"scan failed ({type(exc).__name__})", file=sys.stderr)
+        return 2
+    if errors:
+        print("rejected (rewrite the draft; do not mask it):", file=sys.stderr)
+        for error in errors:
+            print(f"  {error}", file=sys.stderr)
+        return 1
+    print("draft passed the check")
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -420,8 +543,9 @@ def main(argv=None):
     cand.add_argument("--session-id")
     cand.add_argument("--signature", action="append", default=[])
     cand.add_argument("--all", action="store_true", help="print every counted signature, not only candidates")
+    sub.add_parser("scan", help="check a reflux draft from stdin line by line; exit 1 if rejected (writes nothing)")
     args = parser.parse_args(argv)
-    return {"check": cmd_check, "add": cmd_add, "candidates": cmd_candidates}[args.command](args)
+    return {"check": cmd_check, "add": cmd_add, "candidates": cmd_candidates, "scan": cmd_scan}[args.command](args)
 
 
 if __name__ == "__main__":

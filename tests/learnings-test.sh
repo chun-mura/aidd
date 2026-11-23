@@ -509,4 +509,149 @@ set -e
 [ "$status" -eq 4 ]
 grep -F 'could not list the ledger on the default branch' "$tmp_dir/t2.err"
 
+# --- scan: a reflux draft for the aidd repository (#107) ------------------------------------
+# The draft goes outside the using repository, so it gets the same pattern check line by line,
+# and cites no evidence of the using repository (commit SHA, #number). No git repository or
+# enabled ledger is needed, and nothing is written.
+draft_ok='[reflux] git stash: a shared worktree loses another session'"'"'s edits
+
+## signature
+git stash
+
+## 起きたこと
+Two sessions shared one worktree; git stash in one session hid the other session'"'"'s edits.
+
+## 再現の手順
+1. git init in an empty directory, edit a tracked file, run git stash from a second shell.
+
+## 対象にする aidd の資産
+hooks/scripts/tool-reminder.sh (/aidd:incident-retro)
+
+## その規則で壊れるもの
+A single-session worktree where stashing is intended.'
+out=$(cd "$tmp_dir" && printf '%s\n' "$draft_ok" | python3 -I "$script" scan)
+printf '%s\n' "$out" | grep -F 'draft passed the check'
+[ -z "$(find "$tmp_dir" -name '__pycache__')" ]
+scan_reject() {  # scan_reject LABEL RULE TEXT: rejected (exit 1), reason names the rule, not the value
+  local label=$1 rule=$2 text=$3 got status
+  set +e
+  got=$(printf '%s\n%s\n' "$draft_ok" "$text" | python3 -I "$script" scan 2>&1)
+  status=$?
+  set -e
+  if [ "$status" -ne 1 ] || ! printf '%s\n' "$got" | grep -Fq -- "$rule"; then
+    echo "scan should reject with $rule: $label (exit $status): $got" >&2
+    exit 1
+  fi
+  if printf '%s\n' "$got" | grep -Fq -- "$text"; then
+    echo "scan echoed the rejected value: $label" >&2
+    exit 1
+  fi
+}
+scan_reject "URL" "URL" "See https://intra.zz/run/42 for the log."
+scan_reject "absolute path" "absolute path" "It failed under /work/customer-app/src."
+scan_reject "email" "email address" "Reported by someone@mailhost.zz."
+scan_reject "token" "token prefix" "Value gh""p_Ab3dE5gH7jK9mN1pQ3sT5vX7zA9cE1gH3jK5 leaked."
+scan_reject "issue number" "commit SHA or #number" "Same as #123 in our tracker."
+scan_reject "full-width issue number" "commit SHA or #number" "Same as ＃１２３ in our tracker."
+scan_reject "short SHA" "commit SHA or #number" "Reverted in 1a2b3c4 later."
+scan_reject "company" "company name" "Seen at Sample Inc. last week."
+scan_reject "tab" "invisible or control character" "$(printf 'col\tcol')"
+# SHAs in any case and digit-only short SHAs, a #number after letters (review R1, S1).
+scan_reject "upper-case SHA" "commit SHA or #number" "Reverted in 1A2B3C4D later."
+scan_reject "digit-only short SHA" "commit SHA or #number" "Reverted in 4417302 later."
+scan_reject "full SHA" "commit SHA or #number" "Commit 0123456789ABCDEF0123456789ABCDEF01234567 broke it."
+scan_reject "PR#number" "commit SHA or #number" "Same as PR#12 here."
+# Repository names, home-relative paths, @-words (review S1). Placeholders pass (below).
+scan_reject "repo after -R" "repository name after -R/--repo" "Run gh pr view -R someorg/someapp first."
+scan_reject "repo after --repo=" "repository name after -R/--repo" "Run gh pr view --repo=someorg/someapp first."
+scan_reject "home path" "home-relative path" "It wrote ~/work/someapp/out.log."
+scan_reject "named home" "home-relative path" "It wrote ~someone/out.log."
+scan_reject "@-word" "@-mention or package scope" "Ask @someone about it."
+# Any ~/ word, one level included (review R1, round 2); no ~/ form is allowed (<config-dir> instead).
+scan_reject "home path, one level" "home-relative path" "It wrote ~/notes.txt."
+scan_reject "home config dir" "home-relative path" "It read ~/.claude/settings.json."
+# Angle brackets are not a free pass: only the fixed placeholders are (review E1).
+scan_reject "bracketed #number" "commit SHA or #number" "Same as <#123> here."
+scan_reject "bracketed @-word" "@-mention or package scope" "Ask <@someone> about it."
+scan_reject "bracketed real repo" "repository name after -R/--repo" "Run gh pr view -R <someorg>/<someapp> first."
+scan_reject "half placeholder repo" "repository name after -R/--repo" "Run gh pr view -R <owner>/someapp first."
+scan_reject "placeholder followed by a word" "repository name after -R/--repo" "Run gh pr view -R <owner>/<repo>_x first."
+scan_reject "placeholder followed by a path" "repository name after -R/--repo" "Run gh pr view -R <owner>/<repo>/x first."
+# ASCII marks after the placeholders, then a name: rejected (review round 4).
+scan_reject "mark then path" "repository name after -R/--repo" "Run gh pr view -R <path>.secret/x first."
+scan_reject "mark then name" "repository name after -R/--repo" "Run gh pr view --repo=<owner>/<repo>.internal first."
+scan_reject "hyphen then name" "repository name after -R/--repo" "Run gh pr view -R <owner>/<repo>-x first."
+scan_reject "hyphen then name, no slash" "repository name after -R/--repo" "Run gh pr view -R <path>-x first."
+# A full-width letter is the ASCII letter after NFKC, so it is still a name after the mark.
+scan_reject "mark then full-width name" "repository name after -R/--repo" "Run gh pr view -R <path>.ｓｅｃｒｅｔ first."
+# A closing Markdown backquote (an ASCII mark) followed by Japanese is the end of the value (round 5).
+out=$(printf '%s\n%s\n%s\n' "$draft_ok" '`gh pr view -R <owner>/<repo>`を開く' '`cp -R <path>/<file> <dir>`で写す' \
+  | python3 -I "$script" scan)
+printf '%s\n' "$out" | grep -F 'draft passed the check'
+# The value may end at a space or line end after ASCII marks, or at a non-ASCII mark (Japanese
+# runs on without a space); a full-width mark counts as non-ASCII even though NFKC makes it ASCII.
+out=$(printf '%s\n%s\n%s\n%s\n' "$draft_ok" 'gh pr view -R <owner>/<repo>.' \
+  '「--repo=<owner>/<repo>」と -R <owner>/<repo>、次に -R <owner>/<repo>）次に' \
+  'cp -R <path>/<file> <dir>; grep -R pattern <dir>' | python3 -I "$script" scan)
+printf '%s\n' "$out" | grep -F 'draft passed the check'
+# A value made of the fixed placeholders only passes after -R, whatever the command (cp -R included),
+# and the placeholder may end at Japanese or full-width punctuation (review round 3).
+out=$(printf '%s\n%s\n%s\n' "$draft_ok" 'cp -R <path>/<file> <dir> で写す。' \
+  'gh pr view -R <owner>/<repo>、次に「--repo=<owner>/<repo>」と「-R <owner>/<repo>」を試す。' \
+  | python3 -I "$script" scan)
+printf '%s\n' "$out" | grep -F 'draft passed the check'
+# Ordinary numbers and placeholders are not taken for a SHA, repository or path.
+out=$(printf '%s\n%s\n' "$draft_ok" 'Seen on 0.69.0 at 2026-11-23 (20261123), 123456 lines, 3/4 runs; defaced; gh pr view -R <owner>/<repo>; --repo=<owner>/<repo>; <config-dir>/<path>; cp -R <dir> <dir>; git switch <branch>; run <command> on <file>.' \
+  | python3 -I "$script" scan)
+printf '%s\n' "$out" | grep -F 'draft passed the check'
+# The draft keeps the shape retro reads: the [reflux] title on line 1, every section, and a
+# signature line that passes the ledger's signature rule and is not a review finding type (S9).
+scan_draft_reject() {  # scan_draft_reject LABEL RULE DRAFT
+  local got status
+  set +e
+  got=$(printf '%s\n' "$3" | python3 -I "$script" scan 2>&1)
+  status=$?
+  set -e
+  if [ "$status" -ne 1 ] || ! printf '%s\n' "$got" | grep -Fq -- "$2"; then
+    echo "scan should reject with $2: $1 (exit $status): $got" >&2
+    exit 1
+  fi
+}
+scan_draft_reject "no title prefix" "first line must be the title" "${draft_ok#\[reflux\] }"
+scan_draft_reject "missing section" "missing section: ## 再現の手順" "${draft_ok/\#\# 再現の手順/## 手順}"
+scan_draft_reject "path in signature" "signature: only a command or tool name" "${draft_ok/$'\ngit stash\n'/$'\ngit add src/app.ts\n'}"
+scan_draft_reject "review type" "review finding type is not a reflux candidate" "${draft_ok/$'\ngit stash\n'/$'\nreview correctness off-by-one\n'}"
+scan_draft_reject "no signature line" "no signature line" "${draft_ok/$'\ngit stash\n'/$'\n\n'}"
+# Reasons point at the line, so the rewrite can find it without the value being repeated.
+set +e
+got=$(printf 'clean line\nSee https://intra.zz/x\n' | python3 -I "$script" scan 2>&1)
+set -e
+printf '%s\n' "$got" | grep -F 'line 2: contains a URL'
+# Not valid UTF-8, empty: rejected.
+set +e
+printf '\xff\xfe\n' | python3 -I "$script" scan >/dev/null 2>&1
+s1=$?
+printf '\n' | python3 -I "$script" scan >/dev/null 2>&1
+s2=$?
+set -e
+[ "$s1" -eq 1 ] && [ "$s2" -eq 1 ]
+# An unexpected failure is not a rejection: exit 2 with the exception name, no traceback (review E3).
+python3 -I - "$script" <<'PYEOF'
+import contextlib, importlib.util, io, sys
+sys.dont_write_bytecode = True
+spec = importlib.util.spec_from_file_location("learnings", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+def broken(text):
+    raise RuntimeError("boom")
+mod.scan_draft = broken
+sys.stdin = io.TextIOWrapper(io.BytesIO(b"[reflux] x\n"), encoding="utf-8")
+err = io.StringIO()
+with contextlib.redirect_stderr(err):
+    status = mod.cmd_scan(None)
+assert status == 2, status
+assert "scan failed (RuntimeError)" in err.getvalue(), err.getvalue()
+assert "boom" not in err.getvalue() and "Traceback" not in err.getvalue(), err.getvalue()
+PYEOF
+
 echo "learnings-test: ok"
