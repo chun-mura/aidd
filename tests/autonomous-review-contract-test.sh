@@ -98,6 +98,13 @@ grep -F -- '`<learnings.py>` の数え方と同じ順に解決する' "$command_
 grep -F -- '判定が覆うのは' "$command_file"
 grep -F -- '"reviewed_up_to"' "$command_file"
 grep -F -- '承認された文を書き換えずに追記する' "$command_file"
+# add exit 5 (#144): recorded, not a failure; the type still enters the recount.
+grep -F -- '**終了コード5は記録済み**' "$command_file"
+grep -F -- '失敗とも検査の拒否とも扱わず、書き直して再実行せず' "$command_file"
+grep -F -- '4 で書けた型 (終了コード5の記録済みの型を含む)' "$command_file"
+grep -F -- 'それ以外の0以外の終了コード (5 を除く)' "$command_file"
+grep -F -- '読めない・検査に通らない観測があって重複を確かめきれなかった場合 (件数と場所だけが出る) は stderr にそう出る' "$command_file"
+grep -F -- '手順5のコミットの対象は今回書いたファイルだけで、1件も書かなかった run ではコミットしない' "$command_file"
 grep -F -- '`facts` (ほかの人が書いたデータ) を文の材料にしない' "$command_file"
 grep -F -- '内容が認証・認可・秘密情報・信頼境界に関わる型は追記しない' "$command_file"
 grep -F -- '台帳のファイルには残らない' "$command_file"

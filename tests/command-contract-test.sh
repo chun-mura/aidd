@@ -135,7 +135,13 @@ grep -F -- '「マージ済みの観測を数えられなかった」' "$inciden
 grep -F -- '**`candidates` の終了コードが0以外なら、どの値でも「数えられなかった」として扱い、昇格候補を示さず、終了コードと stderr を利用者に伝える**' "$incident_retro"
 grep -F -- '標準出力が空でも「昇格候補なし」と読まない' "$incident_retro"
 grep -F -- '`add` が書けたものとして扱うのは、終了コード0で標準出力にパスが出たときだけ' "$incident_retro"
-grep -F -- '**`add` のそれ以外の0でない終了コード (2、検査の拒否でない1など) は失敗として終了コードと stderr を利用者に伝え、書けたものとして扱わない。**' "$incident_retro"
+grep -F -- '**`add` のそれ以外の0でない終了コード (2、検査の拒否でない1など。5 は除く) は失敗として終了コードと stderr を利用者に伝え、書けたものとして扱わない。**' "$incident_retro"
+# add exit 5 (#144): same session and signature already in the ledger, read as recorded, never as a
+# failure or a rejection to rewrite; exit 0 may carry the notice that the default branch was not checked.
+grep -F -- '**終了コード5は記録済み**' "$incident_retro"
+grep -F -- '失敗とも検査の拒否とも扱わず、書き直して再実行せず' "$incident_retro"
+grep -F -- '作業ツリーだけで重複を確かめた場合' "$incident_retro"
+grep -F -- '読めない・検査に通らない観測があって重複を確かめきれなかった場合 (件数と場所だけが出る) は stderr にそう出る' "$incident_retro"
 if grep -Eq -- 'python3 -I \.\./\.\./scripts/learnings\.py' "$incident_retro"; then
   exit 1
 fi

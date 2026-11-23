@@ -509,6 +509,186 @@ set -e
 [ "$status" -eq 4 ]
 grep -F 'could not list the ledger on the default branch' "$tmp_dir/t2.err"
 
+# --- add: one observation per session and signature (#144) -----------------------------------
+# A second observation with the same session and signature is not written, whatever its fact;
+# add exits 5 (not 0, not a rejection's 1) and names the existing file, never its values.
+ledger_count() { find "$1/.aidd/learnings" -name '*.json' | wc -l | tr -d ' '; }
+add_status() {  # add_status REPO SESSION SIGNATURE [FACT]: run add, keep stderr in $tmp_dir/add.err
+  set +e
+  observation "$3" "${4:-A plain observation for the test.}" | \
+    python3 -I "$script" add --repo "$1" --session-id "$2" > "$tmp_dir/add.out" 2> "$tmp_dir/add.err"
+  local status=$?
+  set -e
+  echo "$status"
+}
+dup_repo="$tmp_dir/dup-repo"
+git init -q --template= -b main "$dup_repo"
+git -C "$dup_repo" commit -q --allow-empty -m 'chore: base'
+git -C "$dup_repo" config aidd.learnings true
+[ "$(add_status "$dup_repo" d1 'git stash' 'First fact about stash.')" -eq 0 ]
+first=$(cat "$tmp_dir/add.out")
+[ "$(add_status "$dup_repo" d1 'git stash' 'First fact about stash.')" -eq 5 ]
+[ ! -s "$tmp_dir/add.out" ]
+grep -F 'already recorded' "$tmp_dir/add.err"
+grep -F "$first" "$tmp_dir/add.err"
+[ "$(ledger_count "$dup_repo")" -eq 1 ]
+# A different fact in the same session and signature is still a duplicate (user decision D1).
+[ "$(add_status "$dup_repo" d1 'git stash' 'Another fact about stash.')" -eq 5 ]
+if grep -Fq 'fact about stash' "$tmp_dir/add.err"; then
+  echo "add echoed a fact in the duplicate message" >&2
+  exit 1
+fi
+[ "$(ledger_count "$dup_repo")" -eq 1 ]
+# Another session, or another signature, is written.
+[ "$(add_status "$dup_repo" d2 'git stash')" -eq 0 ]
+[ "$(add_status "$dup_repo" d1 'gh pr view')" -eq 0 ]
+[ "$(ledger_count "$dup_repo")" -eq 3 ]
+# An observation merged into the default branch is a duplicate too, after it left the working tree.
+git -C "$dup_repo" add .aidd/learnings
+git -C "$dup_repo" commit -qm 'docs: ledger'
+git -C "$dup_repo" switch -q -c work
+git -C "$dup_repo" rm -q -r .aidd/learnings
+[ "$(add_status "$dup_repo" d1 'git stash')" -eq 5 ]
+grep -F "$first" "$tmp_dir/add.err"
+[ ! -e "$dup_repo/.aidd/learnings" ] || [ "$(ledger_count "$dup_repo")" -eq 0 ]
+# A merged observation of the same signature from another session is not a duplicate.
+[ "$(add_status "$dup_repo" d3 'git stash')" -eq 0 ]
+[ "$(ledger_count "$dup_repo")" -eq 1 ]
+# A same-session file that fails the check is not counted as a duplicate; add writes and says the
+# duplicate check is incomplete, by count and place only (never the file's values).
+mkdir -p "$dup_repo/.aidd/learnings"
+python3 -c '
+import hashlib, json, sys
+json.dump({"schema_version": 1, "source": "incident-retro", "scope": "tool", "status": "observed",
+           "signature": "git log", "fact": "Reported by someone@mailhost.zz today.",
+           "evidence": [], "session": hashlib.sha256(b"d1").hexdigest()[:12]}, open(sys.argv[1], "w"))
+' "$dup_repo/.aidd/learnings/20261122T000000Z-00000009.json"
+[ "$(add_status "$dup_repo" d1 'git log')" -eq 0 ]
+[ "$(ledger_count "$dup_repo")" -eq 3 ]
+grep -F '1 observation(s) on the working tree cannot be read or fail the check' "$tmp_dir/add.err"
+if grep -Fq 'someone' "$tmp_dir/add.err"; then
+  echo "add echoed a value of an observation that fails the check" >&2
+  exit 1
+fi
+# Only the scope breaks the schema: same session and signature, still written with the notice.
+python3 -c '
+import hashlib, json, sys
+json.dump({"schema_version": 1, "source": "incident-retro", "scope": "galaxy", "status": "observed",
+           "signature": "git diff", "fact": "A plain observation for the test.",
+           "evidence": [], "session": hashlib.sha256(b"d1").hexdigest()[:12]}, open(sys.argv[1], "w"))
+' "$dup_repo/.aidd/learnings/20261122T000000Z-0000000a.json"
+[ "$(add_status "$dup_repo" d1 'git diff')" -eq 0 ]
+grep -F '2 observation(s) on the working tree cannot be read or fail the check' "$tmp_dir/add.err"
+[ "$(ledger_count "$dup_repo")" -eq 5 ]
+
+# Default branch unreadable (the situation of candidates' exit 4): judge on the working tree
+# alone, write, and say on stderr that the default branch was not checked (user decision D2).
+git -C "$trunk_repo" config aidd.learnings true
+[ "$(add_status "$trunk_repo" t1 'git stash')" -eq 0 ]
+grep -F 'default branch could not be checked' "$tmp_dir/add.err"
+[ "$(ledger_count "$trunk_repo")" -eq 1 ]
+[ "$(add_status "$trunk_repo" t1 'git stash')" -eq 5 ]
+[ "$(ledger_count "$trunk_repo")" -eq 1 ]
+# On that working-tree-only path too, a file that fails the check is reported as an incomplete check.
+python3 -c '
+import hashlib, json, sys
+json.dump({"schema_version": 1, "source": "incident-retro", "scope": "galaxy", "status": "observed",
+           "signature": "git diff", "fact": "A plain observation for the test.",
+           "evidence": [], "session": hashlib.sha256(b"t1").hexdigest()[:12]}, open(sys.argv[1], "w"))
+' "$trunk_repo/.aidd/learnings/20261122T000000Z-0000000b.json"
+[ "$(add_status "$trunk_repo" t1 'git diff')" -eq 0 ]
+grep -F '1 observation(s) on the working tree cannot be read or fail the check' "$tmp_dir/add.err"
+# The merged duplicate is not seen when the default branch cannot be listed, so it is written.
+[ "$(PATH="$fake_bin:$PATH" add_status "$dup_repo" d1 'git stash')" -eq 0 ]
+grep -F 'default branch could not be checked' "$tmp_dir/add.err"
+# A merged file that git cannot read (cat-file fails) leaves the check incomplete: written, with
+# the notice for the default branch.
+catfile_bin="$tmp_dir/catfile-bin"
+mkdir -p "$catfile_bin"
+cat > "$catfile_bin/git" <<EOF
+#!/bin/bash
+for arg in "\$@"; do [ "\$arg" = cat-file ] && exit 128; done
+exec "$real_git" "\$@"
+EOF
+chmod +x "$catfile_bin/git"
+[ "$(PATH="$catfile_bin:$PATH" add_status "$dup_repo" d1 'gh pr view')" -eq 0 ]
+grep -E '^[0-9]+ observation\(s\) on the default branch cannot be read or fail the check' "$tmp_dir/add.err"
+# A working-tree ledger that cannot be read: exit 6, nothing written, no traceback.
+before=$(ledger_count "$dup_repo")
+chmod 000 "$dup_repo/.aidd/learnings"
+status=$(add_status "$dup_repo" d5 'git stash')
+chmod 755 "$dup_repo/.aidd/learnings"
+[ "$status" -eq 6 ]
+[ ! -s "$tmp_dir/add.out" ]
+grep -F 'the working-tree ledger could not be read' "$tmp_dir/add.err"
+if grep -Fq 'Traceback' "$tmp_dir/add.err"; then
+  echo "add leaked a traceback" >&2
+  exit 1
+fi
+[ "$(ledger_count "$dup_repo")" -eq "$before" ]
+# A working-tree ledger that can be read but not written: exit 6 as well, nothing written, no
+# traceback (the read succeeds, so only the write fails).
+chmod 555 "$dup_repo/.aidd/learnings"
+status=$(add_status "$dup_repo" d6 'git stash')
+chmod 755 "$dup_repo/.aidd/learnings"
+[ "$status" -eq 6 ]
+[ ! -s "$tmp_dir/add.out" ]
+grep -F 'the working-tree ledger could not be written' "$tmp_dir/add.err"
+if grep -Fq 'Traceback' "$tmp_dir/add.err"; then
+  echo "add leaked a traceback on a write failure" >&2
+  exit 1
+fi
+[ "$(ledger_count "$dup_repo")" -eq "$before" ]
+# Write failures that permissions cannot stage, by replacing open/os.remove in the module:
+# a write that fails after the file was created, whose cleanup also fails, still exits 6 and
+# names the partial file; a create that fails (the name exists) never removes the existing file.
+observation 'git stash' 'A plain observation for the test.' > "$tmp_dir/obs.json"
+python3 -I -B - "$script" "$dup_repo" "$tmp_dir/obs.json" > "$tmp_dir/inject.out" 2>&1 <<'PY'
+import builtins, importlib.util, io, os, sys
+spec = importlib.util.spec_from_file_location("learnings", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+real_open, real_remove = builtins.open, os.remove
+body = real_open(sys.argv[3]).read()
+
+def run(session, open_hook, remove_hook):
+    removed = []
+    def fake_remove(path):
+        removed.append(path)
+        remove_hook(path)
+    sys.stdin, err = io.StringIO(body), io.StringIO()
+    mod.open, mod.os.remove, sys.stderr = open_hook, fake_remove, err
+    try:
+        code = mod.main(["add", "--repo", sys.argv[2], "--session-id", session])
+    finally:
+        mod.open, mod.os.remove, sys.stderr = real_open, real_remove, sys.__stderr__
+    return code, err.getvalue(), removed
+
+class Broken:
+    def __init__(self, path): self.path = path; real_open(path, "xb").close()
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+    def write(self, data): raise OSError("disk full")
+
+def failing_write(path, mode="r", *a, **k):
+    return Broken(path) if "x" in mode else real_open(path, mode, *a, **k)
+def failing_remove(path): raise PermissionError("cannot remove")
+code, err, removed = run("inj1", failing_write, failing_remove)
+assert code == 6, code
+assert "a partial file may remain" in err and "Traceback" not in err, err
+assert len(removed) == 1, removed
+real_remove(removed[0])  # the test leaves no partial file behind
+
+def exists(path, mode="r", *a, **k):
+    if "x" in mode: raise FileExistsError("exists")
+    return real_open(path, mode, *a, **k)
+code, err, removed = run("inj2", exists, real_remove)
+assert code == 6, code
+assert removed == [], removed
+print("inject ok")
+PY
+grep -Fx 'inject ok' "$tmp_dir/inject.out" || { cat "$tmp_dir/inject.out" >&2; exit 1; }
+
 # --- scan: a reflux draft for the aidd repository (#107) ------------------------------------
 # The draft goes outside the using repository, so it gets the same pattern check line by line,
 # and cites no evidence of the using repository (commit SHA, #number). No git repository or
