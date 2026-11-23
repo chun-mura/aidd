@@ -639,6 +639,55 @@ if grep -Fq 'Traceback' "$tmp_dir/add.err"; then
   exit 1
 fi
 [ "$(ledger_count "$dup_repo")" -eq "$before" ]
+# Write failures that permissions cannot stage, by replacing open/os.remove in the module:
+# a write that fails after the file was created, whose cleanup also fails, still exits 6 and
+# names the partial file; a create that fails (the name exists) never removes the existing file.
+observation 'git stash' 'A plain observation for the test.' > "$tmp_dir/obs.json"
+python3 -I -B - "$script" "$dup_repo" "$tmp_dir/obs.json" > "$tmp_dir/inject.out" 2>&1 <<'PY'
+import builtins, importlib.util, io, os, sys
+spec = importlib.util.spec_from_file_location("learnings", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+real_open, real_remove = builtins.open, os.remove
+body = real_open(sys.argv[3]).read()
+
+def run(session, open_hook, remove_hook):
+    removed = []
+    def fake_remove(path):
+        removed.append(path)
+        remove_hook(path)
+    sys.stdin, err = io.StringIO(body), io.StringIO()
+    mod.open, mod.os.remove, sys.stderr = open_hook, fake_remove, err
+    try:
+        code = mod.main(["add", "--repo", sys.argv[2], "--session-id", session])
+    finally:
+        mod.open, mod.os.remove, sys.stderr = real_open, real_remove, sys.__stderr__
+    return code, err.getvalue(), removed
+
+class Broken:
+    def __init__(self, path): self.path = path; real_open(path, "xb").close()
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+    def write(self, data): raise OSError("disk full")
+
+def failing_write(path, mode="r", *a, **k):
+    return Broken(path) if "x" in mode else real_open(path, mode, *a, **k)
+def failing_remove(path): raise PermissionError("cannot remove")
+code, err, removed = run("inj1", failing_write, failing_remove)
+assert code == 6, code
+assert "a partial file may remain" in err and "Traceback" not in err, err
+assert len(removed) == 1, removed
+real_remove(removed[0])  # the test leaves no partial file behind
+
+def exists(path, mode="r", *a, **k):
+    if "x" in mode: raise FileExistsError("exists")
+    return real_open(path, mode, *a, **k)
+code, err, removed = run("inj2", exists, real_remove)
+assert code == 6, code
+assert removed == [], removed
+print("inject ok")
+PY
+grep -Fx 'inject ok' "$tmp_dir/inject.out" || { cat "$tmp_dir/inject.out" >&2; exit 1; }
 
 # --- scan: a reflux draft for the aidd repository (#107) ------------------------------------
 # The draft goes outside the using repository, so it gets the same pattern check line by line,

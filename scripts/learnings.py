@@ -508,15 +508,20 @@ def cmd_add(args):
         for existing in names:
             print(f"  {display_name(existing)}", file=sys.stderr)
         return EXIT_DUPLICATE
-    path = os.path.join(top, name)
+    path, created = os.path.join(top, name), False
     try:
         os.makedirs(os.path.join(top, LEDGER_DIR), exist_ok=True)
         with open(path, "xb") as f:
+            created = True  # only a file this call created may be removed below
             f.write(body)
     except OSError as exc:  # the message may hold a path, so only the exception's name
-        if os.path.isfile(path):
-            os.remove(path)
-        print(f"the working-tree ledger could not be written ({type(exc).__name__}); nothing written",
+        left = ""
+        if created:
+            try:
+                os.remove(path)
+            except OSError:
+                left = f"; a partial file may remain: {display_name(name)}"
+        print(f"the working-tree ledger could not be written ({type(exc).__name__}); nothing written{left}",
               file=sys.stderr)
         return EXIT_UNREADABLE
     print(name)
