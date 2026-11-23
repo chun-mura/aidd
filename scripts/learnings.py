@@ -367,6 +367,7 @@ def hash_session(raw):
 
 DEFAULT_REFS = ("refs/remotes/origin/main", "refs/remotes/origin/master", "refs/heads/main", "refs/heads/master")
 EXIT_UNCOUNTED = 4  # merged observations could not be counted (3 means the ledger is disabled)
+EXIT_DUPLICATE = 5  # add wrote nothing: this session already recorded the signature
 
 
 class Uncounted(Exception):
@@ -402,6 +403,14 @@ def observations(top, current_session):
         else:
             seen[name] = raw
     merged = set(seen) | {name for name, _ in skipped}  # judged on the default branch already
+    working_tree(top, current_session, merged, seen, skipped)
+    counted = [(name, json.loads(seen[name].decode("utf-8"))) for name in sorted(seen)]
+    return counted, skipped
+
+
+def working_tree(top, current_session, merged, seen, skipped):
+    """Add to seen the working-tree observations written in current_session, leaving out the
+    names in merged; add to skipped the ones that fail the check."""
     directory = os.path.join(top, LEDGER_DIR)
     if current_session and os.path.isdir(directory):
         for entry in sorted(os.listdir(directory)):
@@ -414,8 +423,22 @@ def observations(top, current_session):
                 skipped.append((name, "working tree"))
             elif json.loads(raw.decode("utf-8"))["session"] == current_session:
                 seen[name] = raw
-    counted = [(name, json.loads(seen[name].decode("utf-8"))) for name in sorted(seen)]
-    return counted, skipped
+
+
+def recorded(top, session, signature):
+    """Return (names, unchecked): of the observations candidates counts for this session, the ones
+    with this session and signature, and why the default branch could not be read (None
+    if it was). Unreadable, it falls back to the working tree alone rather than stop."""
+    try:
+        counted, _ = observations(top, session)
+        unchecked = None
+    except Uncounted as exc:
+        seen = {}
+        working_tree(top, session, set(), seen, [])
+        counted = [(name, json.loads(raw.decode("utf-8"))) for name, raw in sorted(seen.items())]
+        unchecked = str(exc)
+    return [name for name, data in counted
+            if data["session"] == session and data["signature"] == signature], unchecked
 
 
 # --- commands --------------------------------------------------------------------------------
@@ -462,6 +485,16 @@ def cmd_add(args):
         for error in errors:
             print(f"  {error}", file=sys.stderr)
         return 1
+    names, unchecked = recorded(top, data["session"], data["signature"])
+    if unchecked:
+        print(f"the default branch could not be checked for a duplicate ({unchecked}); "
+              "checked the working tree only", file=sys.stderr)
+    if names:
+        print("already recorded: an observation with the same session and signature exists; nothing written",
+              file=sys.stderr)
+        for existing in names:
+            print(f"  {display_name(existing)}", file=sys.stderr)
+        return EXIT_DUPLICATE
     os.makedirs(os.path.join(top, LEDGER_DIR), exist_ok=True)
     with open(os.path.join(top, name), "xb") as f:
         f.write(body)
@@ -535,7 +568,8 @@ def main(argv=None):
     check = sub.add_parser("check", help="check ledger files; exit 1 if any is rejected")
     check.add_argument("--repo", default=".")
     check.add_argument("files", nargs="+")
-    add = sub.add_parser("add", help="check one observation from stdin and write it if it passes")
+    add = sub.add_parser("add", help="check one observation from stdin and write it if it passes; "
+                         "exit 5 (writes nothing) if this session already recorded its signature")
     add.add_argument("--repo", default=".")
     add.add_argument("--session-id", required=True)
     cand = sub.add_parser("candidates", help="print signatures seen in two or more sessions (merged + this session)")
