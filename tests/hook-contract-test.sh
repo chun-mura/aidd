@@ -1755,6 +1755,60 @@ out=$(PATH="$nopy_bin" AIDD_TEST_STATE_DIR="$nopy_state" "$nopy_bin/bash" "$adap
 [ ! -e "$nopy_state/adapter-skips.json" ]
 [ -z "$(AIDD_TEST_STATE_DIR="$gate_dir" bash "$adapter" skill-gate.sh < "$fixtures/cursor/preToolUse.read-before-edit.json")" ]
 
+# Issue #120: the adapter decides by file identity, not by the spelling of the input, so another
+# name for this plugin's SKILL.md (a link, a relative path, other case, JSON escapes) is still denied.
+cursor_read() {  # FILE_PATH [CWD] [escape]: write a Cursor Read event; "escape" spells it with \/ and \u
+  python3 - "$fixtures/cursor/preToolUse.read-before-edit.json" "$adapter_in" "$@" <<'PY'
+import json, sys
+p = json.load(open(sys.argv[1]))
+p["tool_input"]["file_path"] = sys.argv[3]
+if len(sys.argv) > 4 and sys.argv[4]:
+    p["workspace_roots"] = [sys.argv[4]]
+text = json.dumps(p)
+if len(sys.argv) > 5:
+    text = text.replace("/", "\\/").replace("autonomous-review", "\\u0061utonomous\\u002dreview")
+    text = text.replace("alias", "\\u0061lias")
+open(sys.argv[2], "w").write(text)
+PY
+}
+adapter_gate() { AIDD_TEST_STATE_DIR="$gate_dir" bash "$adapter" skill-gate.sh < "$adapter_in"; }
+expect_cursor_deny() {
+  python3 -c '
+import json, sys
+o = json.load(sys.stdin)
+assert o["permission"] == "deny", o
+assert "/autonomous-review" in o["user_message"], o
+'
+}
+alias_dir="$tmp_dir/cursor-alias"
+mkdir -p "$alias_dir"
+ln -s "$repo_root/skills/autonomous-review/SKILL.md" "$alias_dir/alias.md"
+ln -s "$repo_root/skills/design-review/SKILL.md" "$alias_dir/other.md"
+cursor_read "$alias_dir/alias.md"; adapter_gate | expect_cursor_deny
+cursor_read alias.md "$alias_dir"; adapter_gate | expect_cursor_deny
+cursor_read autonomous-review/SKILL.md "$repo_root/skills"; adapter_gate | expect_cursor_deny
+cursor_read "$repo_root/skills/autonomous-review/SKILL.md" "" escape; adapter_gate | expect_cursor_deny
+cursor_read "$alias_dir/alias.md" "" escape; adapter_gate | expect_cursor_deny
+if [ -e "$alias_dir/ALIAS.MD" ]; then  # case-insensitive filesystem (macOS default)
+  cursor_read "$alias_dir/ALIAS.MD"; adapter_gate | expect_cursor_deny
+fi
+if [ -e "$repo_root/skills/AUTONOMOUS-REVIEW/skill.md" ]; then
+  cursor_read "$repo_root/skills/AUTONOMOUS-REVIEW/skill.md"; adapter_gate | expect_cursor_deny
+fi
+# JSON keeps the last of duplicate keys, so the cheap check must not judge by the first one.
+printf '{"hook_event_name":"preToolUse","cursor_version":"x","workspace_roots":["/work/repo"],"tool_name":"Read","tool_input":{"file_path":"/work/repo/new.txt","file_path":"%s"}}' "$alias_dir/alias.md" > "$adapter_in"
+adapter_gate | expect_cursor_deny
+# Same-name files outside this plugin and links to other files still pass.
+cursor_read "$alias_dir/other.md"; [ -z "$(adapter_gate)" ]
+cursor_read "$tmp_dir/copy/skills/autonomous-review/SKILL.md"; [ -z "$(adapter_gate)" ]
+cursor_read "$tmp_dir/copy/skills/autonomous-review/SKILL.md" "" escape; [ -z "$(adapter_gate)" ]
+cursor_read autonomous-review/SKILL.md "$tmp_dir/copy/skills"; [ -z "$(adapter_gate)" ]
+# Known limit kept: without python3 a link to the SKILL.md reaches the python check and is only counted.
+nopy_alias_state="$tmp_dir/adapter-nopy-alias"
+cursor_read "$alias_dir/alias.md"
+[ -z "$(PATH="$nopy_bin" AIDD_TEST_STATE_DIR="$nopy_alias_state" "$nopy_bin/bash" "$adapter" skill-gate.sh < "$adapter_in")" ]
+grep -q no_python3 "$nopy_alias_state/adapter-skips.json"
+
 # autonomous-review run 20261117T071154Z-5bf017 findings.
 # S1: on a case-insensitive filesystem (macOS default) a differently cased path opens the same SKILL.md.
 case_variant="$repo_root/skills/Autonomous-Review/skill.md"

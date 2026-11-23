@@ -43,6 +43,9 @@ elif event.get("tool_name") == "Read":
     path = tool_input.get("file_path")
     own = os.path.join(plugin_root, "skills", "autonomous-review", "SKILL.md")
     if isinstance(path, str) and path:
+        cwd = event.get("cwd")
+        if isinstance(cwd, str) and cwd:
+            path = os.path.join(cwd, path)  # a relative path is the reader's, not this hook's
         try:
             same = os.path.samefile(path, own)
         except OSError:
