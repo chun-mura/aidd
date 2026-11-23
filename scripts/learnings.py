@@ -246,8 +246,8 @@ def display_name(name):
 
 # A reflux draft (#107) leaves the using repository for the aidd one, which may be public. On top of
 # scan_text it rejects what points back at the using repository: commit SHAs (any case, digit-only
-# short ones too, but not an 8-digit date), #numbers, a value with "/" after -R/--repo unless it is
-# made of fixed placeholders only, any ~/ or ~name/ path, and @-words. The draft writes fixed placeholders
+# short ones too, but not an 8-digit date), #numbers, a value after -R/--repo that names something
+# (see repo_value_leaks), any ~/ or ~name/ path, and @-words. The draft writes fixed placeholders
 # (<owner>, <repo>, <path>, <branch>, <file>, <dir>, <command>, <config-dir>) instead; they hold no
 # digit, #, @ or ~, so the rules run on the line as is and angle brackets let nothing else through.
 # The title and sections are what /aidd:retro reads.
@@ -261,14 +261,47 @@ DRAFT_RULES = [
         r"|(?<![0-9A-Za-z])(?=[0-9A-Fa-f]*[0-9])"
         r"(?!(?:19|20)[0-9]{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12][0-9]|3[01])(?![0-9A-Za-z]))"
         r"[0-9A-Fa-f]{7,40}(?![0-9A-Za-z])", re.A)),
-    # A value of fixed placeholders only (<owner>/<repo>, or cp -R <path>/<file>) passes; it ends
-    # where no letter, digit, "/", "-" or "_" follows, so Japanese punctuation may follow it.
-    ("a repository name after -R/--repo", re.compile(
-        r"(?<![\w-])(?:-R|--repo)(?:\s+|=)(?!" + DRAFT_PLACEHOLDER + r"(?:/" + DRAFT_PLACEHOLDER
-        + r")*(?![A-Za-z0-9/_-]))[^\s/]+/\S*", re.A)),
     ("a home-relative path", re.compile(r"(?<![\w~])~[A-Za-z0-9_.-]*/", re.A)),
     ("an @-mention or package scope", re.compile(r"(?<![\w.@])@[A-Za-z0-9_]", re.A)),
 ]
+
+
+REPO_FLAG = re.compile(r"(?<![\w-])(?:-R|--repo)(?:\s+|=)(\S+)", re.A)
+PLACEHOLDER_RUN = re.compile(DRAFT_PLACEHOLDER + r"(?:/" + DRAFT_PLACEHOLDER + r")*")
+
+
+def _mark(ch):
+    """A mark: neither a letter, a digit, white space nor "/"."""
+    return not (ch.isalnum() or ch.isspace() or ch == "/")
+
+
+def repo_value_leaks(line):
+    """True if a value after -R/--repo names something. A value that does not start with the fixed
+    placeholders leaks when it holds "/" (grep -R <word> stays allowed). A value that starts with
+    them (<owner>/<repo>, cp -R <path>/<file>) may be followed by marks, and then must end there, or
+    the marks must include a non-ASCII one: Japanese runs on without a space, so a non-ASCII mark ends
+    the value. ASCII marks followed by a letter or digit (<path>.secret, <repo>-x) leak. The line is
+    NFKC-normalized one character at a time, so a full-width mark still counts as non-ASCII."""
+    chars, origin = [], []
+    for ch in line:
+        for normalized in unicodedata.normalize("NFKC", ch):
+            chars.append(normalized)
+            origin.append(ch)
+    text = "".join(chars)
+    for flag in REPO_FLAG.finditer(text):
+        value, start = flag.group(1), flag.start(1)
+        head = PLACEHOLDER_RUN.match(value)
+        if not head:
+            if "/" in value:
+                return True
+            continue
+        end = head.end()
+        while end < len(value) and _mark(value[end]):
+            end += 1
+        if end == len(value) or any(not origin[start + i].isascii() for i in range(head.end(), end)):
+            continue
+        return True
+    return False
 
 
 def draft_signature(text):
@@ -306,6 +339,8 @@ def scan_draft(text):
         errors += scan_text(field, line)
         normalized = unicodedata.normalize("NFKC", line)
         errors += [f"{field}: contains {rule}" for rule, pattern in DRAFT_RULES if pattern.search(normalized)]
+        if repo_value_leaks(line):
+            errors.append(f"{field}: contains a repository name after -R/--repo")
     return errors
 
 

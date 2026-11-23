@@ -577,6 +577,17 @@ scan_reject "bracketed real repo" "repository name after -R/--repo" "Run gh pr v
 scan_reject "half placeholder repo" "repository name after -R/--repo" "Run gh pr view -R <owner>/someapp first."
 scan_reject "placeholder followed by a word" "repository name after -R/--repo" "Run gh pr view -R <owner>/<repo>_x first."
 scan_reject "placeholder followed by a path" "repository name after -R/--repo" "Run gh pr view -R <owner>/<repo>/x first."
+# ASCII marks after the placeholders, then a name: rejected (review round 4).
+scan_reject "mark then path" "repository name after -R/--repo" "Run gh pr view -R <path>.secret/x first."
+scan_reject "mark then name" "repository name after -R/--repo" "Run gh pr view --repo=<owner>/<repo>.internal first."
+scan_reject "hyphen then name" "repository name after -R/--repo" "Run gh pr view -R <owner>/<repo>-x first."
+scan_reject "hyphen then name, no slash" "repository name after -R/--repo" "Run gh pr view -R <path>-x first."
+# The value may end at a space or line end after ASCII marks, or at a non-ASCII mark (Japanese
+# runs on without a space); a full-width mark counts as non-ASCII even though NFKC makes it ASCII.
+out=$(printf '%s\n%s\n%s\n%s\n' "$draft_ok" 'gh pr view -R <owner>/<repo>.' \
+  '「--repo=<owner>/<repo>」と -R <owner>/<repo>、次に -R <owner>/<repo>）次に' \
+  'cp -R <path>/<file> <dir>; grep -R pattern <dir>' | python3 -I "$script" scan)
+printf '%s\n' "$out" | grep -F 'draft passed the check'
 # A value made of the fixed placeholders only passes after -R, whatever the command (cp -R included),
 # and the placeholder may end at Japanese or full-width punctuation (review round 3).
 out=$(printf '%s\n%s\n%s\n' "$draft_ok" 'cp -R <path>/<file> <dir> で写す。' \
