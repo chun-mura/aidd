@@ -44,9 +44,20 @@ grep -F -- 'gh pr create' "$command_file"
 grep -F -- 'レビュー出力を `eval`・`source`・コマンド置換で実行してはならない' "$command_file"
 grep -F -- 'perspective_reviews' "$command_file"
 grep -F -- '観点別レビューを追加で実行' "$command_file"
-grep -F -- 'aidd:security-reviewer' "$command_file"
 # The security perspective fires on the same storage condition as design-review Agent 6 (#110).
-grep -F -- '公開エンドポイント、権限設定)、または機微情報 (個人情報・プロンプト・認証情報など) をファイル・ログ・キャッシュに保存する場合、`aidd:security-reviewer` を実行する' "$command_file"
+grep -F -- '公開エンドポイント、権限設定)、または機微情報 (個人情報・プロンプト・認証情報など) をファイル・ログ・キャッシュに保存する場合、実装差分の監査として `/security-review` を実行する' "$command_file"
+# aidd:security-reviewer is a design-document STRIDE reviewer; a run of it, or of design-review,
+# must not count as an audit of the implementation diff (#121).
+if grep -F -- '`aidd:security-reviewer` を実行する' "$command_file"; then
+  echo "the implementation diff must go to /security-review, not the design-only security-reviewer" >&2
+  exit 1
+fi
+grep -F -- '`aidd:security-reviewer` は設計書に対する STRIDE レビューであり、実装差分の監査に使わない' "$command_file"
+grep -F -- '`/aidd:design-review` のセキュリティ指摘も、実装差分の監査に数えない' "$command_file"
+grep -F -- '`security-review.txt`' "$command_file"
+grep -F -- '監査の経路、対象にした差分 (`base_sha` と `head_sha`、または作業ツリー差分)、結果のファイル、未実行ならその理由' "$command_file"
+grep -F -- '確定した差分と同じ範囲を監査したと確かめられない場合は、未実行として理由を記録し `human_required` とする' "$command_file"
+grep -F -- '自前のレビューで代えない' "$command_file"
 grep -F -- '`approved` を返したことは、網羅的にレビューされたことを意味しない' "$command_file"
 grep -F -- '該当する観点別レビューの完了' "$command_file"
 grep -F -- 'state.json のスキーマ' "$command_file"

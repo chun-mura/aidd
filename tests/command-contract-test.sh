@@ -90,6 +90,10 @@ grep -F -- '既定のテスト実行から外れたテスト' "$issue_implement"
 grep -F -- '**横展開のレビュー**: 差分が守りの処理 (認可・所有の確認、入力の検証、ログに出す値の形、例外の扱い) を足す・直す・共通の関数に切り出す' "$issue_implement"
 grep -F -- '同じ形の呼び出し元と兄弟の処理 (同じ種類のエンドポイント・ハンドラ・action) に同じ処理が当たっているか' "$issue_implement"
 grep -F -- 'silent-failure-hunter・/security-review・横展開のレビューは重ねない' "$issue_implement"
+# With autonomous-review, the implementation audit runs inside it; a missing audit must surface,
+# and the design-time security-reviewer must not stand in for it (#121).
+grep -F -- 'autonomous-review が `/security-review` を未実行と記録した場合は、実装差分の監査が済んでいないものとして、完了報告に未実行として理由ごと書く' "$issue_implement"
+grep -F -- '実装の差分ではないので、`/security-review` の実行済みに数えない' "$issue_implement"
 # test-perspectives carries the failure-path, removal and sibling-authz perspectives that
 # issue-implement 4-5 / 4-6 rely on (#92).
 grep -F -- '失敗の分岐では、送出される型だけでなく、その後に起きるべきこと (ロックの解放、残りの要素の処理の続行、部分失敗の後の再実行での回復) を観点にする' "$test_perspectives"
