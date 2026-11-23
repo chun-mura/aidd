@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.68.0 (2026-11-22)
+## 0.68.0 (2026-11-23)
 
 - `autonomous-review`: 知見の台帳 (#104、既定で無効) を有効にしたリポジトリでは、最終判定のあと、confirmed と deferred の指摘の型を `source: autonomous-review` の観測として台帳に書くようにした。run のディレクトリは worktree ごと消えることがあり (#91 の証跡が消えた)、run をまたいで同じ型の指摘が出ても数えられなかったため (#108)。型は `review <category> <type words>` (ファイル名・識別子・業務の固有名を入れない一般的な型) で、既存のどの型と同じかの判定が割れたものは利用者に選ばせる。記録・台帳のファイルのコミット (名指しの `git commit -- <ファイル>`、既定ブランチと detached HEAD では行わない)・昇格はどれも AskUserQuestion で承認されたものだけ行い、`scripts/learnings.py add` を通してだけ書く。別のセッションで2回以上出た型を `.aidd/design-perspectives.md` (design-review の Agent 4) への昇格候補として示す (`security` の型は Agent 6 の担当なので入れない)。この手順は最終判定を変えない。`state.json` の `schema_version` を `4` にし、`learnings` と `start_branch` を足した
 - `scripts/learnings.py`: `source: autonomous-review` の観測に、`signature` が `review <category> <type words>` (分類は8つの列挙値、型の語は小文字の語だけでフラグ不可)、`scope` が `project`、`evidence` がコミット SHA と `#番号` だけ、の規則を足した。指摘は利用者のコードについてのものなので、項目を狭めて抽象化した型だけを入れるため。語の規則は広げておらず、数え方 (`candidates`) も変えていない。コミット時の検査 (`tool-reminder.sh`) は同じ関数を使うので同じ規則がかかる
