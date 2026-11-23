@@ -1280,10 +1280,17 @@ assert "hookSpecificOutput" not in o
 '
 
 # python3 missing → adapter-skips.json, no sentinel file.
+nopy_bin="$tmp_dir/nopy-bin"
+mkdir -p "$nopy_bin"
+for tool in bash cat grep dirname mkdir date mv rm printf tr; do
+  src=$(command -v "$tool" 2>/dev/null || true)
+  [ -n "$src" ] && [ "${src#/}" != "$src" ] && ln -sf "$src" "$nopy_bin/$tool"
+done
+PATH="$nopy_bin" "$nopy_bin/bash" -c '! command -v python3'
 nopy="$tmp_dir/nopy"
 mkdir -p "$nopy"
-out=$(PATH=/bin AIDD_TEST_STATE_DIR="$nopy" bash "$adapter" tool-reminder.sh \
-  < "$fixtures/cursor/preToolUse.shell-git-add-all.json" || true)
+out=$(PATH="$nopy_bin" AIDD_TEST_STATE_DIR="$nopy" "$nopy_bin/bash" "$adapter" tool-reminder.sh \
+  < "$fixtures/cursor/preToolUse.shell-git-add-all.json")
 [ -z "$out" ]
 [ ! -e "$nopy/adapter-skips.no-python3" ]
 python3 - "$nopy/adapter-skips.json" <<'PY'
@@ -1362,12 +1369,6 @@ gate '{"hook_event_name":"PreToolUse","tool_name":"Skill","tool_input":{"skill":
 gate '{"hook_event_name":"PreToolUse","tool_name":"Skill","note":"autonomous-review"}' | expect_gate ask
 [ -z "$(gate '{"tool_name":"Skill","tool_input":{"skill":"aidd:adr"')" ]
 # Without python3 the gate still asks for the named skill.
-nopy_bin="$tmp_dir/nopy-bin"
-mkdir -p "$nopy_bin"
-for tool in bash cat grep dirname mkdir date mv rm printf tr; do
-  src=$(command -v "$tool" 2>/dev/null || true)
-  [ -n "$src" ] && [ "${src#/}" != "$src" ] && ln -sf "$src" "$nopy_bin/$tool"
-done
 out=$(skill_payload aidd:autonomous-review | PATH="$nopy_bin" AIDD_TEST_STATE_DIR="$gate_dir" "$nopy_bin/bash" "$skill_gate")
 printf '%s' "$out" | expect_gate ask
 [ -z "$(skill_payload aidd:adr | PATH="$nopy_bin" AIDD_TEST_STATE_DIR="$gate_dir" "$nopy_bin/bash" "$skill_gate")" ]
