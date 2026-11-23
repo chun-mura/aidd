@@ -26,12 +26,12 @@ grep -F 'fixes JIRA-1234' "$claude_template"
 # (no design review gate on unrelated commits).
 ai_section=$(awk '/^## AI運用/{on=1; next} on && /^## /{on=0} on' "$claude_template")
 [ -n "$ai_section" ]
-# Reworded one-size rules must fail too: no skill tied to the commit step, and design-review
-# only through the lane decision.
-if printf '%s\n' "$ai_section" | grep -F 'コミット前' | grep -Fq '/aidd:'; then
+# Reworded one-size rules must fail too, anywhere in the template: no skill tied to the
+# commit step, and design-review only through the lane decision.
+if grep -F 'コミット前' "$claude_template" | grep -Fq '/aidd:'; then
   exit 1
 fi
-if printf '%s\n' "$ai_section" | grep -F '/aidd:design-review' | grep -Fvq 'レーン'; then
+if grep -F '/aidd:design-review' "$claude_template" | grep -Fvq 'レーン'; then
   exit 1
 fi
 printf '%s\n' "$ai_section" | grep -F 'design-review をコミットの必須条件にはしない'
