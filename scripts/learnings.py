@@ -368,7 +368,7 @@ def hash_session(raw):
 DEFAULT_REFS = ("refs/remotes/origin/main", "refs/remotes/origin/master", "refs/heads/main", "refs/heads/master")
 EXIT_UNCOUNTED = 4  # merged observations could not be counted (3 means the ledger is disabled)
 EXIT_DUPLICATE = 5  # add wrote nothing: this session already recorded the signature
-EXIT_UNREADABLE = 6  # add wrote nothing: the working-tree ledger could not be read
+EXIT_UNREADABLE = 6  # add wrote nothing: the working-tree ledger could not be read or written
 
 
 class Uncounted(Exception):
@@ -508,9 +508,17 @@ def cmd_add(args):
         for existing in names:
             print(f"  {display_name(existing)}", file=sys.stderr)
         return EXIT_DUPLICATE
-    os.makedirs(os.path.join(top, LEDGER_DIR), exist_ok=True)
-    with open(os.path.join(top, name), "xb") as f:
-        f.write(body)
+    path = os.path.join(top, name)
+    try:
+        os.makedirs(os.path.join(top, LEDGER_DIR), exist_ok=True)
+        with open(path, "xb") as f:
+            f.write(body)
+    except OSError as exc:  # the message may hold a path, so only the exception's name
+        if os.path.isfile(path):
+            os.remove(path)
+        print(f"the working-tree ledger could not be written ({type(exc).__name__}); nothing written",
+              file=sys.stderr)
+        return EXIT_UNREADABLE
     print(name)
     return 0
 
@@ -583,7 +591,7 @@ def main(argv=None):
     check.add_argument("files", nargs="+")
     add = sub.add_parser("add", help="check one observation from stdin and write it if it passes; "
                          "exit 5 (writes nothing) if this session already recorded its signature, "
-                         "6 (writes nothing) if the working-tree ledger cannot be read")
+                         "6 (writes nothing) if the working-tree ledger cannot be read or written")
     add.add_argument("--repo", default=".")
     add.add_argument("--session-id", required=True)
     cand = sub.add_parser("candidates", help="print signatures seen in two or more sessions (merged + this session)")

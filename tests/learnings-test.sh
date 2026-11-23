@@ -626,6 +626,19 @@ if grep -Fq 'Traceback' "$tmp_dir/add.err"; then
   exit 1
 fi
 [ "$(ledger_count "$dup_repo")" -eq "$before" ]
+# A working-tree ledger that can be read but not written: exit 6 as well, nothing written, no
+# traceback (the read succeeds, so only the write fails).
+chmod 555 "$dup_repo/.aidd/learnings"
+status=$(add_status "$dup_repo" d6 'git stash')
+chmod 755 "$dup_repo/.aidd/learnings"
+[ "$status" -eq 6 ]
+[ ! -s "$tmp_dir/add.out" ]
+grep -F 'the working-tree ledger could not be written' "$tmp_dir/add.err"
+if grep -Fq 'Traceback' "$tmp_dir/add.err"; then
+  echo "add leaked a traceback on a write failure" >&2
+  exit 1
+fi
+[ "$(ledger_count "$dup_repo")" -eq "$before" ]
 
 # --- scan: a reflux draft for the aidd repository (#107) ------------------------------------
 # The draft goes outside the using repository, so it gets the same pattern check line by line,
