@@ -24,15 +24,23 @@ grep -F 'fixes JIRA-1234' "$claude_template"
 # The AI section must not demand design review / test perspectives for every change (#127).
 # Lane and risk rules stay in issue-implement; the template only points there, and keeps #2
 # (no design review gate on unrelated commits).
-if grep -Fq '設計・実装方針の提示前: `/aidd:design-review`' "$claude_template" \
-  || grep -Fq 'コミット前: `/aidd:test-perspectives`' "$claude_template"; then
+ai_section=$(awk '/^## AI運用/{on=1; next} on && /^## /{on=0} on' "$claude_template")
+[ -n "$ai_section" ]
+# Reworded one-size rules must fail too: no skill tied to the commit step, and design-review
+# only through the lane decision.
+if printf '%s\n' "$ai_section" | grep -F 'コミット前' | grep -Fq '/aidd:'; then
   exit 1
 fi
-grep -F '`/aidd:issue-implement <番号>`' "$claude_template"
-grep -F '「レーン判定」' "$claude_template"
+if printf '%s\n' "$ai_section" | grep -F '/aidd:design-review' | grep -Fvq 'レーン'; then
+  exit 1
+fi
+printf '%s\n' "$ai_section" | grep -F 'design-review をコミットの必須条件にはしない'
+printf '%s\n' "$ai_section" | grep -F '`/aidd:issue-implement <番号>`'
+printf '%s\n' "$ai_section" | grep -F '「レーン判定」（aidd プラグインの `skills/issue-implement/SKILL.md`）'
 grep -F '## 3. レーン判定' "$repo_root/skills/issue-implement/SKILL.md"
-grep -F 'Issue を使わない開発' "$claude_template"
-grep -F '実装前: `/aidd:test-perspectives`' "$claude_template"
+printf '%s\n' "$ai_section" | grep -F 'Issue を使わない開発'
+# Before implementation the diff is empty, so the target must be passed as an argument.
+printf '%s\n' "$ai_section" | grep -F '実装前: `/aidd:test-perspectives <設計書のパス、または変更内容の説明>`'
 # Every skill the template names must exist.
 for skill in $(grep -o '/aidd:[a-z-]*' "$claude_template" | sed 's|/aidd:||' | sort -u); do
   [ -f "$repo_root/skills/$skill/SKILL.md" ]
