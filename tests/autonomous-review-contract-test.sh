@@ -54,9 +54,28 @@ if grep -F -- '`aidd:security-reviewer` を実行する' "$command_file"; then
 fi
 grep -F -- '`aidd:security-reviewer` は設計書に対する STRIDE レビューであり、実装差分の監査に使わない' "$command_file"
 grep -F -- '`/aidd:design-review` のセキュリティ指摘も、実装差分の監査に数えない' "$command_file"
-grep -F -- '`security-review.txt`' "$command_file"
-grep -F -- '監査の経路、対象にした差分 (`base_sha` と `head_sha`、または作業ツリー差分)、結果のファイル、未実行ならその理由' "$command_file"
-grep -F -- '確定した差分と同じ範囲を監査したと確かめられない場合は、未実行として理由を記録し `human_required` とする' "$command_file"
+# One audit output per round, like reviewer-round<N>.txt, so a later round does not overwrite it.
+grep -F -- '`security-review-round<N>.txt`' "$command_file"
+if grep -F -- '`security-review.txt`' "$command_file"; then
+  echo "the /security-review output must be saved per round" >&2
+  exit 1
+fi
+# Mapped severity decides fixing and eligibility, so it must never be lowered.
+grep -F -- '`severity` は重大度を下げずに写し (High は `blocker`、Medium は `major`、Low は `minor`)、重大度が無い・対応を判断できない指摘は `major` 以上とする' "$command_file"
+# Where it runs and how the audited range is matched against the confirmed diff.
+grep -F -- '`git diff --name-only origin/HEAD...` と `git diff origin/HEAD...` を取り' "$command_file"
+grep -F -- '作業ツリー差分だけが対象の run では、未コミットの差分を監査しないので実行せず未実行とする' "$command_file"
+grep -F -- '作業ディレクトリの `HEAD` がそのラウンドの対象コミット (head、2ラウンド目以降は修正後のコミット) を指している場合だけ実行する' "$command_file"
+grep -F -- '`git diff --no-ext-diff --name-only origin/HEAD...HEAD` を取り、確定した差分の `git diff --no-ext-diff --name-only` の出力と比べる' "$command_file"
+grep -F -- '監査の経路、対象にした差分 (`base_sha` と `head_sha`、または作業ツリー差分)、照合した変更ファイルの一致・不一致、結果のファイル、未実行ならその理由' "$command_file"
+grep -F -- '利用環境に `/security-review` が無い (Codex・Cursor など)、起動に失敗した、出力が無い・結果を読み取れない、または確定した差分と同じ範囲を監査したと確かめられない場合は、未実行として理由を記録し `human_required` とする' "$command_file"
+# Inside the perspective-review step, aidd:security-reviewer may appear only as a "do not use" line.
+perspective_step=$(awk '/^4\. 差分の性質に応じて観点別レビューを追加で実行する/{on=1} /^5\. 各有効な指摘/{on=0} on' "$command_file")
+grep -F -- '`aidd:security-reviewer`' <<<"$perspective_step"
+if grep -F -- '`aidd:security-reviewer`' <<<"$perspective_step" | grep -v -e '使わない' -e '代えない'; then
+  echo "step 4 must mention aidd:security-reviewer only to exclude it from the implementation audit" >&2
+  exit 1
+fi
 grep -F -- '自前のレビューで代えない' "$command_file"
 grep -F -- '`approved` を返したことは、網羅的にレビューされたことを意味しない' "$command_file"
 grep -F -- '該当する観点別レビューの完了' "$command_file"
