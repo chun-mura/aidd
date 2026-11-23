@@ -278,18 +278,15 @@ def _mark(ch):
 def repo_value_leaks(line):
     """True if a value after -R/--repo names something. A value that does not start with the fixed
     placeholders leaks when it holds "/" (grep -R <word> stays allowed). A value that starts with
-    them (<owner>/<repo>, cp -R <path>/<file>) may be followed by marks, and then must end there, or
-    the marks must include a non-ASCII one: Japanese runs on without a space, so a non-ASCII mark ends
-    the value. ASCII marks followed by a letter or digit (<path>.secret, <repo>-x) leak. The line is
-    NFKC-normalized one character at a time, so a full-width mark still counts as non-ASCII."""
-    chars, origin = [], []
-    for ch in line:
-        for normalized in unicodedata.normalize("NFKC", ch):
-            chars.append(normalized)
-            origin.append(ch)
-    text = "".join(chars)
+    them (<owner>/<repo>, cp -R <path>/<file>) may be followed by marks; what comes next decides.
+    The end of the value or a non-ASCII character (Japanese text runs on without a space, as in
+    `-R <owner>/<repo>`を開く) ends it; an ASCII letter, digit or "/" (<path>.secret, <repo>-x,
+    <repo>/x) leaks. Text after a non-ASCII character is read as prose, so a Japanese proper noun
+    there passes, the same known limit as Japanese proper nouns anywhere in the draft. The line is
+    NFKC-normalized first, so a full-width letter counts as the ASCII letter it stands for."""
+    text = unicodedata.normalize("NFKC", line)
     for flag in REPO_FLAG.finditer(text):
-        value, start = flag.group(1), flag.start(1)
+        value = flag.group(1)
         head = PLACEHOLDER_RUN.match(value)
         if not head:
             if "/" in value:
@@ -298,7 +295,7 @@ def repo_value_leaks(line):
         end = head.end()
         while end < len(value) and _mark(value[end]):
             end += 1
-        if end == len(value) or any(not origin[start + i].isascii() for i in range(head.end(), end)):
+        if end == len(value) or not value[end].isascii():
             continue
         return True
     return False

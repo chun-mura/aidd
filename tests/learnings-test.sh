@@ -582,6 +582,12 @@ scan_reject "mark then path" "repository name after -R/--repo" "Run gh pr view -
 scan_reject "mark then name" "repository name after -R/--repo" "Run gh pr view --repo=<owner>/<repo>.internal first."
 scan_reject "hyphen then name" "repository name after -R/--repo" "Run gh pr view -R <owner>/<repo>-x first."
 scan_reject "hyphen then name, no slash" "repository name after -R/--repo" "Run gh pr view -R <path>-x first."
+# A full-width letter is the ASCII letter after NFKC, so it is still a name after the mark.
+scan_reject "mark then full-width name" "repository name after -R/--repo" "Run gh pr view -R <path>.ｓｅｃｒｅｔ first."
+# A closing Markdown backquote (an ASCII mark) followed by Japanese is the end of the value (round 5).
+out=$(printf '%s\n%s\n%s\n' "$draft_ok" '`gh pr view -R <owner>/<repo>`を開く' '`cp -R <path>/<file> <dir>`で写す' \
+  | python3 -I "$script" scan)
+printf '%s\n' "$out" | grep -F 'draft passed the check'
 # The value may end at a space or line end after ASCII marks, or at a non-ASCII mark (Japanese
 # runs on without a space); a full-width mark counts as non-ASCII even though NFKC makes it ASCII.
 out=$(printf '%s\n%s\n%s\n%s\n' "$draft_ok" 'gh pr view -R <owner>/<repo>.' \
