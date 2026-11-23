@@ -52,6 +52,12 @@ grep -F -- '機微情報 (個人情報・プロンプト・認証情報など) �
 grep -F -- 'stored in files, logs, or caches that other users or processes may read' "$repo_root/agents/security-reviewer.md"
 grep -F -- 'または機微情報をファイル・ログ・キャッシュに保存する場合は、レビュー結果の最後に実装後の `/security-review`' "$design_review"
 grep -F -- 'or store sensitive data in files, logs, or caches. Launched' "$repo_root/agents/security-reviewer.md"
+# The implementation-side security checks use the same storage condition as Agent 6, so a
+# design flagged at design time is not dropped at implementation time (#110).
+grep -F -- '公開エンドポイント、権限設定)、または機微情報 (個人情報・プロンプト・認証情報など) をファイル・ログ・キャッシュに保存する。' "$issue_implement"
+grep -F -- '外部公開エンドポイント) に触れる場合、または機微情報 (個人情報・プロンプト・認証情報など) をファイル・ログ・キャッシュに保存する場合のみ出力する' "$test_perspectives"
+grep -F -- '保存先の権限 (他のユーザー・プロセスから読めないか)' "$test_perspectives"
+grep -F -- 'この分類を出力する変更では must を最低1本含める' "$test_perspectives"
 grep -F -- '初回を含めて最大3ラウンド' "$review_loop"
 grep -F -- 'deferred mid' "$review_loop"
 grep -F -- '`/aidd:issue-split`' "$review_loop"
@@ -129,7 +135,13 @@ grep -F -- '「マージ済みの観測を数えられなかった」' "$inciden
 grep -F -- '**`candidates` の終了コードが0以外なら、どの値でも「数えられなかった」として扱い、昇格候補を示さず、終了コードと stderr を利用者に伝える**' "$incident_retro"
 grep -F -- '標準出力が空でも「昇格候補なし」と読まない' "$incident_retro"
 grep -F -- '`add` が書けたものとして扱うのは、終了コード0で標準出力にパスが出たときだけ' "$incident_retro"
-grep -F -- '**`add` のそれ以外の0でない終了コード (2、検査の拒否でない1など) は失敗として終了コードと stderr を利用者に伝え、書けたものとして扱わない。**' "$incident_retro"
+grep -F -- '**`add` のそれ以外の0でない終了コード (2、検査の拒否でない1など。5 は除く) は失敗として終了コードと stderr を利用者に伝え、書けたものとして扱わない。**' "$incident_retro"
+# add exit 5 (#144): same session and signature already in the ledger, read as recorded, never as a
+# failure or a rejection to rewrite; exit 0 may carry the notice that the default branch was not checked.
+grep -F -- '**終了コード5は記録済み**' "$incident_retro"
+grep -F -- '失敗とも検査の拒否とも扱わず、書き直して再実行せず' "$incident_retro"
+grep -F -- '作業ツリーだけで重複を確かめた場合' "$incident_retro"
+grep -F -- '読めない・検査に通らない観測があって重複を確かめきれなかった場合 (件数と場所だけが出る) は stderr にそう出る' "$incident_retro"
 if grep -Eq -- 'python3 -I \.\./\.\./scripts/learnings\.py' "$incident_retro"; then
   exit 1
 fi

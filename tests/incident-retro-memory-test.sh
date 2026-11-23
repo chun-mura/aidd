@@ -2,7 +2,7 @@
 # Contract test for the auto memory intake of /aidd:incident-retro (#105): run the listing snippet
 # from skills/incident-retro/SKILL.md against a fake memory directory, then write the observations
 # through scripts/learnings.py and check that candidates alone counts them: another session's
-# imported observation counts only once merged, and a re-import adds no count. No real memory is read.
+# imported observation counts only once merged, and a re-import adds no file and no count. No real memory is read.
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
@@ -238,7 +238,15 @@ sig_of() {
 }
 
 # --- write the approved memory observations with their own session ---------------------------
-for name in fb-nested.md fb-old.md fb-top.md; do
+# fb-old was written in session A, which already recorded git stash (merged above): add writes
+# nothing and exits 5, so the memory and the incident stay one observation (#144).
+set +e
+observation auto-memory "$(sig_of fb-old.md)" | learnings add --session-id "$(key_of fb-old.md)" > "$tmp_dir/old.out" 2>/dev/null
+status=$?
+set -e
+[ "$status" -eq 5 ]
+[ ! -s "$tmp_dir/old.out" ]
+for name in fb-nested.md fb-top.md; do
   path=$(observation auto-memory "$(sig_of "$name")" | learnings add --session-id "$(key_of "$name")")
   python3 -I - "$repo/$path" "$memory" "$(key_of "$name")" <<'PYEOF'
 import json, sys
@@ -268,9 +276,14 @@ learnings candidates --session-id 22222222-2222-4222-8222-222222222222 > "$tmp_d
 grep -F '"signature": "git stash"' "$tmp_dir/c2"
 [ "$(sessions_of "$tmp_dir/c2" 'git stash')" -eq 2 ]
 
-# Importing the same memory again adds a file but no count (same session).
-observation auto-memory 'git stash' | learnings add --session-id "$(key_of fb-nested.md)" > /dev/null
-merge
+# Importing the same memory again adds no file (add exits 5, #144) and no count (same session).
+files_before=$(find "$repo/.aidd/learnings" -name '*.json' | wc -l)
+set +e
+observation auto-memory 'git stash' | learnings add --session-id "$(key_of fb-nested.md)" > /dev/null 2>&1
+status=$?
+set -e
+[ "$status" -eq 5 ]
+[ "$(find "$repo/.aidd/learnings" -name '*.json' | wc -l)" -eq "$files_before" ]
 learnings candidates --all > "$tmp_dir/c3"
 [ "$(sessions_of "$tmp_dir/c3" 'git stash')" -eq 2 ]
 
