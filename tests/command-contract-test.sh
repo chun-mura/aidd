@@ -57,6 +57,7 @@ grep -F -- 'or store sensitive data in files, logs, or caches. Launched' "$repo_
 grep -F -- '公開エンドポイント、権限設定)、または機微情報 (個人情報・プロンプト・認証情報など) をファイル・ログ・キャッシュに保存する。' "$issue_implement"
 grep -F -- '外部公開エンドポイント) に触れる場合、または機微情報 (個人情報・プロンプト・認証情報など) をファイル・ログ・キャッシュに保存する場合のみ出力する' "$test_perspectives"
 grep -F -- '保存先の権限 (他のユーザー・プロセスから読めないか)' "$test_perspectives"
+grep -F -- 'この分類を出力する変更では must を最低1本含める' "$test_perspectives"
 grep -F -- '初回を含めて最大3ラウンド' "$review_loop"
 grep -F -- 'deferred mid' "$review_loop"
 grep -F -- '`/aidd:issue-split`' "$review_loop"
