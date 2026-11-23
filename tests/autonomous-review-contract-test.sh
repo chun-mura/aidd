@@ -69,10 +69,28 @@ grep -F -- '作業ディレクトリの `HEAD` がそのラウンドの対象コ
 grep -F -- '`git diff --no-ext-diff --name-only origin/HEAD...HEAD` を取り、確定した差分の `git diff --no-ext-diff --name-only` の出力と比べる' "$command_file"
 grep -F -- '監査の経路、対象にした差分 (`base_sha` と `head_sha`、または作業ツリー差分)、照合した変更ファイルの一致・不一致、結果のファイル、未実行ならその理由' "$command_file"
 grep -F -- '利用環境に `/security-review` が無い (Codex・Cursor など)、起動に失敗した、出力が無い・結果を読み取れない、または確定した差分と同じ範囲を監査したと確かめられない場合は、未実行として理由を記録し `human_required` とする' "$command_file"
-# Inside the perspective-review step, aidd:security-reviewer may appear only as a "do not use" line.
+# The audited hunks depend on the start point, not only on the file names.
+grep -F -- '`git merge-base origin/HEAD HEAD` と `git merge-base <base_sha> HEAD` が同じコミットであることも確かめる。どれかが一致しない' "$command_file"
+# Fix commits from the last round must be audited before the final decision.
+grep -F -- '最後に `/security-review` を実行した HEAD が `head_sha_after_fixes` (無ければ `head_sha`) と一致することを確かめる' "$command_file"
+grep -F -- '再実行できない・照合が一致しない場合は未実行として `human_required` とする' "$command_file"
+grep -F -- '`executed` は、`head_sha_after_fixes` (無ければ `head_sha`) を監査し照合が一致した実行があるときだけ `true` とする' "$command_file"
+# /security-review excludes what the #110 storage trigger is about, so that trigger alone is not audited.
+grep -F -- 'Claude Code 2.1.330 の `/security-review` は、プロンプトで「Secrets or credentials stored on disk if they are otherwise secured」' "$command_file"
+grep -F -- '(版によって変わりうる)' "$command_file"
+grep -F -- '委譲先がその種類を除外していることを `residual_risks` と `report.md` に記録し、`human_required` とする' "$command_file"
+grep -F -- '`id` は主レビューの `R<n>` と重ならないよう `S<N>-<n>` (`<N>` はラウンド) とし' "$command_file"
+# Inside the perspective-review step, aidd:security-reviewer may appear only in the two exclusion
+# sentences; once they are removed, no other mention (such as a rephrased "also run it") may remain.
 perspective_step=$(awk '/^4\. 差分の性質に応じて観点別レビューを追加で実行する/{on=1} /^5\. 各有効な指摘/{on=0} on' "$command_file")
 grep -F -- '`aidd:security-reviewer`' <<<"$perspective_step"
-if grep -F -- '`aidd:security-reviewer`' <<<"$perspective_step" | grep -v -e '使わない' -e '代えない'; then
+allowed_design_only='`aidd:security-reviewer` は設計書に対する STRIDE レビューであり、実装差分の監査に使わない。'
+allowed_no_substitute='`aidd:security-reviewer` や自前のレビューで代えない。'
+grep -F -- "$allowed_design_only" <<<"$perspective_step"
+grep -F -- "$allowed_no_substitute" <<<"$perspective_step"
+perspective_step=${perspective_step//"$allowed_design_only"/}
+perspective_step=${perspective_step//"$allowed_no_substitute"/}
+if grep -F -- 'aidd:security-reviewer' <<<"$perspective_step"; then
   echo "step 4 must mention aidd:security-reviewer only to exclude it from the implementation audit" >&2
   exit 1
 fi
