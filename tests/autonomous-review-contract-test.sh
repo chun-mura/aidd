@@ -105,6 +105,22 @@ grep -F -- '| `start_branch` | string / null | 必須 |' "$command_file"
 grep -F -- '出力を `start_branch` に記録する' "$command_file"
 grep -F -- 'コミットの直前に実行した `git symbolic-ref --quiet --short HEAD` の出力' "$command_file"
 grep -F -- '`start_branch` (レビュー開始時に記録した同じコマンドの出力) と一致する' "$command_file"
+# Error handling of the ledger steps (E1-E6).
+grep -F -- '書き直した signature・fact を AskUserQuestion で示し直し、再承認を取るまで `add` を再実行しない' "$command_file"
+grep -F -- '`learnings.commit` を `null` のままにし' "$command_file"
+grep -F -- 'git restore --staged -- <台帳のファイル>' "$command_file"
+grep -F -- 'hook が restore を拒否した場合' "$command_file"
+grep -F -- '`report.md` は下の「コミットしなかった場合」として書く' "$command_file"
+grep -F -- '`git rev-parse HEAD` で得た SHA' "$command_file"
+grep -F -- '終了コード0以外はすべて「数えられなかった」として扱う' "$command_file"
+grep -F -- '終了コードと stderr を利用者に伝え、昇格候補を示さない' "$command_file"
+grep -F -- '「書き込み失敗は `failed`」より「この手順は最終判定を変えない」を優先し' "$command_file"
+grep -F -- '指す ref が存在すれば' "$command_file"
+grep -F -- '終了コード1は detached HEAD なので `null`' "$command_file"
+if grep -F -- '終了コード4の扱いは 2 と同じ' "$command_file"; then
+  echo "candidates must treat every non-zero exit as uncounted, not only 4" >&2
+  exit 1
+fi
 if grep -F -- 'その名前から `origin/` を除いたもの' "$command_file"; then
   echo "the default branch must be compared by its short name, not a full ref minus origin/" >&2
   exit 1

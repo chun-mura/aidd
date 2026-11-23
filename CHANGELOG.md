@@ -10,6 +10,7 @@
   - `autonomous-review`: 台帳のコミットは、コミットの直前の現在のブランチが、レビュー開始時に記録したブランチ (`state.json` に足した `start_branch`。承認を待つ間に別のブランチへ切り替わった場合を止めるため) と同じで、`--head` を指定した run では `head` とも同じでかつ HEAD が判定の対象のコミットを指し、既定ブランチでない場合だけにした。既定ブランチは `learnings.py` と同じ順で解決し、得られた完全な ref 名から `refs/remotes/origin/` または `refs/heads/` を外した短い名前で現在のブランチと比べる (完全な ref 名のままでは一致せず、既定ブランチの上でコミットできてしまうため)。コミットした run では、判定が覆うのは判定の対象のコミットまでで、台帳のコミットは `.aidd/learnings/` だけを変えた人のレビューの対象であることを `report.md` の冒頭と `learnings.commit` (`sha`・`reviewed_up_to` などを持つオブジェクト) に書く
   - `autonomous-review`: 承認の表で signature も fact と同じく人が確かめる対象として示し、型の語は既存の型を優先して選ぶ。セッション ID の記述を「台帳のファイルには残らない」に改めた
   - 設計書の残るリスクに「型の語も固有名を運びうる」を足した。README の CI の例に、検査の規則を足した版が出たら `ref` を追従することを書いた
+  - `autonomous-review` の台帳の手順の失敗の扱いを決めた: 検査で拒否されて書き直した signature・fact は示し直して再承認を取るまで `add` を再実行しない。`git add` / `git commit` が失敗したら `learnings.commit` を `null` のままにし、ステージした台帳のファイルを `git restore --staged` で戻して「コミットしなかった場合」として報告する (成功時は `git rev-parse HEAD` で確かめた SHA を記録する)。`candidates` の終了コードは0以外をすべて「数えられなかった」として扱う。`learnings` の書き戻しの失敗は判定を変えない。既定ブランチの解決で `origin/HEAD` が指す ref の存在を確かめる (`learnings.py` と同じ)。`start_branch` の取得は終了コード1だけを detached HEAD とし、それ以外の失敗は利用者に伝える
 - incident-retro の置き場の選択肢に「利用側のレビュー観点」を足すことは、#105 と同時に incident-retro を変えないため、この版では行っていない
 
 ## 0.67.0 (2026-11-23)
