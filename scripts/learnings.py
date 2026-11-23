@@ -246,22 +246,26 @@ def display_name(name):
 
 # A reflux draft (#107) leaves the using repository for the aidd one, which may be public. On top of
 # scan_text it rejects what points back at the using repository: commit SHAs (any case, digit-only
-# short ones too, but not an 8-digit date), #numbers, a repository after -R/--repo other than the
-# <owner>/<repo> placeholder, any ~/ or ~name/ path, and @-words. The draft writes fixed placeholders
+# short ones too, but not an 8-digit date), #numbers, a value with "/" after -R/--repo unless it is
+# made of fixed placeholders only, any ~/ or ~name/ path, and @-words. The draft writes fixed placeholders
 # (<owner>, <repo>, <path>, <branch>, <file>, <dir>, <command>, <config-dir>) instead; they hold no
 # digit, #, @ or ~, so the rules run on the line as is and angle brackets let nothing else through.
 # The title and sections are what /aidd:retro reads.
 MAX_DRAFT_BYTES = 16384
 DRAFT_TITLE = "[reflux] "
 DRAFT_SECTIONS = ("## signature", "## 起きたこと", "## 再現の手順", "## 対象にする aidd の資産", "## その規則で壊れるもの")
+DRAFT_PLACEHOLDER = r"<(?:owner|repo|path|branch|file|dir|command|config-dir)>"
 DRAFT_RULES = [
     ("a commit SHA or #number of the using repository", re.compile(
         r"(?<!&)#[0-9]+(?![0-9])"
         r"|(?<![0-9A-Za-z])(?=[0-9A-Fa-f]*[0-9])"
         r"(?!(?:19|20)[0-9]{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12][0-9]|3[01])(?![0-9A-Za-z]))"
         r"[0-9A-Fa-f]{7,40}(?![0-9A-Za-z])", re.A)),
+    # A value of fixed placeholders only (<owner>/<repo>, or cp -R <path>/<file>) passes; it ends
+    # where no letter, digit, "/", "-" or "_" follows, so Japanese punctuation may follow it.
     ("a repository name after -R/--repo", re.compile(
-        r"(?<![\w-])(?:-R|--repo)(?:\s+|=)(?!<owner>/<repo>(?:[\s;,.)\"'`]|$))[^\s/]+/\S*", re.A)),
+        r"(?<![\w-])(?:-R|--repo)(?:\s+|=)(?!" + DRAFT_PLACEHOLDER + r"(?:/" + DRAFT_PLACEHOLDER
+        + r")*(?![A-Za-z0-9/_-]))[^\s/]+/\S*", re.A)),
     ("a home-relative path", re.compile(r"(?<![\w~])~[A-Za-z0-9_.-]*/", re.A)),
     ("an @-mention or package scope", re.compile(r"(?<![\w.@])@[A-Za-z0-9_]", re.A)),
 ]

@@ -575,6 +575,14 @@ scan_reject "bracketed #number" "commit SHA or #number" "Same as <#123> here."
 scan_reject "bracketed @-word" "@-mention or package scope" "Ask <@someone> about it."
 scan_reject "bracketed real repo" "repository name after -R/--repo" "Run gh pr view -R <someorg>/<someapp> first."
 scan_reject "half placeholder repo" "repository name after -R/--repo" "Run gh pr view -R <owner>/someapp first."
+scan_reject "placeholder followed by a word" "repository name after -R/--repo" "Run gh pr view -R <owner>/<repo>_x first."
+scan_reject "placeholder followed by a path" "repository name after -R/--repo" "Run gh pr view -R <owner>/<repo>/x first."
+# A value made of the fixed placeholders only passes after -R, whatever the command (cp -R included),
+# and the placeholder may end at Japanese or full-width punctuation (review round 3).
+out=$(printf '%s\n%s\n%s\n' "$draft_ok" 'cp -R <path>/<file> <dir> で写す。' \
+  'gh pr view -R <owner>/<repo>、次に「--repo=<owner>/<repo>」と「-R <owner>/<repo>」を試す。' \
+  | python3 -I "$script" scan)
+printf '%s\n' "$out" | grep -F 'draft passed the check'
 # Ordinary numbers and placeholders are not taken for a SHA, repository or path.
 out=$(printf '%s\n%s\n' "$draft_ok" 'Seen on 0.69.0 at 2026-11-23 (20261123), 123456 lines, 3/4 runs; defaced; gh pr view -R <owner>/<repo>; --repo=<owner>/<repo>; <config-dir>/<path>; cp -R <dir> <dir>; git switch <branch>; run <command> on <file>.' \
   | python3 -I "$script" scan)
