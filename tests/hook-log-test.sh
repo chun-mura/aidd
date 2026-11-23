@@ -181,6 +181,8 @@ mkdir -p "$memory_dir"
 printf '%s\n' '- [Data](data.md) - indexed' '- [Other](sub/a.md) - same name, other path' \
   '- [Quoted](./quoted.md)' '- [Angle](<angle.md>)' '- [Cut](plain.md>x) - not plain.md' \
   '- [Unclosed angle](<odd.md>x) - not odd.md' \
+  '- [Double title](badquote.md "t")' "- [Single title](top.md 't')" '- [Paren title](nested.md (t))' \
+  '- [Open double](a.md "t)' "- [Open single](a.md 't)" '- [Open paren](a.md (t)' \
   '- [Gone](gone.md) - file removed' > "$memory_dir/MEMORY.md"
 printf '%s\n' '---' 'name: data' 'metadata:' '  node_type: memory' '  type: project' '---' 'BODY_SENTINEL' > "$memory_dir/data.md"
 printf '%s\n' '---' 'name: a' 'type: feedback' '---' 'BODY_SENTINEL' > "$memory_dir/a.md"
@@ -201,13 +203,13 @@ step1=$(awk '/^\*\*1\./{p=1} p && /^```bash/{q=1; next} q && /^```/{exit} q{prin
 memory_out=$(cd "$tmp_dir/wt" && env -u CLAUDE_PROJECT_DIR -u CLAUDE_CONFIG_DIR HOME="$fake_home" bash -c "$step1")
 [ "$memory_out" = "a.md type=feedback unindexed modified=2020-01-02
 angle.md type=feedback indexed modified=2020-01-02
-badquote.md type=malformed unindexed modified=2020-01-02
+badquote.md type=malformed indexed modified=2020-01-02
 data.md type=project indexed modified=2020-01-02
-nested.md type=none unindexed modified=2020-01-02
+nested.md type=none indexed modified=2020-01-02
 odd.md type=other unindexed modified=2020-01-02
 plain.md type=none unindexed modified=2020-01-02
 quoted.md type=reference indexed modified=2020-01-02
-top.md type=user unindexed modified=2020-01-02
+top.md type=user indexed modified=2020-01-02
 unclosed.md type=malformed unindexed modified=2020-01-02
 2 file(s) outside the naming rule [A-Za-z0-9._-] (names not shown)
 2 entr(ies) skipped (not a regular .md file: a directory, a broken link or another file)
@@ -286,9 +288,12 @@ rm -rf "${memory_dir%/memory}/memory-archive"
 archive_out=$(bash -c "$archive_step")
 [ "$archive_out" != "${archive_out#archived: }" ] || { echo "asset-audit archive step (index lines): $archive_out" >&2; exit 1; }
 # The index lines come from the same link parsing as the listing: every link the listing would
-# count as naming a.md (bare, ./, angle brackets, spaces, a title), and nothing else.
+# count as naming a.md (bare, ./, angle brackets, spaces, a title in any of its three forms),
+# and nothing else (text after the target, another path, an unclosed title).
 printf '%s\n' '- [A](a.md)' '- [B](./a.md)' '- [C](<a.md>)' '- [D](  a.md  )' '- [E](a.md "title")' \
-  '- [F](<a.md>x)' '- [G](a.md>x)' '- [H](sub/a.md)' > "$memory_dir/MEMORY.md"
+  "- [F](a.md 'title')" '- [G](<a.md> (title))' \
+  '- [H](<a.md>x)' '- [I](a.md>x)' '- [J](sub/a.md)' '- [K](a.md "title)' "- [L](a.md 'title)" \
+  '- [M](a.md (title)' > "$memory_dir/MEMORY.md"
 printf 'X\n' > "$memory_dir/a.md"
 rm -rf "${memory_dir%/memory}/memory-archive"  # the previous run may have used this second
 archive_out=$(bash -c "$archive_step")
@@ -296,7 +301,9 @@ archive_out=$(bash -c "$archive_step")
 MEMORY.md line linking to it: 2
 MEMORY.md line linking to it: 3
 MEMORY.md line linking to it: 4
-MEMORY.md line linking to it: 5" ] || { echo "asset-audit archive step index lines: $archive_out" >&2; exit 1; }
+MEMORY.md line linking to it: 5
+MEMORY.md line linking to it: 6
+MEMORY.md line linking to it: 7" ] || { echo "asset-audit archive step index lines: $archive_out" >&2; exit 1; }
 printf '%s\n' '---' 'type: user' '---' > "$memory_dir/a.md"
 memory_out=$(cd "$tmp_dir/wt" && env -u CLAUDE_PROJECT_DIR -u CLAUDE_CONFIG_DIR HOME="$fake_home" bash -c "$step1")
 grep -Fqx 'a.md type=user indexed modified='"$(date +%F)" <<<"$memory_out" \
