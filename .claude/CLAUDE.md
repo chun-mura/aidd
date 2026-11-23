@@ -14,7 +14,7 @@ and add a `CHANGELOG.md` entry (operating rule 3, see README "運用ルール").
 
 ## Commands (verified against `.github/workflows/validate.yml`)
 
-CI (`validate` job) runs exactly five steps, in order:
+CI keeps the following five checks in the Ubuntu-only `validate` job, in order (after checkout):
 
 ```bash
 shellcheck hooks/scripts/*.sh templates/*.sh scripts/install-codex-agents.sh
@@ -31,7 +31,17 @@ after the shebang, and the `commands`/`skills`/`agents`/`hooks` declarations in 
 — including just editing an existing command's `description` — requires `python3 scripts/generate-asset-index.py`
 in the same commit, or CI fails.
 
-There is no `package.json`/Makefile/test runner. The contract tests are plain bash scripts run directly:
+The separate `contract-tests` job runs all nine scripts below on both `ubuntu-latest` and `macos-latest`
+with Python 3.12. Its OS × script matrix reports 18 independent results, has a 10-minute limit per job,
+and uses `fail-fast: false` so a failed test does not cancel the other combinations. A script's nonzero
+exit fails its job. Each job uses a fresh temporary root for HOME, TMPDIR, CLAUDE_CONFIG_DIR and
+AIDD_TEST_STATE_DIR, unsets CLAUDE_PROJECT_DIR, ignores global/system Git configuration, and removes
+only its own root on exit. Tests need Bash, Python, Git and standard Unix tools; they use fake hook
+events, throwaway repositories/settings/memories and their own child processes, without invoking a
+model CLI or writing to GitHub. The Codex installer test copies only into temporary destinations.
+
+There is no `package.json`/Makefile/test runner. The contract tests are plain bash scripts run directly
+in CI and locally:
 
 ```bash
 bash tests/autonomous-review-contract-test.sh  # grep-asserts required phrases in skills/autonomous-review/SKILL.md
@@ -45,8 +55,10 @@ bash tests/incident-retro-memory-test.sh # runs incident-retro's auto memory lis
 bash tests/learnings-test.sh             # scripts/learnings.py: ledger check rejects/passes, add is off by default, candidates counting
 ```
 
-On macOS inside the Claude Code sandbox, `mktemp -d` may ignore `$TMPDIR` and fail under `/var/folders`; run the
-tests outside the sandbox (or with a writable temp dir) rather than treating that as a test failure.
+For local runs, isolate HOME, CLAUDE_CONFIG_DIR and AIDD_TEST_STATE_DIR as CI does; unset
+CLAUDE_PROJECT_DIR and ignore global/system Git configuration. Never point tests at another session's
+state. On macOS, bare `mktemp -d` may ignore TMPDIR and use `/var/folders`; if the sandbox disallows that
+directory, use an allowed execution environment rather than treating the sandbox restriction as a test failure.
 
 These are **not** a general-purpose test framework — some grep for literal strings that must appear in specific
 prompt files; `hook-contract`, `hook-log` and `session-start` execute the scripts. If you edit
@@ -56,8 +68,9 @@ prompt files; `hook-contract`, `hook-log` and `session-start` execute the script
 `templates/CLAUDE.md.template`, `templates/aidd-hook-log.sh`, `hooks/hooks.json`, `hooks/scripts/*.sh`,
 `scripts/generate-asset-index.py`, `scripts/generate-codex-agents.py`, `scripts/install-codex-agents.sh`, `scripts/learnings.py`,
 `.codex/agents/*.toml`, or any command/skill/agent frontmatter, run the matching test script — a wording
-change can silently break the contract. There is no CI job that runs these `tests/*.sh` scripts automatically; run
-them locally before committing. After editing `agents/*.md`, run `python3 scripts/generate-codex-agents.py`.
+change can silently break the contract. CI runs these nine scripts automatically; still run the matching
+tests locally before committing. When adding a test script, update the workflow matrix and this list together.
+After editing `agents/*.md`, run `python3 scripts/generate-codex-agents.py`.
 
 `claude plugin validate . --strict` requires the `claude` CLI on PATH (`npm install -g @anthropic-ai/claude-code`
 if missing) and validates both `.claude-plugin/marketplace.json` and `.claude-plugin/plugin.json`.

@@ -25,3 +25,42 @@ jobs:
 
       - name: Validate plugin and marketplace manifests
         run: claude plugin validate . --strict
+
+  contract-tests:
+    name: contract-tests (${{ matrix.os }}, ${{ matrix.test }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        test:
+          - autonomous-review-contract-test.sh
+          - codex-agents-contract-test.sh
+          - command-contract-test.sh
+          - hook-contract-test.sh
+          - hook-log-test.sh
+          - incident-retro-memory-test.sh
+          - learnings-test.sh
+          - redundancy-contract-test.sh
+          - session-start-test.sh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run contract test in isolated state
+        shell: bash
+        run: |
+          test_root="$(mktemp -d "${RUNNER_TEMP}/aidd-contract.XXXXXX")"
+          trap 'rm -rf "$test_root"' EXIT
+          mkdir -p "$test_root/home" "$test_root/tmp" "$test_root/config" "$test_root/state"
+          env -u CLAUDE_PROJECT_DIR \
+            HOME="$test_root/home" \
+            TMPDIR="$test_root/tmp/" \
+            CLAUDE_CONFIG_DIR="$test_root/config" \
+            AIDD_TEST_STATE_DIR="$test_root/state" \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+            bash "tests/${{ matrix.test }}"
