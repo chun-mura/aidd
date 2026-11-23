@@ -66,7 +66,8 @@ grep -F -- '`severity` は重大度を下げずに写し (High は `blocker`、M
 grep -F -- '`git diff --name-only origin/HEAD...` と `git diff origin/HEAD...` を取り' "$command_file"
 grep -F -- '作業ツリー差分だけが対象の run では、未コミットの差分を監査しないので実行せず未実行とする' "$command_file"
 grep -F -- '作業ディレクトリの `HEAD` がそのラウンドの対象コミット (head、2ラウンド目以降は修正後のコミット) を指している場合だけ実行する' "$command_file"
-grep -F -- '`git diff --no-ext-diff --name-only origin/HEAD...HEAD` を取り、確定した差分の `git diff --no-ext-diff --name-only` の出力と比べる' "$command_file"
+grep -F -- '`git diff --no-ext-diff --name-only origin/HEAD...HEAD` を取り、確定した差分 (' "$command_file"
+grep -F -- '2ラウンド目以降は修正後のコミット) の `git diff --no-ext-diff --name-only` の出力と比べる' "$command_file"
 grep -F -- '監査の経路、対象にした差分 (`base_sha` と `head_sha`、または作業ツリー差分)、照合した変更ファイルの一致・不一致、結果のファイル、未実行ならその理由' "$command_file"
 grep -F -- '利用環境に `/security-review` が無い (Codex・Cursor など)、起動に失敗した、出力が無い・結果を読み取れない、または確定した差分と同じ範囲を監査したと確かめられない場合は、未実行として理由を記録し `human_required` とする' "$command_file"
 # The audited hunks depend on the start point, not only on the file names.
@@ -79,6 +80,17 @@ grep -F -- '`executed` は、`head_sha_after_fixes` (無ければ `head_sha`) �
 grep -F -- 'Claude Code 2.1.330 の `/security-review` は、プロンプトで「Secrets or credentials stored on disk if they are otherwise secured」' "$command_file"
 grep -F -- '(版によって変わりうる)' "$command_file"
 grep -F -- '委譲先がその種類を除外していることを `residual_risks` と `report.md` に記録し、`human_required` とする' "$command_file"
+# The exclusion applies whenever the storage trigger matches, also together with the trust-boundary one.
+grep -F -- '機微情報をファイル・ログ・キャッシュに保存する条件に該当した差分 (信頼境界の条件にも該当する場合を含む) は' "$command_file"
+if grep -F -- '信頼境界を跨ぐことでは該当しない差分' "$command_file"; then
+  echo "the exclusion risk must not be limited to diffs that match only the storage trigger" >&2
+  exit 1
+fi
+# The final re-run keeps its own output and ids, and its confirmed blocker/major is not fixed past the round limit.
+grep -F -- '再実行の出力はラウンドのファイルを上書きせず `security-review-final.txt` に保存し、指摘の `id` は各ラウンドの `S<N>-<n>` と重ならない `SF-<n>` として、同じ写し方で 5 の現物検証にかける' "$command_file"
+grep -F -- 'confirmed の blocker / major があれば修正せず `human_required` とする' "$command_file"
+# Later rounds compare against the diff up to that round's target commit.
+grep -F -- '確定した差分 (`<base_sha>...<そのラウンドの対象コミット>`。1ラウンド目は head、2ラウンド目以降は修正後のコミット)' "$command_file"
 grep -F -- '`id` は主レビューの `R<n>` と重ならないよう `S<N>-<n>` (`<N>` はラウンド) とし' "$command_file"
 # Inside the perspective-review step, aidd:security-reviewer may appear only in the two exclusion
 # sentences; once they are removed, no other mention (such as a rephrased "also run it") may remain.
