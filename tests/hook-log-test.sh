@@ -180,6 +180,7 @@ memory_dir="$fake_home/.claude/projects/$wt_key/memory"
 mkdir -p "$memory_dir"
 printf '%s\n' '- [Data](data.md) - indexed' '- [Other](sub/a.md) - same name, other path' \
   '- [Quoted](./quoted.md)' '- [Angle](<angle.md>)' '- [Cut](plain.md>x) - not plain.md' \
+  '- [Unclosed angle](<odd.md>x) - not odd.md' \
   '- [Gone](gone.md) - file removed' > "$memory_dir/MEMORY.md"
 printf '%s\n' '---' 'name: data' 'metadata:' '  node_type: memory' '  type: project' '---' 'BODY_SENTINEL' > "$memory_dir/data.md"
 printf '%s\n' '---' 'name: a' 'type: feedback' '---' 'BODY_SENTINEL' > "$memory_dir/a.md"
@@ -272,7 +273,7 @@ archive_step=${archive_step//<memory の置き場>/$memory_dir}
 archive_step=${archive_step//<ファイル名>/a.md}
 archive_out=$(bash -c "$archive_step")
 archived=$(sed -n 's/^archived: //p' <<<"$archive_out")
-[ -n "$archived" ] && [ -f "$archived" ] && [ ! -e "$memory_dir/a.md" ] && [ "${archived%/*/a.md}" = "$memory_dir/../memory-archive" ] \
+[ -n "$archived" ] && [ -f "$archived" ] && [ ! -e "$memory_dir/a.md" ] && [ "${archived%/*/a.md}" = "${memory_dir%/memory}/memory-archive" ] \
   || { echo "asset-audit archive step: $archive_out" >&2; exit 1; }
 printf '%s\n' '- [A](a.md)' '- [B](./a.md)' > "$memory_dir/MEMORY.md"
 printf 'NEW\n' > "$memory_dir/a.md"
@@ -281,10 +282,53 @@ stamp=${stamp##*/}
 archive_out=$(bash -c "${archive_step//\$(date -u +%Y%m%dT%H%M%SZ)/$stamp}")
 [ "$archive_out" = "archive failed: a.md (nothing deleted)" ] && [ -f "$memory_dir/a.md" ] && [ "$(cat "$archived")" != NEW ] \
   || { echo "asset-audit archive step over an existing archive: $archive_out" >&2; exit 1; }
-rm -rf "$memory_dir/../memory-archive"
+rm -rf "${memory_dir%/memory}/memory-archive"
 archive_out=$(bash -c "$archive_step")
-grep -Fqx 'MEMORY.md line linking to it: 1' <<<"$archive_out" && grep -Fqx 'MEMORY.md line linking to it: 2' <<<"$archive_out" \
-  || { echo "asset-audit archive step index lines: $archive_out" >&2; exit 1; }
+[ "$archive_out" != "${archive_out#archived: }" ] || { echo "asset-audit archive step (index lines): $archive_out" >&2; exit 1; }
+# The index lines come from the same link parsing as the listing: every link the listing would
+# count as naming a.md (bare, ./, angle brackets, spaces, a title), and nothing else.
+printf '%s\n' '- [A](a.md)' '- [B](./a.md)' '- [C](<a.md>)' '- [D](  a.md  )' '- [E](a.md "title")' \
+  '- [F](<a.md>x)' '- [G](a.md>x)' '- [H](sub/a.md)' > "$memory_dir/MEMORY.md"
+printf 'X\n' > "$memory_dir/a.md"
+rm -rf "${memory_dir%/memory}/memory-archive"  # the previous run may have used this second
+archive_out=$(bash -c "$archive_step")
+[ "$(grep '^MEMORY.md line' <<<"$archive_out")" = "MEMORY.md line linking to it: 1
+MEMORY.md line linking to it: 2
+MEMORY.md line linking to it: 3
+MEMORY.md line linking to it: 4
+MEMORY.md line linking to it: 5" ] || { echo "asset-audit archive step index lines: $archive_out" >&2; exit 1; }
+printf '%s\n' '---' 'type: user' '---' > "$memory_dir/a.md"
+memory_out=$(cd "$tmp_dir/wt" && env -u CLAUDE_PROJECT_DIR -u CLAUDE_CONFIG_DIR HOME="$fake_home" bash -c "$step1")
+grep -Fqx 'a.md type=user indexed modified='"$(date +%F)" <<<"$memory_out" \
+  || { echo "asset-audit listing with the same index: $memory_out" >&2; exit 1; }
+# A symbolic link at projects/<key> or at memory could point at another project's memory: the
+# listing leaves it undetermined, and the archive step moves nothing through it.
+other_memory="$fake_home/other-project/memory"
+mkdir -p "$other_memory" "$fake_home/link-cfg/projects" "$fake_home/link2-cfg/projects/$wt_key"
+printf '%s\n' '---' 'type: user' '---' > "$other_memory/other.md"
+ln -s "$fake_home/other-project" "$fake_home/link-cfg/projects/$wt_key"
+ln -s "$other_memory" "$fake_home/link2-cfg/projects/$wt_key/memory"
+for cfg in link-cfg link2-cfg; do
+  status=0
+  memory_out=$(cd "$tmp_dir/wt" && env -u CLAUDE_PROJECT_DIR HOME="$fake_home" CLAUDE_CONFIG_DIR="$fake_home/$cfg" bash -c "$step1") || status=$?
+  [ "$status" -eq 1 ] && [ "$memory_out" = "auto memory location is a symbolic link (undetermined: it may be another project's memory)" ] \
+    || { echo "asset-audit memory listing through a symlink ($cfg, $status): $memory_out" >&2; exit 1; }
+  linked_step=${archive_step//$memory_dir/$fake_home/$cfg/projects/$wt_key/memory}
+  linked_step=${linked_step//a.md/other.md}
+  archive_out=$(bash -c "$linked_step")
+  [ "$archive_out" = "archive refused: a symbolic link in the memory location (nothing moved)" ] && [ -f "$other_memory/other.md" ] \
+    || { echo "asset-audit archive step through a symlink ($cfg): $archive_out" >&2; exit 1; }
+done
+mkdir -p "$fake_home/elsewhere"
+rm -rf "${memory_dir%/memory}/memory-archive"
+ln -s "$fake_home/elsewhere" "${memory_dir%/memory}/memory-archive"
+archive_out=$(bash -c "$archive_step")
+[ "$archive_out" = "archive refused: a symbolic link in the memory location (nothing moved)" ] && [ -f "$memory_dir/a.md" ] \
+  || { echo "asset-audit archive step into a symlinked archive: $archive_out" >&2; exit 1; }
+rm "${memory_dir%/memory}/memory-archive"
+# Both steps hold the same link pattern, so they cannot drift apart.
+[ "$(grep -c '^LINK = re.compile(' "$audit_md")" -eq 2 ] && [ "$(grep '^LINK = re.compile(' "$audit_md" | sort -u | wc -l | tr -d ' ')" -eq 1 ] \
+  || { echo "asset-audit: the listing and the archive step must share one LINK pattern" >&2; exit 1; }
 
 # The ledger step passes only signature and sessions on (never facts or file names), reports
 # the exit code of learnings.py candidates, and reads nothing while the ledger is disabled.

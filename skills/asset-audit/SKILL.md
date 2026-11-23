@@ -23,7 +23,7 @@ disable-model-invocation: true
 - `.claude/commands/`・`.claude/skills/`・`.claude/agents/`・`.claude/rules/`・`.claude/hooks/` 配下のファイル
 - auto memory (Claude Code がこのリポジトリについて書きためたメモ。マシンごとにあり、コミットされない): 下のコマンドで、memory ファイルごとに名前・種類・索引に載っているか (`indexed` / `unindexed`)・更新日 (`modified=`、日付だけ) を出す。最終変更コミットの代わりにこの更新日を使う
   - 種類は frontmatter の `type` の値 (引用符と行末の `#` コメントを外したもの)。読む位置は、frontmatter の最上位の `type` と、最上位の `metadata:` の直下の `type` (実物の Claude Code はここに書く) の2つだけで、両方あれば最上位を採る。ほかのキーの下にある `type` は読まない。`user` / `feedback` / `project` / `reference` 以外は `other`、どちらの位置にも無ければ `none`。frontmatter が閉じていない・引用符が閉じていないものは `malformed`、読めないものは `unreadable`
-  - 索引に載っているかは、`MEMORY.md` の Markdown のリンク先 (`](<名前>)` か `](名前)`。先頭の `./` は外す) がファイル名と完全に一致するかで決める。別のパスにある同じ名前 (`](sub/a.md)`) や、名前の後ろに文字が続くリンク先 (`](a.md>x)`) は載っているとみなさない。`MEMORY.md` が無い・読めないときは、その旨の行を出し、各ファイルを `index=undetermined` とする
+  - 索引に載っているかは、`MEMORY.md` の Markdown のリンク先 (`](<名前>)` か `](名前)`。先頭の `./` は外す) がファイル名と完全に一致するかで決める。別のパスにある同じ名前 (`](sub/a.md)`) や、名前の後ろに文字が続くリンク先 (`](a.md>x)`・`](<a.md>x)`) は載っているとみなさない。リンクの解析は、退避の後に索引の行を探すコマンドと同じ正規表現 (`LINK`) を使う。`MEMORY.md` が無い・読めないときは、その旨の行を出し、各ファイルを `index=undetermined` とする
   - 名前に `[A-Za-z0-9._-]` 以外の文字を含むファイルは、名前を出さずに件数だけを「命名規則外」として出す (名前に改行などを入れて一覧の行を偽造できないように)。通常の `.md` ファイルでないもの (ディレクトリ・壊れたシンボリックリンク・ほかのファイル) は件数だけを出す
   - 最後の行は `listed <N> memory file(s) (done)`。memory が0件でもこの行は出る
 
@@ -42,10 +42,14 @@ if not project_root:
 key = "".join(c if c.isascii() and c.isalnum() else "-" * (2 if ord(c) > 0xFFFF else 1)
               for c in project_root)
 memory_dir = os.path.join(projects_dir, key, "memory")
+if os.path.islink(memory_dir) or os.path.islink(os.path.dirname(memory_dir)):
+    print("auto memory location is a symbolic link (undetermined: it may be another project\x27s memory)")
+    sys.exit(1)
 if not os.path.isdir(memory_dir):
     print(f"auto memory directory not found at {memory_dir} (undetermined: no memory here, or the key differs)")
     sys.exit(1)
 KNOWN = {"user", "feedback", "project", "reference"}
+LINK = re.compile(r"\]\(\s*(?:<([^<>\n]*)>|([^\s()<>]+))(?:\s+\x22[^\x22\n]*\x22)?\s*\)")
 class Malformed(Exception):
     pass
 def value(raw):
@@ -88,8 +92,9 @@ if not os.path.lexists(index_path):
 else:
     try:
         with open(index_path, encoding="utf-8", errors="replace") as f:
-            links = re.findall(r"\]\(\s*(?:<([^<>\n]*)>|([^\s)]+))", f.read())
-        indexed = {t[2:] if t.startswith("./") else t for t in (a or b for a, b in links)}
+            lines = f.read().splitlines()
+        targets = (a or b for line in lines for a, b in LINK.findall(line))
+        indexed = {t[2:] if t.startswith("./") else t for t in targets}
     except OSError:
         print("MEMORY.md could not be read (index undetermined)")
 try:
@@ -132,7 +137,7 @@ print(f"listed {listed} memory file(s) (done)")
 
 **最後の行が `listed <N> memory file(s) (done)` でなければ、memory の基準をすべて判定不能とする** (置き場を決められない・置き場が無い・一覧が途中で止まった。どれも終了コード1)。`index=undetermined` のときは「索引に無い memory」を判定不能とし、改訂候補を出さない。`type=malformed`・`type=unreadable` のファイルと命名規則外のファイルは、その memory を判定不能として扱う (件数と判定不能の理由を示し、削除・統合の候補にしない)。
 
-auto memory の置き場は `~/.claude/projects/<プロジェクト>/memory/` で、同じ git リポジトリの worktree とサブディレクトリは1つを共有する (Claude Code のドキュメント)。`<プロジェクト>` の作り方はドキュメントに無い。上のコマンドは、git の共通ディレクトリの親のパスの ASCII の英数字以外を、UTF-16 の1単位ごとに `-` にしている (シェルのロケールに左右されない)。これが Claude Code の作る名前と一致するという根拠は、実物の `~/.claude/projects/` にこの規則で作った名前のディレクトリがあり、worktree の名前の memory が無いこと、Claude Code の実行ファイルに `replace(/[^a-zA-Z0-9]/g,"-")` があることだけで、規則そのもの (長いパスの扱いなど) は未確認。だから、置き場のディレクトリが無いときは「memory が無い」とは言い切らず、memory の基準を「判定不能」とし、ほかの場所を探さない。git が共通ディレクトリを返さない (git リポジトリの外、git の失敗) とき、共通ディレクトリが `.git` で終わらない (サブモジュール・`--separate-git-dir` など) ときも、作業ディレクトリからキーを作って探さずに「判定不能」にする。索引 `MEMORY.md` はセッション開始時に読まれ、ほかの memory ファイルは必要なときに読まれる。
+auto memory の置き場は `~/.claude/projects/<プロジェクト>/memory/` で、同じ git リポジトリの worktree とサブディレクトリは1つを共有する (Claude Code のドキュメント)。`<プロジェクト>` の作り方はドキュメントに無い。上のコマンドは、git の共通ディレクトリの親のパスの ASCII の英数字以外を、UTF-16 の1単位ごとに `-` にしている (シェルのロケールに左右されない)。これが Claude Code の作る名前と一致するという根拠は、実物の `~/.claude/projects/` にこの規則で作った名前のディレクトリがあり、worktree の名前の memory が無いこと、Claude Code の実行ファイルに `replace(/[^a-zA-Z0-9]/g,"-")` があることだけで、規則そのもの (長いパスの扱いなど) は未確認。だから、置き場のディレクトリが無いときは「memory が無い」とは言い切らず、memory の基準を「判定不能」とし、ほかの場所を探さない。git が共通ディレクトリを返さない (git リポジトリの外、git の失敗) とき、共通ディレクトリが `.git` で終わらない (サブモジュール・`--separate-git-dir` など) ときも、作業ディレクトリからキーを作って探さずに「判定不能」にする。`projects/<プロジェクト>` か `memory` がシンボリックリンクのときも、別のプロジェクトの memory を指しうるので読まずに「判定不能」にする。索引 `MEMORY.md` はセッション開始時に読まれ、ほかの memory ファイルは必要なときに読まれる。
 
 置き場は、利用者のスコープ (`~/.claude/settings.json`・環境変数 `CLAUDE_CONFIG_DIR`・`CLAUDE_CODE_PROJECT_DIR_NAME`) で変えている場合だけ、その場所で同じコマンドを実行する。コミットされるプロジェクトの設定 (`.claude/settings.json` など) の `autoMemoryDirectory` が `${CLAUDE_CONFIG_DIR:-~/.claude}/projects/` の外を指していたら、その場所を読む前に AskUserQuestion で確かめる (リポジトリの設定で、利用者の別のファイルを棚卸しに読ませないため)。
 
@@ -230,18 +235,34 @@ done 2>/dev/null
 - その場で直さない修正 (壊れた hook の修正など) は `/aidd:issue-split` か issue に委ねる
 - ADR・issue の書式や中身はこのコマンドで複製しない
 - memory の削除・統合の候補は、利用者が自分で開いて確かめられるように絶対パスで示す。memory の削除は取り消せない (git の管理外なので履歴に残らない)。消す前に、退避してから消す (既定) か、そのまま消すかを AskUserQuestion で選んでもらう
-- 退避は下のコマンドで1ファイルずつ行う (`<memory の置き場>` と `<ファイル名>` を置き換える)。実行のたびに新しい時刻のディレクトリ (`<memory の置き場>/../memory-archive/<UTC時刻>/`。Claude Code はここを memory として読まない) を作り、`mv -n` で移す (同じ名前があれば上書きせず中止する)。元の場所から消えるのは、退避先にファイルがあり元の場所に無いことを確かめられたときだけで、確かめられなければ `archive failed` を出し、何も消えていない。退避や削除に失敗したら、その旨とエラーを報告し、利用者が自分のシェルで実行するコマンドを示す
+- 退避は下のコマンドで1ファイルずつ行う (`<memory の置き場>` と `<ファイル名>` を置き換える)。置き場 (`projects/<プロジェクト>`・`memory`) と退避先 (`memory-archive`) のどれかがシンボリックリンクなら何も移さない (`archive refused`)。実行のたびに新しい時刻のディレクトリ (`projects/<プロジェクト>/memory-archive/<UTC時刻>/`。Claude Code はここを memory として読まない) を作り、`mv -n` で移す (同じ名前があれば上書きせず中止する)。元の場所から消えるのは、退避先にファイルがあり元の場所に無いことを確かめられたときだけで、確かめられなければ `archive failed` を出し、何も消えていない。退避や削除に失敗したら、その旨とエラーを報告し、利用者が自分のシェルで実行するコマンドを示す
 - 退避・削除した memory を指す `MEMORY.md` の行は、コマンドが行番号を出す。その行を消すかどうかを利用者に確かめてから直す (索引の行を黙って残すと、存在しないファイルを指したままになる)
 
 ```bash
 memory_dir='<memory の置き場>'
 name='<ファイル名>'
-archive="$memory_dir/../memory-archive/$(date -u +%Y%m%dT%H%M%SZ)"
-if mkdir -p "$archive" && mv -n "$memory_dir/$name" "$archive/" &&
+project_dir=${memory_dir%/memory}
+archive_root="$project_dir/memory-archive"
+archive="$archive_root/$(date -u +%Y%m%dT%H%M%SZ)"
+if [ "$project_dir/memory" != "$memory_dir" ] || [ -L "$memory_dir" ] || [ -L "$project_dir" ] || [ -L "$archive_root" ]; then
+  echo "archive refused: a symbolic link in the memory location (nothing moved)"
+elif mkdir -p "$archive" && [ ! -L "$archive" ] && mv -n "$memory_dir/$name" "$archive/" &&
   [ -f "$archive/$name" ] && [ ! -e "$memory_dir/$name" ]; then
   echo "archived: $archive/$name"
-  grep -n -F -e "]($name)" -e "](./$name)" -e "](<$name>)" "$memory_dir/MEMORY.md" 2>/dev/null |
-    cut -d: -f1 | sed 's/^/MEMORY.md line linking to it: /'
+  python3 -I -c 'import re, sys
+LINK = re.compile(r"\]\(\s*(?:<([^<>\n]*)>|([^\s()<>]+))(?:\s+\x22[^\x22\n]*\x22)?\s*\)")
+index_path, name = sys.argv[1:3]
+try:
+    with open(index_path, encoding="utf-8", errors="replace") as f:
+        lines = f.read().splitlines()
+except OSError:
+    print("MEMORY.md not found or unreadable (index lines undetermined)")
+    sys.exit()
+for number, line in enumerate(lines, 1):
+    targets = (a or b for a, b in LINK.findall(line))
+    if name in {t[2:] if t.startswith("./") else t for t in targets}:
+        print(f"MEMORY.md line linking to it: {number}")
+' "$memory_dir/MEMORY.md" "$name"
 else
   echo "archive failed: $name (nothing deleted)"
 fi
