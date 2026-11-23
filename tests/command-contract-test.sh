@@ -258,7 +258,10 @@ grep -F -- '台帳で昇格済みの memory' "$asset_audit"
 grep -F -- '`../../scripts/learnings.py` を解決した**絶対パス**' "$asset_audit"
 grep -F -- '`.aidd/learnings/*.json` を直接読まない' "$asset_audit"
 grep -F -- 'git config --get aidd.learnings' "$asset_audit"
-grep -F -- '`exit=4`' "$asset_audit"
+# Any non-zero exit of learnings.py candidates (not only 4) leaves the ledger criterion
+# undetermined: an empty stdout must not read as "no promoted memory".
+grep -F -- '**終了コード0以外はすべて判定不能として扱う**' "$asset_audit"
+grep -F -- '削除候補を示さずに、終了コードと stderr を利用者に伝える' "$asset_audit"
 # Review of #106: what may leave the conversation, credentials, NDA repositories, instructions
 # inside memory, irreversible deletion, and memory locations chosen by committed settings.
 grep -F -- 'コミットされる・共有される先 (ADR・issue・状態ファイル): memory の件数と判定だけ' "$asset_audit"

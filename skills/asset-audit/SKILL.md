@@ -122,16 +122,21 @@ if [ "$(git config --get aidd.learnings)" != true ]; then
 else
   candidates=$(python3 -I '<learnings.py>' candidates)
   status=$?
-  printf '%s\n' "$candidates" | python3 -I -c 'import json, sys
+  if [ "$status" -ne 0 ]; then
+    echo "candidates failed: exit=$status (undetermined)"
+  elif printf '%s\n' "$candidates" | python3 -I -c 'import json, sys
 for line in sys.stdin:
     if line.strip():
         data = json.loads(line)
-        print(json.dumps({"signature": data["signature"], "sessions": data["sessions"]}, ensure_ascii=False))'
-  echo "exit=$status"
+        print(json.dumps({"signature": data["signature"], "sessions": data["sessions"]}, ensure_ascii=False))'; then
+    echo 'candidates done: exit=0'
+  else
+    echo 'candidates output could not be read (undetermined)'
+  fi
 fi
 ```
 
-`exit=4` は既定ブランチを解決できない・既定ブランチの台帳を列挙できなかったという意味なので、stderr の理由とともに「判定不能」とし、昇格済みの memory を0件とみなさない。
+最後の行が `candidates done: exit=0` のときだけ、その上の行 (0行なら昇格候補は0件) を使う。**終了コード0以外はすべて判定不能として扱う** (`candidates failed: exit=<N>`、または出力を読めなかった)。4は既定ブランチを解決できない・既定ブランチの台帳を列挙できなかった、2は git リポジトリでない、1などはスクリプトの失敗。どれも標準出力が空になるので「昇格済みの memory なし」とは読まず、「台帳で昇格済みの memory」の削除候補を示さずに、終了コードと stderr を利用者に伝える。
 
 **2. hook の発火記録の読み取り**
 

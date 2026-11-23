@@ -234,7 +234,21 @@ ledger_out=$(cd "$ledger" && "${git_env[@]}" bash -c "$ledger_step")
 "${git_env[@]}" git -C "$ledger" config aidd.learnings true
 ledger_out=$(cd "$ledger" && "${git_env[@]}" bash -c "$ledger_step")
 [ "$ledger_out" = '{"signature": "git stash", "sessions": 2}
-exit=0' ] || { echo "asset-audit ledger step: $ledger_out" >&2; exit 1; }
+candidates done: exit=0' ] || { echo "asset-audit ledger step: $ledger_out" >&2; exit 1; }
+# A failing candidates run (here exit 4: no default branch yet) is reported as undetermined,
+# never as an empty list of promoted signatures.
+"${git_env[@]}" git init -q -b main "$tmp_dir/ledger-empty"
+"${git_env[@]}" git -C "$tmp_dir/ledger-empty" config aidd.learnings true
+ledger_out=$(cd "$tmp_dir/ledger-empty" && "${git_env[@]}" bash -c "$ledger_step" 2>/dev/null)
+[ "$ledger_out" = 'candidates failed: exit=4 (undetermined)' ] \
+  || { echo "asset-audit ledger step without a default branch: $ledger_out" >&2; exit 1; }
+# Exit 2 (not inside a git repository; the flag comes from a global config here) is undetermined too.
+mkdir -p "$tmp_dir/no-repo"
+printf '[aidd]\n\tlearnings = true\n' > "$tmp_dir/global-gitconfig"
+ledger_out=$(cd "$tmp_dir/no-repo" && GIT_CONFIG_GLOBAL="$tmp_dir/global-gitconfig" GIT_CONFIG_NOSYSTEM=1 \
+  GIT_CEILING_DIRECTORIES="$tmp_dir" bash -c "$ledger_step" 2>/dev/null)
+[ "$ledger_out" = 'candidates failed: exit=2 (undetermined)' ] \
+  || { echo "asset-audit ledger step outside a repository: $ledger_out" >&2; exit 1; }
 
 # The hook id becomes a file name, so path characters are neutralized.
 printf '%s' "$input" | run_wrapped '../escape' "$fake_hook" 0 > /dev/null 2>&1
