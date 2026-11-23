@@ -144,10 +144,10 @@ the skill's `name:` frontmatter.
   - `harness-adapter.sh` (PreToolUse `apply_patch` in `hooks.json`; Cursor Shell / Write / Read / SessionStart in
     `hooks-cursor.json`): rewrite Codex/Cursor input to the Claude Code shape, call one existing script,
     convert the reply, and on any failure exit 0 after counting the reason in `adapter-skips.json`. For
-    `skill-gate.sh` it exits before python when the input has no `file_path` or bash `-ef` shows the Read is not
-    this plugin's `skills/autonomous-review/SKILL.md`, and hands the input to python when it names the skill,
-    contains a backslash (JSON escapes), has a relative, `~` or `..` path or a missing path too long to stat, or
-    has more than one `file_path` (every Cursor Read lands here)
+    `skill-gate.sh` it exits before python only when the input has no `file_path`, or the path is absolute,
+    exists, has no `..`, and bash `-ef` shows it is not this plugin's `skills/autonomous-review/SKILL.md`; every
+    other input (a missing, `..`, relative or `~` path, the skill name, a backslash, more than one `file_path`)
+    goes to python (every Cursor Read lands here)
   `tool-reminder.sh` and `write-guard.sh` resolve paths from the hook input's `cwd`, not `CLAUDE_PROJECT_DIR` (which
   stays on the main checkout inside a worktree); `session-start.sh` uses `${CLAUDE_PROJECT_DIR:-$PWD}`.
   All hook writes are confined to `~/.claude/aidd/` — no network calls, no writes elsewhere.

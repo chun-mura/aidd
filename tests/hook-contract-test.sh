@@ -1748,11 +1748,7 @@ o = json.load(sys.stdin)
 assert o["permission"] == "deny", o
 assert "/autonomous-review" in o["user_message"], o
 '
-# Unrelated reads never start python: without python3 they leave no adapter skip record.
-nopy_state="$tmp_dir/adapter-nopy"
-out=$(PATH="$nopy_bin" AIDD_TEST_STATE_DIR="$nopy_state" "$nopy_bin/bash" "$adapter" skill-gate.sh < "$fixtures/cursor/preToolUse.read-before-edit.json")
-[ -z "$out" ]
-[ ! -e "$nopy_state/adapter-skips.json" ]
+# (A missing file such as this fixture's goes to python; existing unrelated files are checked below.)
 [ -z "$(AIDD_TEST_STATE_DIR="$gate_dir" bash "$adapter" skill-gate.sh < "$fixtures/cursor/preToolUse.read-before-edit.json")" ]
 
 # Issue #120: the adapter decides by file identity, not by the spelling of the input, so another
@@ -1831,7 +1827,11 @@ cursor_read "$repo_root/skills/nonexist/../autonomous-review/SKILL.md"; adapter_
 cursor_read "$alias_dir$(printf '/.%.0s' $(seq 2100))/alias.md"; adapter_gate | expect_cursor_deny
 # A NUL in the path is no file at all, not input the gate cannot judge.
 [ -z "$(gate '{"hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"/x\u0000/autonomous-review/SKILL.md"}}')" ]
+for tail in /. / // /./.; do
+  cursor_read "$alias_dir/alias.md$tail"; adapter_gate | expect_cursor_deny
+done
 cursor_read "$alias_dir/nonexist/../other.md"; expect_adapter_pass
+cursor_read "$alias_dir/nonexist.md"; expect_adapter_pass
 cursor_read "$repo_root/skills/design-review/../design-review/SKILL.md"; expect_adapter_pass
 # JSON keeps the last of duplicate keys, so the cheap check must not judge by the first one.
 printf '{"hook_event_name":"preToolUse","cursor_version":"x","workspace_roots":["/work/repo"],"tool_name":"Read","tool_input":{"file_path":"/work/repo/new.txt","file_path":"%s"}}' "$alias_dir/alias.md" > "$adapter_in"
