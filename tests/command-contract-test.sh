@@ -123,6 +123,13 @@ grep -F -- '件数とファイル名を利用者に伝える' "$incident_retro"
 # Exit 4 (default branch unresolved or unlisted) is reported, never read as zero merged observations.
 grep -F -- '終了コード4' "$incident_retro"
 grep -F -- '「マージ済みの観測を数えられなかった」' "$incident_retro"
+# Any non-zero exit of candidates means "could not count" (exit 2 outside a repository and exit 1
+# on a failure print nothing on stdout, which must not read as "no candidates"); add counts as
+# written only on exit 0 with a path, and any non-zero other than 3 is reported as a failure.
+grep -F -- '**`candidates` の終了コードが0以外なら、どの値でも「数えられなかった」として扱い、昇格候補を示さず、終了コードと stderr を利用者に伝える**' "$incident_retro"
+grep -F -- '標準出力が空でも「昇格候補なし」と読まない' "$incident_retro"
+grep -F -- '`add` が書けたものとして扱うのは、終了コード0で標準出力にパスが出たときだけ' "$incident_retro"
+grep -F -- '**`add` のそれ以外の0でない終了コード (2、検査の拒否でない1など) は失敗として終了コードと stderr を利用者に伝え、書けたものとして扱わない。**' "$incident_retro"
 if grep -Eq -- 'python3 -I \.\./\.\./scripts/learnings\.py' "$incident_retro"; then
   exit 1
 fi
