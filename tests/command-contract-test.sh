@@ -434,8 +434,11 @@ fake_case() {  # fake_case <name> <case text> <planted rows...>
   printf '%s\n' "KEY_SENTINEL $name" > "$fake/tests/eval/keys/$name.md"
 }
 fake_case demo CASE_TEXT '| PL-D1 | mid | cases/demo.md:2 | x | y |' '| PL-D2 | high | cases/demo.md:1 | z | w |'
-fake_case pathcase "see $fake/elsewhere" '| PL-P1 | mid | cases/pathcase.md:2 | x | y |'
+fake_case pathcase "see $(printf '%s' "$fake" | tr '[:lower:]' '[:upper:]')/elsewhere" '| PL-P1 | mid | cases/pathcase.md:2 | x | y |'
+fake_case linkcase "see $eval_tmp/alias/elsewhere" '| PL-L1 | mid | cases/linkcase.md:2 | x | y |'
 fake_case norows CASE_TEXT
+fake_case badrows CASE_TEXT '| PL-B1 | mid | cases/badrows.md:2 | x | y |' '| PL-bad | mid | cases/badrows.md:2 | x | y |'
+ln -s "$fake" "$eval_tmp/alias"
 printf '%s\n' 'RESULT_SENTINEL' > "$fake/tests/eval/results/old.md"
 printf '%s\n' 'RESULT_SENTINEL 2' > "$fake/tests/eval/results/old/demo-t1.md"
 printf '%s\n' '{"name": "aidd", "version": "9.9.9"}' > "$fake/.claude-plugin/plugin.json"
@@ -448,7 +451,7 @@ git -C "$fake" add -A
 git -C "$fake" -c user.name=t -c user.email=t@example.com commit -qm init
 fake_sha=$(git -C "$fake" rev-parse HEAD)
 eval_fill() {  # eval_fill <template> <out> <run> [cases] [sums]
-  sed -e "s|<repo>|$fake|g" -e "s|<run>|$3|g" -e "s|<cases>|${4-demo}|g" -e "s|<sums>|${5-}|g" "$1" > "$2"
+  sed -e "s|<repo>|${EVAL_REPO:-$fake}|g" -e "s|<run>|$3|g" -e "s|<cases>|${4-demo}|g" -e "s|<sums>|${5-}|g" "$1" > "$2"
 }
 eval_stage() {  # eval_stage <name> <run> <cases>
   mkdir -p "$2"
@@ -498,6 +501,8 @@ eval_stage_fails traversal "$eval_tmp/run-traversal" '../keys/demo' 'bad case na
 eval_stage_fails empty "$eval_tmp/run-empty" '' 'no cases'
 eval_stage_fails norows "$eval_tmp/run-norows" norows 'no planted rows for norows'
 eval_stage_fails pathcase "$eval_tmp/run-pathcase" pathcase 'the repository path appears in the input or a prompt'
+EVAL_REPO="$eval_tmp/alias" eval_stage_fails linkcase "$eval_tmp/run-linkcase" linkcase 'the repository path appears in the input or a prompt'
+eval_stage_fails badrows "$eval_tmp/run-badrows" badrows 'planted rows and mixed rows differ for badrows'
 mkdir -p "$eval_tmp/worktree"
 git -C "$eval_tmp/worktree" init -q
 eval_stage_fails worktree "$eval_tmp/worktree/run" demo 'input is inside a git work tree'
@@ -545,7 +550,10 @@ lines = [
     {"type": "assistant", "parent_tool_use_id": "tu1", "message": {"content": [
         {"type": "tool_use", "id": "tu2", "name": "Read", "input": {"file_path": run + "/input/cases/demo.md"}},
         {"type": "tool_use", "id": "tu3", "name": "Read", "input": {"file_path": repo + "/tests/eval/keys/demo.md"}},
-        {"type": "tool_use", "id": "tu4", "name": "Glob", "input": {"pattern": repo.upper() + "/TESTS/EVAL/KEYS/*.md"}}]}},
+        {"type": "tool_use", "id": "tu4", "name": "Glob", "input": {"pattern": repo.upper() + "/TESTS/EVAL/KEYS/*.md"}},
+        {"type": "tool_use", "id": "tu5", "name": "Read", "input": {"file_path": run + "/raw/mix-demo.tsv"}},
+        {"type": "tool_use", "id": "tu6", "name": "Read", "input": {"file_path": "../raw/x"}},
+        {"type": "tool_use", "id": "tu7", "name": "Read", "input": {"file_path": "~/notes.md"}}]}},
     {"type": "system", "subtype": "task_notification", "tool_use_id": "tu1", "status": "completed",
      "usage": {"total_tokens": 1234}},
     {"type": "result", "subtype": "success", "is_error": False, "session_id": "S-1",
@@ -580,6 +588,16 @@ grep -F '| tu1 | aidd:reviewer | completed | 1234 |' "$meta"
 grep -F '汚染の疑い: aidd が input/plugin の1つだけではない' "$meta"
 grep -F '[repo]/tests/eval/keys/demo.md' "$meta"
 grep -F '| Glob | aidd:reviewer | 元リポジトリのパス' "$meta"
+# A read of the run's raw/ (outside the repository and outside input/) is a read outside the
+# working directory; ../ and ~ are caught as relative reads; a read inside input/ is not listed.
+grep -F 'mix-demo.tsv' "$meta" | grep -F '| run の raw・local・作業ディレクトリの外 |'
+grep -F '../raw/x' "$meta" | grep -F '作業ディレクトリの外 (相対・~)'
+grep -F '~/notes.md' "$meta" | grep -F '作業ディレクトリの外 (相対・~)'
+grep -F '参照 5 件' "$meta"
+if grep -qF -e '[input]/cases/demo.md' -e 'cwd が input/ ではない' "$meta"; then
+  echo "eval extract listed a read inside input/ or a wrong cwd" >&2
+  exit 1
+fi
 grep -F '汚染の疑い' "$run_ok.out"
 if grep -qiF -e "$fake" -e "$run_real" "$run_ok/raw/demo-t1.md" "$meta"; then
   echo "eval extract kept an absolute path" >&2
@@ -599,6 +617,20 @@ if eval_extract "$run_nr" demo 1; then
 fi
 grep -F 'the run has no final answer or ended with an error' "$run_nr.err"
 grep -F '| total_cost_usd | 不明 |' "$run_nr/raw/demo-t1.meta.md"
+# An init whose cwd is not input/ is kept as 汚染の疑い.
+run_cwd="$eval_tmp/run-cwd"
+eval_run_dir "$run_cwd"
+python3 - "$eval_tmp/stream.jsonl" "$run_cwd/local/demo-t1.jsonl" <<'PYEOF'
+import json, sys
+lines = [json.loads(l) for l in open(sys.argv[1])]
+init = dict(lines[0], cwd="/elsewhere/input")
+init["plugins"] = [{"name": "aidd", "path": "/elsewhere/input/plugin", "version": "9.9.9"}]
+with open(sys.argv[2], "w") as f:
+    for m in (init, lines[-1]):
+        f.write(json.dumps(m) + "\n")
+PYEOF
+eval_extract "$run_cwd" demo 1
+grep -F 'cwd が input/ ではない' "$run_cwd/raw/demo-t1.meta.md"
 # Without init, the plugin and cwd checks are reported as unknown, not as passed.
 run_ni="$eval_tmp/run-noinit"
 eval_run_dir "$run_ni"
@@ -625,6 +657,16 @@ done
 # file (also with SHA256SUMS rebuilt), a removed or added raw file, a changed stream, a changed or
 # added input file and a changed key each stop the scoring with their own message.
 eval_fill "$eval_tmp/freeze.tpl" "$eval_tmp/freeze.sh" "$run_ok"
+# freeze stops when a stream has no extracted record.
+run_nrec="$eval_tmp/run-norecord"
+eval_run_dir "$run_nrec"
+cp "$eval_tmp/stream.jsonl" "$run_nrec/local/demo-t1.jsonl"
+eval_fill "$eval_tmp/freeze.tpl" "$eval_tmp/freeze-nrec.sh" "$run_nrec"
+if bash "$eval_tmp/freeze-nrec.sh" 2> "$eval_tmp/freeze-nrec.err"; then
+  echo "eval freeze accepted a stream without its extracted record" >&2
+  exit 1
+fi
+grep -F 'no extracted record for local/demo-t1.jsonl' "$eval_tmp/freeze-nrec.err"
 bash "$eval_tmp/freeze.sh" > "$eval_tmp/freeze.out"
 sums=$(sed -n 's/^eval freeze: SHA256SUMS sha256 //p' "$eval_tmp/freeze.out")
 [ "${#sums}" -eq 64 ]
@@ -674,6 +716,9 @@ chmod u+w "$run_ok/local/demo-t1.jsonl"
 printf '%s\n' '{}' >> "$run_ok/local/demo-t1.jsonl"
 eval_verify_fails changed-local 'local/ changed after the freeze'
 cp "$eval_tmp/orig/demo-t1.jsonl" "$run_ok/local/"
+printf '%s\n' '{}' > "$run_ok/local/late.jsonl"
+eval_verify_fails added-local 'files were added to or removed from local/ after the freeze'
+rm -f "$run_ok/local/late.jsonl"
 cp "$run_ok/input/cases/demo.md" "$eval_tmp/orig/"
 printf '%s\n' 'edited' >> "$run_ok/input/cases/demo.md"
 eval_verify_fails changed-input 'input/ changed after staging'
