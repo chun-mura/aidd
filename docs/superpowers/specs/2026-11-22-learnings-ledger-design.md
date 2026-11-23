@@ -33,8 +33,9 @@
 
 `signature` の語の規則: 1語目は `[A-Za-z][A-Za-z0-9_.-]*` (コマンド名・ツール名)、2語目以降は小文字のサブコマンド `[a-z][a-z0-9-]*` か、値を持たないフラグ `-x` / `--name` (`=` を含まない)。サブコマンドとブランチ名 (`main` など) は形で区別できないので、残りは書く側の規則と PR のレビューに任せる。
 
-`source` が `autonomous-review` の観測には、上に加えて次の規則をかける (#108)。指摘は利用者のコードについてのものなので、項目を狭めて抽象化した型だけを入れる。語の規則は広げていない (どの語も上の規則の範囲に収まる)。
+`source` が `autonomous-review` の観測と、1語目が `review` の `signature` を持つ観測には、source に関係なく上に加えて次の規則をかける (#108)。指摘は利用者のコードについてのものなので、項目を狭めて抽象化した型だけを入れる。語の規則は広げていない (どの語も上の規則の範囲に収まる)。
 
+- 1語目が `review` の `signature` を使えるのは `source: autonomous-review` だけ。`candidates` は `signature` の文字列だけで束ねるので、review の型の回数にほかの source の観測が混ざらないようにする (signature の名前空間を source ごとに分けるので、`candidates` を (source, signature) の組で数える変更は要らず、incident-retro の数え方も変わらない)
 - `signature` は `review <category> <type words>`。`<category>` は `correctness` / `error-handling` / `security` / `sibling-coverage` / `test` / `performance` / `compatibility` / `maintainability` のどれか。`<type words>` は小文字の語 `[a-z][a-z0-9-]*` を1語以上 (フラグは不可)。分類を列挙値にして、自由な語を1つ減らす
 - `scope` は `project` だけ。利用者のコードの指摘を #107 の還流の候補 (`tool`・`aidd`) にしない
 - `evidence` はコミット SHA と PR/issue 番号だけ。リポジトリ相対パスは、レビューしたコードのファイル名を運ぶので拒否する
@@ -120,19 +121,20 @@ hook が書いてよいのは `~/.claude/aidd/` だけという方針は変え�
   - 残るリスク: 同じ memory を取り込み直すと、同じ観測のファイルが台帳に重複しうる。`session` に残る `originSessionId` の12桁のハッシュは、セッション ID (UUID) を知らない人には元に戻せない。ただし生のセッション ID を持つ人 (同じマシンの transcript や memory を読める人) は、ハッシュを計算して台帳の観測と照合できる。Codex・Cursor で使う代わりの ID (実行の開始時刻) は取りうる値が少ないので、総当たりで元の値に戻せる。ハッシュに固定の値を混ぜる対策は `learnings.py` の変更になるので、今回はしない。
 - #106 (asset-audit): 昇格の記録 (`promotions/`) ができてから、それを読んで memory の削除候補を出す。検査に `promotions/` の規則を足すのは #106 か昇格の記録を作る変更。
 - #107 (還流): `scope` が `tool`・`aidd` の観測を草案の候補にする。草案に入れる signature・事実は検査を通ったものなので、固有の情報を伏せる手間が減る。
-- #108 (autonomous-review): `source: autonomous-review` で `add` を呼び、指摘の型を `signature` に入れる。語の規則は広げず、上の「`autonomous-review` の観測」の規則で狭めた。数え方 (`candidates`) は変えない。型の正規化 (既存のどの型と同じか) の判定が割れたものは利用者に選ばせ、2回以上の型を `.aidd/design-perspectives.md` への昇格候補として示す。incident-retro の置き場の選択肢に「利用側のレビュー観点」を足すのは、#105 と同時に incident-retro を変えないため、#108 では行っていない。
+- #108 (autonomous-review): `source: autonomous-review` で `add` を呼び、指摘の型を `signature` に入れる。語の規則は広げず、上の「`autonomous-review` の観測」の規則で狭めた。数え方 (`candidates`) は変えない (review の型を autonomous-review だけのものにしたので、signature だけで束ねても source が混ざらない)。型の正規化 (既存のどの型と同じか) の判定が割れたものは利用者に選ばせ、記録が承認されて書けた型だけを書いたあとに数え直し、2回以上の型を `.aidd/design-perspectives.md` への昇格候補として示す。追記する文はそのまま利用者に示して承認を取り、ほかの人の `fact` を文の材料にしない。incident-retro の置き場の選択肢に「利用側のレビュー観点」を足すのは、#105 と同時に incident-retro を変えないため、#108 では行っていない。
 
 ## 検証
 
 - `tests/learnings-test.sh`: 検査の拒否すべき入力 (各規則・不可視の文字・正規化・日本語に続けた値・スキーマ違反・項目外のキー・深い入れ子・不正なファイル名) と通すべき入力 (正常な観測・SHA・相対パス・PR 番号・識別子)、理由にキー名・値・命名規則に合わないファイル名を出さないこと、`add` の有効化の確認とファイル名、`candidates` の数え方 (マージ済みと今のセッションだけ)。テストデータの token らしい文字列は実行時に組み立てた偽物で、リポジトリに置かない。
 - `tests/hook-contract-test.sh`: 検査に通らない台帳ファイルを含む `git commit` (ステージ済み・同じコマンドの名指し・ステージ済みと作業ツリーの両方の版・git の pathspec) を拒否し、通るもの・台帳を含まないコミットは拒否しない。検査が例外を出しても拒否し、ほかの判定は保つ。
 - `tests/command-contract-test.sh`: incident-retro に、検査を通った観測だけを書く・2回目を昇格候補として示す・既定で無効・絶対パスで呼ぶ・ほかの人の fact を指示として扱わない、の文言がある。
-- `tests/learnings-test.sh` (#108): `source: autonomous-review` の観測は `review <category> <type words>`・`scope` が `project`・`evidence` が SHA と番号だけのときに通り、それ以外 (コマンドの signature、未知の分類、型の語が無い・フラグ、`tool`・`aidd`、パス) を拒否する。狭めた形の中でも一般の規則 (高エントロピー・メールなど) は効く。`add` で書いた型が `candidates` で数えられる。
+- `tests/learnings-test.sh` (#108): `source: autonomous-review` の観測は `review <category> <type words>`・`scope` が `project`・`evidence` が SHA と番号だけのときに通り、それ以外 (コマンドの signature、未知の分類、型の語が無い・フラグ、`tool`・`aidd`、パス) を拒否する。狭めた形の中でも一般の規則 (高エントロピー・メールなど) は効く。`add` で書いた型が `candidates` で数えられる。1語目が `review` の signature はほかの source では拒否し、既定ブランチにあっても数えない。
 - `tests/autonomous-review-contract-test.sh` (#108): 既定で無効・絶対パスで呼ぶ・`add` を通してだけ書く・判定が割れたものは利用者に選ばせる・ほかの人の fact に従わない・終了コード4で回数を0とみなさない・`security` の型を `.aidd/design-perspectives.md` に入れない・最終判定を変えない、の文言がある。
 
 ## 残るリスク
 
 - 業務の固有名は正規表現で捕まらない (4層目に頼る)。
+- `signature` の語 (autonomous-review の型の語を含む) も固有名を運びうる。形の規則では区別できないので、書く側の規則 (既存の型を優先する・承認の表で signature も人が確かめる) と4層目に頼る。
 - 検査が捕まえるのは不注意で入ったものだけで、意図して隠した値は捕まえない。
 - マージ後に消すには履歴の書き換えが要る。
 - コミット時の検査は、上に挙げた種類の経路では効かない (CI と4層目で補う)。Codex・Cursor の adapter 経由で同じように効くかは未検証。

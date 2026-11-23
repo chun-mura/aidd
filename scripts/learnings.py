@@ -140,10 +140,19 @@ def check_signature(value):
     return errors
 
 
+def review_signature(data):
+    signature = data.get("signature")
+    return isinstance(signature, str) and signature.split(" ")[0] == "review"
+
+
 def check_review(data):
-    """Narrower rules for source autonomous-review: findings are about the reviewed code, so the
-    observation holds an abstract finding type, stays project-scoped and cites no file paths."""
+    """Narrower rules for review finding types: findings are about the reviewed code, so the
+    observation holds an abstract finding type, stays project-scoped and cites no file paths.
+    Applied to source autonomous-review and to any signature headed "review", which only that
+    source may use: candidates groups by signature alone, so review types stay one source's."""
     errors = []
+    if data.get("source") != "autonomous-review":
+        errors.append("signature: a signature headed \"review\" is for source autonomous-review only")
     signature = data.get("signature")
     words = signature.split(" ") if isinstance(signature, str) else []
     if (len(words) < 3 or words[0] != "review" or words[1] not in REVIEW_CATEGORIES
@@ -205,7 +214,7 @@ def check_object(data):
                     strings.append((field, item, bool(EVIDENCE_FORMS[0].match(item))))
     if "session" in data and not (isinstance(data["session"], str) and SESSION.match(data["session"])):
         errors.append("session: must be 12 lowercase hex chars (hashed session ID)")
-    if data.get("source") == "autonomous-review":
+    if data.get("source") == "autonomous-review" or review_signature(data):
         errors += check_review(data)
     for field, text, sha in strings:
         errors += scan_text(field, text, sha)

@@ -4,6 +4,12 @@
 
 - `autonomous-review`: 知見の台帳 (#104、既定で無効) を有効にしたリポジトリでは、最終判定のあと、confirmed と deferred の指摘の型を `source: autonomous-review` の観測として台帳に書くようにした。run のディレクトリは worktree ごと消えることがあり (#91 の証跡が消えた)、run をまたいで同じ型の指摘が出ても数えられなかったため (#108)。型は `review <category> <type words>` (ファイル名・識別子・業務の固有名を入れない一般的な型) で、既存のどの型と同じかの判定が割れたものは利用者に選ばせる。記録・台帳のファイルのコミット (名指しの `git commit -- <ファイル>`、既定ブランチと detached HEAD では行わない)・昇格はどれも AskUserQuestion で承認されたものだけ行い、`scripts/learnings.py add` を通してだけ書く。別のセッションで2回以上出た型を `.aidd/design-perspectives.md` (design-review の Agent 4) への昇格候補として示す (`security` の型は Agent 6 の担当なので入れない)。この手順は最終判定を変えない。`state.json` の `schema_version` を `4` にし、`learnings` を足した
 - `scripts/learnings.py`: `source: autonomous-review` の観測に、`signature` が `review <category> <type words>` (分類は8つの列挙値、型の語は小文字の語だけでフラグ不可)、`scope` が `project`、`evidence` がコミット SHA と `#番号` だけ、の規則を足した。指摘は利用者のコードについてのものなので、項目を狭めて抽象化した型だけを入れるため。語の規則は広げておらず、数え方 (`candidates`) も変えていない。コミット時の検査 (`tool-reminder.sh`) は同じ関数を使うので同じ規則がかかる
+- レビューを受けて次を直した:
+  - `scripts/learnings.py`: 1語目が `review` の `signature` には、`source` に関係なく autonomous-review の規則をかけ、`source: autonomous-review` 以外では拒否する。`candidates` は `signature` だけで束ねるので、review の型の回数にほかの source の観測が混ざらないようにするため。incident-retro の数え方は変えていない
+  - `autonomous-review`: 昇格の判定を、記録が承認されて書けた型だけについて、書いたあとに `candidates` で数え直して行う (利用者が選び直した signature を使い、記録を断った型は数えない)。追記する観点の文はそのまま示して承認を取り、書き換えない。ほかの人の `fact` を文の材料にしない。`security` を除く判定を category だけでなく内容 (認証・認可・秘密情報・信頼境界) でも行う
+  - `autonomous-review`: 台帳のコミットは、現在のブランチがレビューしたブランチ (`--head` を指定した run では `head`、かつ HEAD が判定の対象のコミット) と同じで、既定ブランチ (`learnings.py` と同じ順で解決) でない場合だけにした。コミットした run では、判定が覆うのは判定の対象のコミットまでで、台帳のコミットは `.aidd/learnings/` だけを変えた人のレビューの対象であることを `report.md` の冒頭と `learnings.commit` (`sha`・`reviewed_up_to` などを持つオブジェクト) に書く
+  - `autonomous-review`: 承認の表で signature も fact と同じく人が確かめる対象として示し、型の語は既存の型を優先して選ぶ。セッション ID の記述を「台帳のファイルには残らない」に改めた
+  - 設計書の残るリスクに「型の語も固有名を運びうる」を足した。README の CI の例に、検査の規則を足した版が出たら `ref` を追従することを書いた
 - incident-retro の置き場の選択肢に「利用側のレビュー観点」を足すことは、#105 と同時に incident-retro を変えないため、この版では行っていない
 
 ## 0.67.0 (2026-11-23)

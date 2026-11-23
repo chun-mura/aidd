@@ -143,6 +143,16 @@ for label, rule, changes in [
         failures.append(f"should reject with {rule}: autonomous-review {label}: {got}")
 # The review rules are for autonomous-review only: incident-retro keeps command signatures.
 expect_pass("incident-retro keeps tool scope and paths", doc(scope="tool", evidence=["src/app.ts"]))
+# A "review" signature belongs to autonomous-review alone, whatever the rest of the observation
+# looks like: candidates groups by signature, so another source must not add to a review type.
+for source in ("incident-retro", "auto-memory"):
+    for label, changes in [
+        ("loose", {"scope": "tool", "evidence": ["src/app.ts"]}),
+        ("otherwise review-shaped", {"scope": "project", "evidence": ["1287eb5"]}),
+    ]:
+        got = errors({**REVIEW, **changes, "source": source})
+        if not any("for source autonomous-review only" in e for e in got):
+            failures.append(f"should reject review signature from {source} ({label}): {got}")
 
 # Each pattern must reject on its own: the reason names that pattern's rule, so a case that a
 # neighbouring pattern also catches still fails when its own pattern breaks.
@@ -440,6 +450,35 @@ python3 -I "$script" candidates --repo "$master_repo" --session-id m4 \
   --signature 'review error-handling swallowed-exception' > "$tmp_dir/m4"
 grep -F '"signature": "review error-handling swallowed-exception"' "$tmp_dir/m4"
 grep -F '"sessions": 2' "$tmp_dir/m4"
+# Another source cannot add to a review type: its observation is rejected, by add and when merged.
+review_from_retro() {
+  python3 -c '
+import json
+print(json.dumps({"source": "incident-retro", "scope": "project", "status": "observed",
+                  "signature": "review correctness off-by-one",
+                  "fact": "An index stopped one short.", "evidence": ["#4"]}))
+'
+}
+set +e
+review_from_retro | python3 -I "$script" add --repo "$master_repo" --session-id m5 >/dev/null 2>&1
+status=$?
+set -e
+[ "$status" -eq 1 ]
+review_from_retro | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+data.update(schema_version=1, session="cccccccccccc")
+json.dump(data, open(sys.argv[1], "w"))
+' "$master_repo/.aidd/learnings/20261122T000000Z-00000005.json"
+git -C "$master_repo" add .aidd/learnings
+git -C "$master_repo" commit -qm 'docs: foreign review type'
+python3 -I "$script" candidates --repo "$master_repo" --session-id m6 \
+  --signature 'review correctness off-by-one' > "$tmp_dir/m6" 2> "$tmp_dir/m6.err"
+if grep -Fq 'review correctness off-by-one' "$tmp_dir/m6"; then
+  echo "an observation from another source was counted toward a review type" >&2
+  exit 1
+fi
+grep -F '.aidd/learnings/20261122T000000Z-00000005.json' "$tmp_dir/m6.err"
 
 # No default branch, or a default branch that cannot be listed: say so and exit 4 (not 0, not
 # the 3 that means disabled), so merged observations are never silently counted as none.
