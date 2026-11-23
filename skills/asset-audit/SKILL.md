@@ -23,7 +23,7 @@ disable-model-invocation: true
 - `.claude/commands/`・`.claude/skills/`・`.claude/agents/`・`.claude/rules/`・`.claude/hooks/` 配下のファイル
 - auto memory (Claude Code がこのリポジトリについて書きためたメモ。マシンごとにあり、コミットされない): 下のコマンドで、memory ファイルごとに名前・種類・索引に載っているか (`indexed` / `unindexed`)・更新日 (`modified=`、日付だけ) を出す。最終変更コミットの代わりにこの更新日を使う
   - 種類は frontmatter の `type` の値 (引用符と行末の `#` コメントを外したもの)。読む位置は、frontmatter の最上位の `type` と、最上位の `metadata:` の直下の `type` (実物の Claude Code はここに書く) の2つだけで、両方あれば最上位を採る。ほかのキーの下にある `type` は読まない。`user` / `feedback` / `project` / `reference` 以外は `other`、どちらの位置にも無ければ `none`。frontmatter が閉じていない・引用符が閉じていないものは `malformed`、読めないものは `unreadable`
-  - 索引に載っているかは、`MEMORY.md` の Markdown のリンク先 (`](<名前>)` か `](名前)`。先頭の `./` は外す) がファイル名と完全に一致するかで決める。別のパスにある同じ名前 (`](sub/a.md)`) や、名前の後ろに文字が続くリンク先 (`](a.md>x)`・`](<a.md>x)`) は載っているとみなさない。リンクの解析は、退避の後に索引の行を探すコマンドと同じ正規表現 (`LINK`) を使う。`MEMORY.md` が無い・読めないときは、その旨の行を出し、各ファイルを `index=undetermined` とする
+  - 索引に載っているかは、`MEMORY.md` の Markdown のリンク先 (`](<名前>)` か `](名前)`。先頭の `./` は外す) がファイル名と完全に一致するかで決める。別のパスにある同じ名前 (`](sub/a.md)`) や、名前の後ろに文字が続くリンク先 (`](a.md>x)`・`](<a.md>x)`) は載っているとみなさない。リンク先の後ろのタイトルは、CommonMark の3つの形 (`"title"`・`'title'`・`(title)`。中に改行を含まず、丸括弧の形は中に丸括弧を含まない) を受け付け、閉じていないタイトルが付いたリンクは載っているとみなさない。リンクの解析は、退避の後に索引の行を探すコマンドと同じ正規表現 (`LINK`) を使う。`MEMORY.md` が無い・読めないときは、その旨の行を出し、各ファイルを `index=undetermined` とする
   - 名前に `[A-Za-z0-9._-]` 以外の文字を含むファイルは、名前を出さずに件数だけを「命名規則外」として出す (名前に改行などを入れて一覧の行を偽造できないように)。通常の `.md` ファイルでないもの (ディレクトリ・壊れたシンボリックリンク・ほかのファイル) は件数だけを出す
   - 最後の行は `listed <N> memory file(s) (done)`。memory が0件でもこの行は出る
 
@@ -49,7 +49,7 @@ if not os.path.isdir(memory_dir):
     print(f"auto memory directory not found at {memory_dir} (undetermined: no memory here, or the key differs)")
     sys.exit(1)
 KNOWN = {"user", "feedback", "project", "reference"}
-LINK = re.compile(r"\]\(\s*(?:<([^<>\n]*)>|([^\s()<>]+))(?:\s+\x22[^\x22\n]*\x22)?\s*\)")
+LINK = re.compile(r"\]\(\s*(?:<([^<>\n]*)>|([^\s()<>]+))(?:\s+(?:\x22[^\x22\n]*\x22|\x27[^\x27\n]*\x27|\([^()\n]*\)))?\s*\)")
 class Malformed(Exception):
     pass
 def value(raw):
@@ -250,7 +250,7 @@ elif mkdir -p "$archive" && [ ! -L "$archive" ] && mv -n "$memory_dir/$name" "$a
   [ -f "$archive/$name" ] && [ ! -e "$memory_dir/$name" ]; then
   echo "archived: $archive/$name"
   python3 -I -c 'import re, sys
-LINK = re.compile(r"\]\(\s*(?:<([^<>\n]*)>|([^\s()<>]+))(?:\s+\x22[^\x22\n]*\x22)?\s*\)")
+LINK = re.compile(r"\]\(\s*(?:<([^<>\n]*)>|([^\s()<>]+))(?:\s+(?:\x22[^\x22\n]*\x22|\x27[^\x27\n]*\x27|\([^()\n]*\)))?\s*\)")
 index_path, name = sys.argv[1:3]
 try:
     with open(index_path, encoding="utf-8", errors="replace") as f:
