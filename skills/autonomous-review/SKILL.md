@@ -30,7 +30,7 @@ argument-hint: "[対象] [--base <branch>] [--head <branch>] [--reviewer codex|c
 
 ## 状態と証跡
 
-開始時に UTC 時刻とランダム値から実行IDを作り、消費側プロジェクトの `.aidd/autonomous-review/<実行ID>/` を新規作成する。既存の利用者ファイルは上書きしない。以下を逐次保存し、書き込み失敗は `failed` とする。
+開始時に UTC 時刻とランダム値から実行IDを作り、消費側プロジェクトの `.aidd/autonomous-review/<実行ID>/` を新規作成する。既存の利用者ファイルは上書きしない。同じ時点で `git symbolic-ref --quiet --short HEAD` を実行し、出力を `start_branch` に記録する (失敗したら detached HEAD として `null`)。以下を逐次保存し、書き込み失敗は `failed` とする。
 
 - `state.json`: 下の「state.json のスキーマ」に従う有効なJSON。状態は `started` → `reviewing` → `gating` → 最終判定だけを許可する。
 - `report.md`: 対象差分と基準ブランチ、レビュー担当と実行可否、観点別レビューの該当理由と実行結果、各ラウンドの指摘・根拠・判定・修正／見送り理由、`deferred` の追跡先、観点とテストの対応表 (下記。ロジックを変えた場合だけ)、品質ゲートのコマンド・結果・スキップ理由、残存リスク・未検証の前提、最終判定と理由、知見の台帳への記録と昇格候補 (台帳が有効な場合) を記録する。レビュー担当の `approved` は網羅的レビューの証明ではないことを明記する。
@@ -54,11 +54,12 @@ argument-hint: "[対象] [--base <branch>] [--head <branch>] [--reviewer codex|c
 
 | キー | 型 | 必須 | 意味 |
 |------|----|------|------|
-| `schema_version` | number | 必須 | このスキーマの版。現行は `4` (`3` からの変更: `learnings` を追加した。`2` から `3` への変更: `perspective_reviews` の `perspective` に `sibling_coverage` を追加した。`1` から `2` への変更: `rounds` の要素に `snapshot` を追加し、`worktree` を品質ゲート用だけにした) |
+| `schema_version` | number | 必須 | このスキーマの版。現行は `4` (`3` からの変更: `learnings` と `start_branch` を追加した。`2` から `3` への変更: `perspective_reviews` の `perspective` に `sibling_coverage` を追加した。`1` から `2` への変更: `rounds` の要素に `snapshot` を追加し、`worktree` を品質ゲート用だけにした) |
 | `run_id` | string | 必須 | 実行ID |
 | `status` | string | 必須 | `started` / `reviewing` / `gating` / `auto_merge_eligible` / `human_required` / `failed` |
 | `target` | string | 必須 | `[対象]` または対象モードの説明 |
 | `base` / `head` | string / null | 必須 | 確定したブランチ名。作業ツリー差分のみの場合は `null` |
+| `start_branch` | string / null | 必須 | レビュー開始時の `git symbolic-ref --quiet --short HEAD` の出力 (現在のブランチの短い名前)。detached HEAD なら `null`。`head` はレビューの対象であり現在のブランチとは限らないので、別のキーにする。台帳のコミットの直前の照合に使う |
 | `base_sha` / `head_sha` | string / null | 必須 | レビュー開始時に確定したSHA。作業ツリー差分のみの場合は `null` |
 | `head_sha_after_fixes` | string / null | 任意 | 修正コミットで head が進んだ場合の最終SHA。進んでいなければ `null` |
 | `reviewer` | string | 必須 | `codex` / `claude` |
@@ -172,9 +173,10 @@ run のディレクトリは worktree ごと消えることがあり、run を�
    終了コード1で拒否されたら、理由に挙がった項目を伏せ字にせず書き直す (`[人物A]` のような置換もせず、その情報を含まない書き方にする)。書き直しても通らない型は書かず、理由を `report.md` に記録する。終了コード3は台帳が無効という意味なので書かない。
 5. **コミット**: 台帳のファイルはコミットしないと worktree と一緒に消える。次のすべてを満たす場合だけ、書いたファイルを名指しして `git add -- <台帳のファイル>` と `git commit -m '<利用側の規約に従ったメッセージ>' -- <台帳のファイル>` を実行する (ほかのステージ済みの変更を巻き込まない)。
    - 3 でコミットが承認された
-   - 現在のブランチが、レビューしたブランチと同じ。`--head` を指定した run では `git symbolic-ref --quiet --short HEAD` が `head` と一致し、それ以外の run では HEAD がブランチ上にある (detached HEAD ではない)
+   - コミットの直前に実行した `git symbolic-ref --quiet --short HEAD` の出力 (現在のブランチの短い名前) が、`start_branch` (レビュー開始時に記録した同じコマンドの出力) と一致する。`start_branch` が `null` (開始時に detached HEAD) の run、または直前のコマンドが失敗した (detached HEAD) 場合はコミットしない。承認を待つ間に別のブランチへ切り替わった場合を止めるため
+   - `--head` を指定した run では、さらに現在のブランチの短い名前が `head` と一致する
    - `--head` を指定した run では、HEAD が判定の対象のコミット (`head_sha_after_fixes`、無ければ `head_sha`) を指している
-   - 現在のブランチが既定ブランチでない。既定ブランチは `<learnings.py>` の数え方と同じ順に解決する: `git symbolic-ref --quiet refs/remotes/origin/HEAD` が指すもの、無ければ `refs/remotes/origin/main`・`refs/remotes/origin/master`・`refs/heads/main`・`refs/heads/master` のうち最初に存在するもの。その名前から `origin/` を除いたものと一致すれば既定ブランチとする。どれも解決できなければコミットしない
+   - 現在のブランチが既定ブランチでない。既定ブランチは `<learnings.py>` の数え方と同じ順に解決する: `git symbolic-ref --quiet refs/remotes/origin/HEAD` が指すもの、無ければ `refs/remotes/origin/main`・`refs/remotes/origin/master`・`refs/heads/main`・`refs/heads/master` のうち最初に存在するもの。得られるのは完全な ref 名 (`refs/remotes/origin/main`・`refs/heads/main` など) なので、比べる前に先頭の `refs/remotes/origin/` (`refs/remotes/<remote>/`) または `refs/heads/` を外して短い名前 (`main` など) にする。その短い名前が現在のブランチの短い名前と一致すれば既定ブランチとしてコミットしない。どれも解決できなければコミットしない
 
    台帳のコミットはレビューした差分に含まれず、最終判定の対象でもない (最終判定は変えない)。コミットした run では、`report.md` の冒頭に「判定が覆うのは `<判定の対象のコミット>` まで。台帳のコミット `<SHA>` は `.aidd/learnings/` だけを変えたもので、PR で人がレビューする対象」と書き、`learnings.commit` に記録する。コミットしなかった場合は、その理由と未コミットの台帳のファイルを `report.md` の冒頭に列挙し、worktree を消す前にコミットするよう伝える。どちらの場合も、検査で捕まらない固有名が無いかを PR のレビューで人が確かめるよう伝える。コミット時には `tool-reminder.sh` が同じ検査をかける。
 6. **昇格**: 4 で書けた型だけを対象に、`python3 -I <learnings.py> candidates --session-id <ID>` で数え直す (書いた観測は作業ツリーにあり、このセッションの観測として数えられる)。2 の見込みは使わない。記録を断った型・書き直しても通らなかった型・3 で選び直す前の signature は対象にしない。別の session で2回以上になった型を、利用側のレビュー観点 `.aidd/design-perspectives.md` (`/aidd:design-review` の Agent 4 が読む) への昇格候補として `report.md` に示す。1回目の型は昇格させない。終了コード4の扱いは 2 と同じ。

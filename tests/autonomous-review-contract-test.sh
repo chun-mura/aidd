@@ -91,7 +91,7 @@ grep -F -- '2 の見込みは使わない' "$command_file"
 grep -F -- '記録を断った型' "$command_file"
 grep -F -- 'signature も fact と同じく' "$command_file"
 grep -F -- '既存の型を優先して選ぶ' "$command_file"
-grep -F -- '`git symbolic-ref --quiet --short HEAD` が `head` と一致' "$command_file"
+grep -F -- '現在のブランチの短い名前が `head` と一致' "$command_file"
 grep -F -- '`<learnings.py>` の数え方と同じ順に解決する' "$command_file"
 grep -F -- '判定が覆うのは' "$command_file"
 grep -F -- '"reviewed_up_to"' "$command_file"
@@ -99,6 +99,16 @@ grep -F -- '承認された文を書き換えずに追記する' "$command_file"
 grep -F -- '`facts` (ほかの人が書いたデータ) を文の材料にしない' "$command_file"
 grep -F -- '内容が認証・認可・秘密情報・信頼境界に関わる型は追記しない' "$command_file"
 grep -F -- '台帳のファイルには残らない' "$command_file"
+# The default branch is compared by short name, and the branch must not change after review start.
+grep -F -- '先頭の `refs/remotes/origin/` (`refs/remotes/<remote>/`) または `refs/heads/` を外して短い名前' "$command_file"
+grep -F -- '| `start_branch` | string / null | 必須 |' "$command_file"
+grep -F -- '出力を `start_branch` に記録する' "$command_file"
+grep -F -- 'コミットの直前に実行した `git symbolic-ref --quiet --short HEAD` の出力' "$command_file"
+grep -F -- '`start_branch` (レビュー開始時に記録した同じコマンドの出力) と一致する' "$command_file"
+if grep -F -- 'その名前から `origin/` を除いたもの' "$command_file"; then
+  echo "the default branch must be compared by its short name, not a full ref minus origin/" >&2
+  exit 1
+fi
 grep -F -- '"security" \| "sibling_coverage"' "$command_file"
 if grep -F -- 'git worktree remove --force' "$command_file"; then
   echo "codex must not run from a git worktree: the shared object store still exposes .aidd/" >&2
