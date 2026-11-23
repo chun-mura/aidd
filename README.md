@@ -334,7 +334,7 @@ hooks は上記スクリプトをセッション中に自動実行する。フ�
 
 | ファイル | 説明 |
 |---------|------|
-| `CLAUDE.md.template` | プロジェクト概要・技術スタック・コマンド・AI運用をまとめるテンプレート。コメントの置き場所 (How はコード / What はテスト / Why はコミットログ / Why not はコメント) を規約として同梱 |
+| `CLAUDE.md.template` | プロジェクト概要・技術スタック・コマンド・AI運用をまとめるテンプレート。AI運用は、Issue の実装を `/aidd:issue-implement` に、Issue を使わない開発を既存の skill に案内するだけで、レーン判定の条件は書き写さない。コメントの置き場所 (How はコード / What はテスト / Why はコミットログ / Why not はコメント) を規約として同梱 |
 | `settings.json.template` | Claude Code 権限設定の基本構成テンプレート |
 | `sandbox-settings.json.template` | ローカル実行で権限を絞るときに `.claude/settings.json` にマージする。Bash を sandbox に入れ、通信先を GitHub と主要レジストリに、書き込みを作業ディレクトリに限り、`gh` も sandbox の中で動かし (macOS では `env` の `SSL_CERT_FILE` で TLS を通す)、認証情報ファイルの読み取りと危険な `gh` のサブコマンドを拒否し、`rm -rf`・`git push --force`・`git branch -D` に確認を出す (手順は「ローカルで権限を絞って使う」) |
 | `team-settings.json.template` | チーム導入用。利用プロジェクトの `.claude/settings.json` にマージすると aidd が自動提案される |
