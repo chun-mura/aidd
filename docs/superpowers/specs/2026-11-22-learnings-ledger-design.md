@@ -103,10 +103,11 @@ hook が書いてよいのは `~/.claude/aidd/` だけという方針は変え�
 
 - #105 (auto memory の取り込み): `source: auto-memory` で `add` を呼ぶ。検査とファイルの形はそのまま使い、`learnings.py` は変えない。
   - 読むのは、そのセッションに読み込まれた auto memory のディレクトリにある `type: feedback` のファイルだけ (ほかのプロジェクトの memory は読まない)。列挙は frontmatter だけを読む snippet で行い、本文は列挙したものだけ読む。`fact` は memory の文を写さず書き直し、memory のパスは `evidence` に入れない。memory のファイルは書き換えない・消さない (削除候補は #106)。書く前に AskUserQuestion で承認を取る。
-  - `session` には、そのメモを書いたセッションの ID (frontmatter の `originSessionId`) を渡す。メモ1件を「そのセッションでの1回」と数え、同じメモを次の実行で取り込み直しても回数が増えず、同じセッションで incident-retro が記録した同じ事故とも1回にまとまる。`originSessionId` が無ければ `auto-memory:<ファイルの絶対パス>` を渡す (同じメモの取り込み直しは1回にまとまるが、同じセッションの incident-retro の観測とは別に数えうる)。`originSessionId` は公式ドキュメントに無く、この環境の実物の frontmatter (`metadata:` の下に `type` と並ぶ) で確かめた。`type` は公式ドキュメントで frontmatter にあるとだけ書かれているので、トップレベルと入れ子の両方を読む。
-  - 取り込み済みの判定: `candidates --all` と `candidates --all --session-id <キー> --signature <S>` で S の `sessions` が同じなら、そのセッションの観測は既にマージされているので取り込まない。
-  - 回数: `candidates` は作業ツリーの観測を今のセッションの分しか数えないので、マージ前の memory の観測 (別のセッション) を数えない。incident-retro は照合の `sessions` に、同じ signature の memory の候補の session キーの種類の数を足す。`learnings.py` に複数のセッションを数える引数を足せばこの足し算は要らなくなるが、#108 と同時に `learnings.py` を変えないため見送った。
-  - 残るリスク: 絶対パスの session キーは12桁のハッシュで残るので、ユーザー名・リポジトリのパス・ファイル名を推測できる人はハッシュと照らし合わせうる (どのファイル名のメモがあったか、が分かる)。PR のレビュー中で未マージの取り込みがある間に取り込み直すと、同じ観測のファイルが重複しうる (回数は同じセッションなので増えない)。
+  - `session` には、そのメモを書いたセッションの ID (frontmatter の `originSessionId`) を渡す。メモ1件を「そのセッションでの1回」と数え、同じメモを次の実行で取り込み直しても回数が増えず、同じセッションで incident-retro が記録した同じ事故とも1回にまとまる。`originSessionId` は公式ドキュメントに無く、この環境の実物の frontmatter (`metadata:` の下に `type` と並ぶ) で確かめた。`type` は公式ドキュメントで frontmatter にあるとだけ書かれているので、トップレベルと入れ子の両方を読む。
+  - `originSessionId` が無い memory は取り込まない。列挙の snippet は件数だけを stderr に出し、incident-retro は件数だけを利用者に伝える (ファイル名・本文は出さない)。ファイルの絶対パスのハッシュを `session` に使う案は、ユーザー名・リポジトリのパス・ファイル名を推測できる人がハッシュと照らし合わせうるので採らない。
+  - 回数: 昇格の回数は `candidates` の出力だけで数える (既定ブランチにマージ済みの観測と、今回のセッションで書いた観測)。memory から取り込んだ観測は別のセッションのものなので、PR でマージされてから回数に入る。incident-retro は回数を数え直したり足したりしない。
+  - 取り込み済みの判定はしない。`candidates` はセッションのハッシュを出さないので、数え直さずに判定する手段が無い。前の実行で取り込んだ memory がまた候補に出うるが、同じセッションの観測なので取り込み直しても回数は増えない (台帳のファイルは増える)。
+  - 残るリスク: 同じ memory を取り込み直すと、同じ観測のファイルが台帳に重複しうる。`session` に残る `originSessionId` の12桁のハッシュは、セッション ID (UUID) を知らない人には元に戻せない。
 - #106 (asset-audit): 昇格の記録 (`promotions/`) ができてから、それを読んで memory の削除候補を出す。検査に `promotions/` の規則を足すのは #106 か昇格の記録を作る変更。
 - #107 (還流): `scope` が `tool`・`aidd` の観測を草案の候補にする。草案に入れる signature・事実は検査を通ったものなので、固有の情報を伏せる手間が減る。
 - #108 (autonomous-review): `source: autonomous-review` で `add` を呼び、指摘の型を `signature` に入れる。指摘の型はコマンド名ではないので、`signature` の語の規則を広げるかは #108 で決める。

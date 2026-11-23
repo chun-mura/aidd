@@ -128,15 +128,23 @@ if grep -Eq -- 'python3 -I \.\./\.\./scripts/learnings\.py' "$incident_retro"; t
 fi
 # Auto memory intake (#105): feedback memories enter the ledger only through the check and the
 # user's approval, from this repository's memory directory only, without the memory text or path;
-# memory files and the canon change only after approval. The snippet and the counting steps are
-# executed by tests/incident-retro-memory-test.sh.
+# memory files and the canon change only after approval. A memory without originSessionId is not
+# taken in (count only). Counts come from candidates only: an imported observation counts once it
+# is merged, and the skill never adds to the count itself. The snippet is executed by
+# tests/incident-retro-memory-test.sh.
 grep -F -- '**auto memory の取り込み**' "$incident_retro"
 grep -F -- '`"source": "auto-memory"`' "$incident_retro"
 grep -F -- 'ほかのプロジェクトの memory ディレクトリを探して読まない' "$incident_retro"
 grep -F -- 'memory の文を写さず' "$incident_retro"
 grep -F -- 'memory のファイルは書き換えず、消さない' "$incident_retro"
 grep -F -- '正典 (CLAUDE.md・hook・skill) を書き換えるのは承認後だけ' "$incident_retro"
-grep -F -- 'session キーの種類の数を足す' "$incident_retro"
+grep -F -- '`originSessionId` が無い memory は取り込まず、件数だけを伝える' "$incident_retro"
+grep -F -- 'PR でマージされてから回数に入る' "$incident_retro"
+grep -F -- '回数は下の照合の出力 (`candidates`) だけで数え、skill の中で数え直したり足したりしない' "$incident_retro"
+if grep -Eq -- 'auto-memory:|数を足[しす]|`sessions` が同じなら' "$incident_retro"; then
+  echo "incident-retro still keys memories by path or recounts candidates" >&2
+  exit 1
+fi
 
 # doctor's sandbox check only warns (running without the sandbox is allowed), and it must
 # report whether a GitHub token is set without ever printing the token (#96). gh belongs inside
