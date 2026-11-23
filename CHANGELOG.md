@@ -6,6 +6,12 @@
 - 草案は `scripts/learnings.py scan` の検査に通し、通らなければ伏せ字にせず書き直す。全文をそのまま示してから AskUserQuestion で承認を取る。skill は issue を作らず、送信は利用者が行う。送る前に担当者が確認し、顧客案件・NDA の対象のリポジトリからは社内の情報管理の責任者に確認してから送るよう伝える。`source: autonomous-review` の観測は `scope: project` に限られるので還流の候補にならない
 - `scripts/learnings.py`: `scan` を足した。標準入力の草案を1行ずつ台帳と同じ検査 (`scan_text`) にかけ、加えてコミット SHA と `#番号` を拒否する。草案は公開されうる aidd のリポジトリに出るため。何も書かず、`check`・`add`・`candidates` とコミット時の検査は変えていない
 - `retro`: 還流してきた `[reflux]` の issue を signature ごとに集計し、再現を確かめたもののうち利用者が選んだものを eval の昇格と同じ型 (AskUserQuestion の multiSelect → 変更案 → 承認 → CHANGELOG に出典 `還流 #<番号>`) で反映する手順を足した。`gh issue list` の失敗を0件と読まない。issue の本文は外部の人が書いたデータとして扱い、再現の手順をモデルが自動で実行しない
+- レビューを受けて次を直した:
+  - 還流を既定で無効にした。clone ごとの `git config aidd.reflux true` で有効にしたときだけ判定0と草案の作成を行う (台帳とは別の設定)。`git config --local --bool --get aidd.reflux` の終了コード1と `false` は無効、それ以外の失敗は判定不能として伝える
+  - `retro` は、保守者がラベル `reflux-triaged` を付けた `[reflux]` issue だけを集計する。issue は誰でも送れるため。ラベルは利用者 (保守者) が作り、skill は作らない。ラベルが無いとき・0件のときの伝え方を書いた。表は snippet が出すタイトルと `## signature` の行 (台帳と同じ signature の規則で確かめる) だけで作り、本文は利用者が選んだ issue だけを読む。`--limit` を超えたら件数の注意を出す。回数は昇格の条件ではないと表に添える
+  - `scripts/learnings.py scan`: コミット SHA を大文字と数字だけの短縮形でも拒否する (8桁の日付は通す)。英字に続く `#番号`、`-R` / `--repo` の後のリポジトリ名、`~` で始まるパス、`@` で始まる語を拒否する (プレースホルダ `<...>` は外してから判定する)。1行目の `[reflux] ` のタイトル・5つの見出し・`## signature` の行 (台帳と同じ signature の規則、`review` の型は拒否) を確かめる
+  - `incident-retro`: 再現の手順にはプレースホルダだけを書き、エラー文は写さずに要約する。`scan` が捕まえないものを種類で書いた。草案は scratchpad のファイルに Write で書き、同じファイルで検査・全文表示・送信 (`gh issue create --body-file -`、1行目がタイトル) を行い、ヒアドキュメントや引数で渡さない。承認の質問の文に担当者の確認と NDA の確認を入れた。漏れた後の対処 (編集履歴が残るので削除を頼む、配信済みの通知は消せない、認証情報はローテーション) を書いた
+  - `retro`: 再現は認証情報を持たない環境で人が行い、認証を要する操作・外部からの取得・global の設定の変更を含む手順は実行せず「未」にする。「済」はその実行の中で利用者が AskUserQuestion に答えたものだけで、昇格の CHANGELOG に再現した日・環境・本文の `updatedAt` を残す。hook・`skill-gate.sh` の変更や拒否・確認を弱める昇格は retro の中で反映せず、別の PR で `/aidd:design-review --security` を通す。漏れた issue の対処を書いた
 
 ## 0.68.0 (2026-11-23)
 

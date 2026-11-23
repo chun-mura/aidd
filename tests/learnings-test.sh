@@ -556,6 +556,39 @@ scan_reject "full-width issue number" "commit SHA or #number" "Same as ＃１２
 scan_reject "short SHA" "commit SHA or #number" "Reverted in 1a2b3c4 later."
 scan_reject "company" "company name" "Seen at Sample Inc. last week."
 scan_reject "tab" "invisible or control character" "$(printf 'col\tcol')"
+# SHAs in any case and digit-only short SHAs, a #number after letters (review R1, S1).
+scan_reject "upper-case SHA" "commit SHA or #number" "Reverted in 1A2B3C4D later."
+scan_reject "digit-only short SHA" "commit SHA or #number" "Reverted in 4417302 later."
+scan_reject "full SHA" "commit SHA or #number" "Commit 0123456789ABCDEF0123456789ABCDEF01234567 broke it."
+scan_reject "PR#number" "commit SHA or #number" "Same as PR#12 here."
+# Repository names, home-relative paths, @-words (review S1). Placeholders pass (below).
+scan_reject "repo after -R" "repository name after -R/--repo" "Run gh pr view -R someorg/someapp first."
+scan_reject "repo after --repo=" "repository name after -R/--repo" "Run gh pr view --repo=someorg/someapp first."
+scan_reject "home path" "home-relative path" "It wrote ~/work/someapp/out.log."
+scan_reject "named home" "home-relative path" "It wrote ~someone/out.log."
+scan_reject "@-word" "@-mention or package scope" "Ask @someone about it."
+# Ordinary numbers and placeholders are not taken for a SHA, repository or path.
+out=$(printf '%s\n%s\n' "$draft_ok" 'Seen on 0.69.0 at 2026-11-23 (20261123), 123456 lines, 3/4 runs; defaced; gh pr view -R <owner>/<repo>; --repo <owner>/<repo>; ~/<path>; git switch <branch>.' \
+  | python3 -I "$script" scan)
+printf '%s\n' "$out" | grep -F 'draft passed the check'
+# The draft keeps the shape retro reads: the [reflux] title on line 1, every section, and a
+# signature line that passes the ledger's signature rule and is not a review finding type (S9).
+scan_draft_reject() {  # scan_draft_reject LABEL RULE DRAFT
+  local got status
+  set +e
+  got=$(printf '%s\n' "$3" | python3 -I "$script" scan 2>&1)
+  status=$?
+  set -e
+  if [ "$status" -ne 1 ] || ! printf '%s\n' "$got" | grep -Fq -- "$2"; then
+    echo "scan should reject with $2: $1 (exit $status): $got" >&2
+    exit 1
+  fi
+}
+scan_draft_reject "no title prefix" "first line must be the title" "${draft_ok#\[reflux\] }"
+scan_draft_reject "missing section" "missing section: ## 再現の手順" "${draft_ok/\#\# 再現の手順/## 手順}"
+scan_draft_reject "path in signature" "signature: only a command or tool name" "${draft_ok/$'\ngit stash\n'/$'\ngit add src/app.ts\n'}"
+scan_draft_reject "review type" "review finding type is not a reflux candidate" "${draft_ok/$'\ngit stash\n'/$'\nreview correctness off-by-one\n'}"
+scan_draft_reject "no signature line" "no signature line" "${draft_ok/$'\ngit stash\n'/$'\n\n'}"
 # Reasons point at the line, so the rewrite can find it without the value being repeated.
 set +e
 got=$(printf 'clean line\nSee https://intra.zz/x\n' | python3 -I "$script" scan 2>&1)

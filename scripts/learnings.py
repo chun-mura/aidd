@@ -244,25 +244,62 @@ def display_name(name):
     return name if FILE_NAME.match(name) else "(a file under .aidd/learnings/ whose name breaks the pattern)"
 
 
-# A reflux draft (#107) leaves the using repository for the aidd one, which may be public. It cites
-# no evidence of the using repository, so on top of scan_text it rejects commit SHAs and #numbers.
+# A reflux draft (#107) leaves the using repository for the aidd one, which may be public. On top of
+# scan_text it rejects what points back at the using repository: commit SHAs (any case, digit-only
+# short ones too, but not an 8-digit date), #numbers, a repository after -R/--repo, home-relative
+# paths and @-words. Placeholders such as <owner>/<repo> or <path> are what the draft writes instead,
+# so they are removed before these rules. The title and sections are what /aidd:retro reads.
 MAX_DRAFT_BYTES = 16384
-DRAFT_EVIDENCE = re.compile(
-    r"(?<![\w#])#[0-9]+(?!\w)"
-    r"|(?<![0-9A-Za-z])(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}(?![0-9A-Za-z])", re.A)
+DRAFT_TITLE = "[reflux] "
+DRAFT_SECTIONS = ("## signature", "## 起きたこと", "## 再現の手順", "## 対象にする aidd の資産", "## その規則で壊れるもの")
+PLACEHOLDER = re.compile(r"<[^<>\s]+>")
+DRAFT_RULES = [
+    ("a commit SHA or #number of the using repository", re.compile(
+        r"(?<!&)#[0-9]+(?![0-9])"
+        r"|(?<![0-9A-Za-z])(?=[0-9A-Fa-f]*[0-9])"
+        r"(?!(?:19|20)[0-9]{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12][0-9]|3[01])(?![0-9A-Za-z]))"
+        r"[0-9A-Fa-f]{7,40}(?![0-9A-Za-z])", re.A)),
+    ("a repository name after -R/--repo", re.compile(r"(?<![\w-])(?:-R|--repo)(?:\s+|=)[^\s/]+/\S+", re.A)),
+    ("a home-relative path", re.compile(r"(?<![\w~])~(?:[A-Za-z0-9_.-]+/|/[^\s/]+/)", re.A)),
+    ("an @-mention or package scope", re.compile(r"(?<![\w.@])@[A-Za-z0-9_]", re.A)),
+]
+
+
+def draft_signature(text):
+    """The first non-empty line under "## signature", before the next section; None if there is none."""
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        if line.strip() == "## signature":
+            for rest in lines[i + 1:]:
+                if rest.strip().startswith("## "):
+                    return None
+                if rest.strip():
+                    return rest.strip()
+    return None
 
 
 def scan_draft(text):
     """Return the rules a reflux draft breaks, one reason per line and rule, never the value."""
     if not text.strip():
         return ["draft: empty"]
+    lines = text[:-1].split("\n") if text.endswith("\n") else text.split("\n")
     errors = []
-    for number, line in enumerate(text[:-1].split("\n") if text.endswith("\n") else text.split("\n"), 1):
+    if not (lines[0].startswith(DRAFT_TITLE) and lines[0][len(DRAFT_TITLE):].strip()):
+        errors.append("draft: the first line must be the title, starting with \"[reflux] \"")
+    headers = {line.strip() for line in lines}
+    errors += [f"draft: missing section: {section}" for section in DRAFT_SECTIONS if section not in headers]
+    signature = draft_signature(text)
+    if signature is None:
+        errors.append("draft: the ## signature section has no signature line")
+    else:
+        errors += check_signature(signature)
+        if signature.split(" ")[0] == "review":
+            errors.append("signature: a review finding type is not a reflux candidate")
+    for number, line in enumerate(lines, 1):
         field = f"line {number}"
-        found = scan_text(field, line)
-        if not found and DRAFT_EVIDENCE.search(unicodedata.normalize("NFKC", line)):
-            found = [f"{field}: contains a commit SHA or #number of the using repository"]
-        errors += found
+        errors += scan_text(field, line)
+        bare = PLACEHOLDER.sub("", unicodedata.normalize("NFKC", line))
+        errors += [f"{field}: contains {rule}" for rule, pattern in DRAFT_RULES if pattern.search(bare)]
     return errors
 
 
