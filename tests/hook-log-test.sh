@@ -175,46 +175,116 @@ step2=$(awk '/^\*\*2\./{p=1} p && /^```bash/{q=1; next} q && /^```/{exit} q{prin
 # The audit's step 1 lists the auto memory of the same repository (shared by its worktrees):
 # each memory file with its type, whether a MEMORY.md link names it, and its date, and never
 # the memory body. Names outside [A-Za-z0-9._-] are only counted, so a name cannot forge a line.
+# The last line says the listing finished; anything else leaves memory undetermined.
 memory_dir="$fake_home/.claude/projects/$wt_key/memory"
 mkdir -p "$memory_dir"
 printf '%s\n' '- [Data](data.md) - indexed' '- [Other](sub/a.md) - same name, other path' \
-  '- [Quoted](./quoted.md)' '- [Gone](gone.md) - file removed' > "$memory_dir/MEMORY.md"
+  '- [Quoted](./quoted.md)' '- [Angle](<angle.md>)' '- [Cut](plain.md>x) - not plain.md' \
+  '- [Gone](gone.md) - file removed' > "$memory_dir/MEMORY.md"
 printf '%s\n' '---' 'name: data' 'metadata:' '  node_type: memory' '  type: project' '---' 'BODY_SENTINEL' > "$memory_dir/data.md"
 printf '%s\n' '---' 'name: a' 'type: feedback' '---' 'BODY_SENTINEL' > "$memory_dir/a.md"
 printf '%s\n' '---' 'type: BODY_SENTINEL' '---' 'type: user' > "$memory_dir/odd.md"
 printf '%s\n' 'BODY_SENTINEL' 'type: user' > "$memory_dir/plain.md"
 printf '%s\n' '---' 'type: "reference"' '---' > "$memory_dir/quoted.md"
+printf '%s\n' '---' 'type: "feedback" # quoted and commented' '---' > "$memory_dir/angle.md"
 printf '%s\n' '---' 'type: user # set by hand' 'metadata:' '  type: project' '---' > "$memory_dir/top.md"
 printf '%s\n' '---' 'links:' '  type: user' 'metadata:' '  extra:' '    type: user' '---' > "$memory_dir/nested.md"
+printf '%s\n' '---' 'type: user' 'BODY_SENTINEL' > "$memory_dir/unclosed.md"
+printf '%s\n' '---' 'type: "user' '---' > "$memory_dir/badquote.md"
 printf '%s\n' '---' 'type: user' '---' > "$memory_dir/bad name.md"
 printf '%s\n' '---' 'type: user' '---' > "$memory_dir/evil"$'\n'"fake.md type=user indexed modified=2020-01-01.md"
+mkdir "$memory_dir/subdir.md"
 touch -t 202001020304 "$memory_dir"/*.md
+ln -s "$memory_dir/does-not-exist" "$memory_dir/broken.md"
 step1=$(awk '/^\*\*1\./{p=1} p && /^```bash/{q=1; next} q && /^```/{exit} q{print}' "$audit_md")
 memory_out=$(cd "$tmp_dir/wt" && env -u CLAUDE_PROJECT_DIR -u CLAUDE_CONFIG_DIR HOME="$fake_home" bash -c "$step1")
 [ "$memory_out" = "a.md type=feedback unindexed modified=2020-01-02
+angle.md type=feedback indexed modified=2020-01-02
+badquote.md type=malformed unindexed modified=2020-01-02
 data.md type=project indexed modified=2020-01-02
 nested.md type=none unindexed modified=2020-01-02
 odd.md type=other unindexed modified=2020-01-02
 plain.md type=none unindexed modified=2020-01-02
 quoted.md type=reference indexed modified=2020-01-02
 top.md type=user unindexed modified=2020-01-02
-2 file(s) outside the naming rule [A-Za-z0-9._-] (names not shown)" ] \
+unclosed.md type=malformed unindexed modified=2020-01-02
+2 file(s) outside the naming rule [A-Za-z0-9._-] (names not shown)
+2 entr(ies) skipped (not a regular .md file: a directory, a broken link or another file)
+listed 12 memory file(s) (done)" ] \
   || { echo "asset-audit memory listing: $memory_out" >&2; exit 1; }
-# CLAUDE_CONFIG_DIR moves the projects directory; without memory the listing says so.
-memory_out=$(cd "$tmp_dir/wt" && env -u CLAUDE_PROJECT_DIR HOME="$fake_home" CLAUDE_CONFIG_DIR="$tmp_dir/nocfg" bash -c "$step1")
-[ "$memory_out" = "no auto memory at $tmp_dir/nocfg/projects/$wt_key/memory (no such directory: no memory here, or the key differs)" ] \
-  || { echo "asset-audit memory listing without memory: $memory_out" >&2; exit 1; }
+rm -rf "$memory_dir/subdir.md" "$memory_dir/broken.md" "$memory_dir/bad name.md" "$memory_dir"/evil*
+# Without a readable MEMORY.md the index is undetermined, not "nothing is indexed".
+mv "$memory_dir/MEMORY.md" "$memory_dir/MEMORY.keep"
+memory_out=$(cd "$tmp_dir/wt" && env -u CLAUDE_PROJECT_DIR -u CLAUDE_CONFIG_DIR HOME="$fake_home" bash -c "$step1")
+grep -Fqx 'MEMORY.md not found (index undetermined)' <<<"$memory_out" \
+  && grep -Fqx 'a.md type=feedback index=undetermined modified=2020-01-02' <<<"$memory_out" \
+  && ! grep -Fq ' unindexed ' <<<"$memory_out" \
+  || { echo "asset-audit memory listing without MEMORY.md: $memory_out" >&2; exit 1; }
+mkdir "$memory_dir/MEMORY.md"
+memory_out=$(cd "$tmp_dir/wt" && env -u CLAUDE_PROJECT_DIR -u CLAUDE_CONFIG_DIR HOME="$fake_home" bash -c "$step1")
+grep -Fqx 'MEMORY.md could not be read (index undetermined)' <<<"$memory_out" \
+  && ! grep -Fq ' unindexed ' <<<"$memory_out" \
+  || { echo "asset-audit memory listing with an unreadable MEMORY.md: $memory_out" >&2; exit 1; }
+rmdir "$memory_dir/MEMORY.md"
+mv "$memory_dir/MEMORY.keep" "$memory_dir/MEMORY.md"
+# An empty memory directory still ends with the done line, so it differs from a failure.
+mkdir -p "$fake_home/empty-cfg/projects/$wt_key/memory"
+memory_out=$(cd "$tmp_dir/wt" && env -u CLAUDE_PROJECT_DIR HOME="$fake_home" CLAUDE_CONFIG_DIR="$fake_home/empty-cfg" bash -c "$step1")
+[ "$memory_out" = "MEMORY.md not found (index undetermined)
+listed 0 memory file(s) (done)" ] || { echo "asset-audit memory listing of an empty directory: $memory_out" >&2; exit 1; }
+# A directory that cannot be listed fails with exit 1 and no done line.
+if [ "$(id -u)" -ne 0 ]; then
+  chmod 000 "$fake_home/empty-cfg/projects/$wt_key/memory"
+  status=0
+  memory_out=$(cd "$tmp_dir/wt" && env -u CLAUDE_PROJECT_DIR HOME="$fake_home" CLAUDE_CONFIG_DIR="$fake_home/empty-cfg" bash -c "$step1") || status=$?
+  chmod 755 "$fake_home/empty-cfg/projects/$wt_key/memory"
+  [ "$status" -eq 1 ] && grep -Fqx 'listing failed (undetermined)' <<<"$memory_out" && ! grep -Fq '(done)' <<<"$memory_out" \
+    || { echo "asset-audit memory listing of an unlistable directory ($status): $memory_out" >&2; exit 1; }
+fi
+# CLAUDE_CONFIG_DIR moves the projects directory; a missing directory is undetermined (exit 1).
+status=0
+memory_out=$(cd "$tmp_dir/wt" && env -u CLAUDE_PROJECT_DIR HOME="$fake_home" CLAUDE_CONFIG_DIR="$tmp_dir/nocfg" bash -c "$step1") || status=$?
+[ "$status" -eq 1 ] && [ "$memory_out" = "auto memory directory not found at $tmp_dir/nocfg/projects/$wt_key/memory (undetermined: no memory here, or the key differs)" ] \
+  || { echo "asset-audit memory listing without memory ($status): $memory_out" >&2; exit 1; }
 # The memory key does not depend on the shell locale: one "-" per non-ASCII character (BMP).
 "${git_env[@]}" git init -q "$tmp_dir/日本"
 real_tmp=$(cd "$tmp_dir" && pwd -P)
 mkdir -p "$fake_home/.claude/projects/${real_tmp//[^A-Za-z0-9]/-}---/memory"
 memory_out=$(cd "$tmp_dir/日本" && env -u CLAUDE_PROJECT_DIR -u CLAUDE_CONFIG_DIR LC_ALL=C HOME="$fake_home" bash -c "$step1")
-[ -z "$memory_out" ] || { echo "asset-audit memory key for a non-ASCII path: $memory_out" >&2; exit 1; }
-# A git common directory that does not end in .git (a separate git dir) leaves the key undetermined.
+grep -Fqx 'listed 0 memory file(s) (done)' <<<"$memory_out" \
+  || { echo "asset-audit memory key for a non-ASCII path: $memory_out" >&2; exit 1; }
+# A git common directory that does not end in .git (a separate git dir), or a directory git
+# cannot resolve, leaves the location undetermined instead of guessing a key from the cwd.
 "${git_env[@]}" git init -q --separate-git-dir "$tmp_dir/sepdir" "$tmp_dir/sep"
-memory_out=$(cd "$tmp_dir/sep" && env -u CLAUDE_PROJECT_DIR HOME="$fake_home" bash -c "$step1")
-[ "$memory_out" = "auto memory location undetermined (the git common directory does not end in .git)" ] \
-  || { echo "asset-audit memory listing with a separate git dir: $memory_out" >&2; exit 1; }
+mkdir -p "$tmp_dir/not-a-repo"
+for dir in "$tmp_dir/sep" "$tmp_dir/not-a-repo"; do
+  status=0
+  memory_out=$(cd "$dir" && env -u CLAUDE_PROJECT_DIR HOME="$fake_home" GIT_CEILING_DIRECTORIES="$tmp_dir" bash -c "$step1") || status=$?
+  [ "$status" -eq 1 ] && [ "$memory_out" = "auto memory location undetermined (git could not resolve the repository, or its common directory does not end in .git)" ] \
+    || { echo "asset-audit memory listing in $dir ($status): $memory_out" >&2; exit 1; }
+done
+
+# Archiving a memory before removing it: the file moves into a new timestamped directory, the
+# original disappears only when the copy is there, an existing archive is never overwritten,
+# and the MEMORY.md lines that link to it are listed by number for the user to decide on.
+archive_step=$(awk '/^\*\*4\./{s=1} s && /^```bash/{q=1; next} q && /^```/{exit} q{print}' "$audit_md")
+archive_step=${archive_step//<memory の置き場>/$memory_dir}
+archive_step=${archive_step//<ファイル名>/a.md}
+archive_out=$(bash -c "$archive_step")
+archived=$(sed -n 's/^archived: //p' <<<"$archive_out")
+[ -n "$archived" ] && [ -f "$archived" ] && [ ! -e "$memory_dir/a.md" ] && [ "${archived%/*/a.md}" = "$memory_dir/../memory-archive" ] \
+  || { echo "asset-audit archive step: $archive_out" >&2; exit 1; }
+printf '%s\n' '- [A](a.md)' '- [B](./a.md)' > "$memory_dir/MEMORY.md"
+printf 'NEW\n' > "$memory_dir/a.md"
+stamp=${archived%/a.md}
+stamp=${stamp##*/}
+archive_out=$(bash -c "${archive_step//\$(date -u +%Y%m%dT%H%M%SZ)/$stamp}")
+[ "$archive_out" = "archive failed: a.md (nothing deleted)" ] && [ -f "$memory_dir/a.md" ] && [ "$(cat "$archived")" != NEW ] \
+  || { echo "asset-audit archive step over an existing archive: $archive_out" >&2; exit 1; }
+rm -rf "$memory_dir/../memory-archive"
+archive_out=$(bash -c "$archive_step")
+grep -Fqx 'MEMORY.md line linking to it: 1' <<<"$archive_out" && grep -Fqx 'MEMORY.md line linking to it: 2' <<<"$archive_out" \
+  || { echo "asset-audit archive step index lines: $archive_out" >&2; exit 1; }
 
 # The ledger step passes only signature and sessions on (never facts or file names), reports
 # the exit code of learnings.py candidates, and reads nothing while the ledger is disabled.
@@ -249,6 +319,14 @@ ledger_out=$(cd "$tmp_dir/no-repo" && GIT_CONFIG_GLOBAL="$tmp_dir/global-gitconf
   GIT_CEILING_DIRECTORIES="$tmp_dir" bash -c "$ledger_step" 2>/dev/null)
 [ "$ledger_out" = 'candidates failed: exit=2 (undetermined)' ] \
   || { echo "asset-audit ledger step outside a repository: $ledger_out" >&2; exit 1; }
+# A git config that cannot be read is undetermined, not "disabled".
+printf '[aidd\n' > "$tmp_dir/broken-gitconfig"
+ledger_out=$(cd "$tmp_dir/no-repo" && GIT_CONFIG_GLOBAL="$tmp_dir/broken-gitconfig" GIT_CONFIG_NOSYSTEM=1 \
+  GIT_CEILING_DIRECTORIES="$tmp_dir" bash -c "$ledger_step" 2>/dev/null)
+case $ledger_out in
+  'git config failed: exit='*' (undetermined)') ;;
+  *) echo "asset-audit ledger step with a broken git config: $ledger_out" >&2; exit 1 ;;
+esac
 
 # The hook id becomes a file name, so path characters are neutralized.
 printf '%s' "$input" | run_wrapped '../escape' "$fake_hook" 0 > /dev/null 2>&1

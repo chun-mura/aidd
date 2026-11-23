@@ -262,6 +262,14 @@ grep -F -- 'git config --get aidd.learnings' "$asset_audit"
 # undetermined: an empty stdout must not read as "no promoted memory".
 grep -F -- '**終了コード0以外はすべて判定不能として扱う**' "$asset_audit"
 grep -F -- '削除候補を示さずに、終了コードと stderr を利用者に伝える' "$asset_audit"
+# Error handling review of #106: an unfinished listing, an unknown index, unreadable memory,
+# a failing git config and an unverified archive must not read as a result.
+grep -F -- '**最後の行が `listed <N> memory file(s) (done)` でなければ、memory の基準をすべて判定不能とする**' "$asset_audit"
+grep -F -- '`index=undetermined` のときは「索引に無い memory」を判定不能とし、改訂候補を出さない' "$asset_audit"
+grep -F -- '`type=malformed`・`type=unreadable` のファイルと命名規則外のファイルは、その memory を判定不能として扱う' "$asset_audit"
+grep -F -- '無効とはみなさずに判定不能とする' "$asset_audit"
+grep -F -- '元の場所から消えるのは、退避先にファイルがあり元の場所に無いことを確かめられたときだけ' "$asset_audit"
+grep -F -- 'その行を消すかどうかを利用者に確かめてから直す' "$asset_audit"
 # Review of #106: what may leave the conversation, credentials, NDA repositories, instructions
 # inside memory, irreversible deletion, and memory locations chosen by committed settings.
 grep -F -- 'コミットされる・共有される先 (ADR・issue・状態ファイル): memory の件数と判定だけ' "$asset_audit"

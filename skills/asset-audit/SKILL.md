@@ -22,34 +22,41 @@ disable-model-invocation: true
 - `.claude/settings.json` の `hooks` / `permissions` / `env` (`.claude/settings.local.json` は個人設定のため、存在だけ示し中身は候補にしない)
 - `.claude/commands/`・`.claude/skills/`・`.claude/agents/`・`.claude/rules/`・`.claude/hooks/` 配下のファイル
 - auto memory (Claude Code がこのリポジトリについて書きためたメモ。マシンごとにあり、コミットされない): 下のコマンドで、memory ファイルごとに名前・種類・索引に載っているか (`indexed` / `unindexed`)・更新日 (`modified=`、日付だけ) を出す。最終変更コミットの代わりにこの更新日を使う
-  - 種類は frontmatter の `type` の値 (引用符と行末の `#` コメントを外したもの)。読む位置は、frontmatter の最上位の `type` と、最上位の `metadata:` の直下の `type` (実物の Claude Code はここに書く) の2つだけで、両方あれば最上位を採る。ほかのキーの下にある `type` は読まない。`user` / `feedback` / `project` / `reference` 以外は `other`、どちらの位置にも無ければ `none`
-  - 索引に載っているかは、`MEMORY.md` の Markdown のリンク先 (`](<名前>)`、先頭の `./` は外す) がファイル名と完全に一致するかで決める。別のパスにある同じ名前 (`](sub/a.md)`) は載っているとみなさない
-  - 名前に `[A-Za-z0-9._-]` 以外の文字を含むファイルは、名前を出さずに件数だけを「命名規則外」として出す (名前に改行などを入れて一覧の行を偽造できないように)
+  - 種類は frontmatter の `type` の値 (引用符と行末の `#` コメントを外したもの)。読む位置は、frontmatter の最上位の `type` と、最上位の `metadata:` の直下の `type` (実物の Claude Code はここに書く) の2つだけで、両方あれば最上位を採る。ほかのキーの下にある `type` は読まない。`user` / `feedback` / `project` / `reference` 以外は `other`、どちらの位置にも無ければ `none`。frontmatter が閉じていない・引用符が閉じていないものは `malformed`、読めないものは `unreadable`
+  - 索引に載っているかは、`MEMORY.md` の Markdown のリンク先 (`](<名前>)` か `](名前)`。先頭の `./` は外す) がファイル名と完全に一致するかで決める。別のパスにある同じ名前 (`](sub/a.md)`) や、名前の後ろに文字が続くリンク先 (`](a.md>x)`) は載っているとみなさない。`MEMORY.md` が無い・読めないときは、その旨の行を出し、各ファイルを `index=undetermined` とする
+  - 名前に `[A-Za-z0-9._-]` 以外の文字を含むファイルは、名前を出さずに件数だけを「命名規則外」として出す (名前に改行などを入れて一覧の行を偽造できないように)。通常の `.md` ファイルでないもの (ディレクトリ・壊れたシンボリックリンク・ほかのファイル) は件数だけを出す
+  - 最後の行は `listed <N> memory file(s) (done)`。memory が0件でもこの行は出る
 
 ```bash
-project_root=${CLAUDE_PROJECT_DIR:-$PWD}
-common_dir=$(git -C "$project_root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) &&
-  project_root=$(dirname "$common_dir")
-case $common_dir in '' | */.git) ;; *) project_root= ;; esac
+project_root=
+if common_dir=$(git -C "${CLAUDE_PROJECT_DIR:-$PWD}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null); then
+  case $common_dir in */.git) project_root=$(dirname "$common_dir") ;; esac
+fi
 python3 -I -c 'import datetime, os, re, sys
 projects_dir, project_root = sys.argv[1:3]
 if not project_root:
-    print("auto memory location undetermined (the git common directory does not end in .git)")
-    sys.exit()
+    print("auto memory location undetermined (git could not resolve the repository, or its common directory does not end in .git)")
+    sys.exit(1)
 # One "-" per UTF-16 code unit that is not an ASCII letter or digit, like the JavaScript
 # replace(/[^a-zA-Z0-9]/g, "-") found in Claude Code; independent of the shell locale.
 key = "".join(c if c.isascii() and c.isalnum() else "-" * (2 if ord(c) > 0xFFFF else 1)
               for c in project_root)
 memory_dir = os.path.join(projects_dir, key, "memory")
 if not os.path.isdir(memory_dir):
-    print(f"no auto memory at {memory_dir} (no such directory: no memory here, or the key differs)")
-    sys.exit()
+    print(f"auto memory directory not found at {memory_dir} (undetermined: no memory here, or the key differs)")
+    sys.exit(1)
 KNOWN = {"user", "feedback", "project", "reference"}
+class Malformed(Exception):
+    pass
 def value(raw):
     raw = raw.strip()
-    if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in "\x22\x27":
-        return raw[1:-1]
-    return re.sub(r"\s+#.*\Z", "", raw)
+    if raw[:1] in ("\x22", "\x27"):
+        end = raw.find(raw[0], 1)
+        rest = raw[end + 1:].strip() if end > 0 else None
+        if rest is None or (rest and not rest.startswith("#")):
+            raise Malformed
+        return raw[1:end]
+    return re.sub(r"(\A|\s+)#.*\Z", "", raw)
 def memory_type(path):
     with open(path, encoding="utf-8", errors="replace") as f:
         lines = f.read().splitlines()
@@ -71,35 +78,61 @@ def memory_type(path):
             child = indent if child is None else child
             if indent == child and key == "type":
                 found.setdefault("metadata", value(rest))
+    else:
+        raise Malformed
     kind = found.get("top", found.get("metadata"))
     return "none" if kind is None else kind if kind in KNOWN else "other"
+index_path, indexed = os.path.join(memory_dir, "MEMORY.md"), None
+if not os.path.lexists(index_path):
+    print("MEMORY.md not found (index undetermined)")
+else:
+    try:
+        with open(index_path, encoding="utf-8", errors="replace") as f:
+            links = re.findall(r"\]\(\s*(?:<([^<>\n]*)>|([^\s)]+))", f.read())
+        indexed = {t[2:] if t.startswith("./") else t for t in (a or b for a, b in links)}
+    except OSError:
+        print("MEMORY.md could not be read (index undetermined)")
 try:
-    with open(os.path.join(memory_dir, "MEMORY.md"), encoding="utf-8", errors="replace") as f:
-        targets = re.findall(r"\]\(\s*<?([^)>\s]+)", f.read())
+    names = sorted(os.listdir(memory_dir))
 except OSError:
-    targets = []
-indexed = {t[2:] if t.startswith("./") else t for t in targets}
-outside = 0
-for name in sorted(os.listdir(memory_dir)):
+    print("listing failed (undetermined)")
+    sys.exit(1)
+listed = outside = skipped = 0
+for name in names:
     path = os.path.join(memory_dir, name)
-    if name == "MEMORY.md" or not name.endswith(".md") or not os.path.isfile(path):
+    if name == "MEMORY.md":
         continue
+    if not name.endswith(".md") or not os.path.isfile(path):
+        skipped += 1
+        continue
+    listed += 1
     if not re.fullmatch(r"[A-Za-z0-9._-]+", name):
         outside += 1
         continue
     try:
         kind = memory_type(path)
+    except Malformed:
+        kind = "malformed"
     except OSError:
         kind = "unreadable"
-    day = datetime.date.fromtimestamp(os.stat(path).st_mtime).isoformat()
-    state = "indexed" if name in indexed else "unindexed"
+    try:
+        day = datetime.date.fromtimestamp(os.stat(path).st_mtime).isoformat()
+    except OSError:
+        print("listing failed (undetermined)")
+        sys.exit(1)
+    state = "index=undetermined" if indexed is None else "indexed" if name in indexed else "unindexed"
     print(f"{name} type={kind} {state} modified={day}")
 if outside:
     print(f"{outside} file(s) outside the naming rule [A-Za-z0-9._-] (names not shown)")
+if skipped:
+    print(f"{skipped} entr(ies) skipped (not a regular .md file: a directory, a broken link or another file)")
+print(f"listed {listed} memory file(s) (done)")
 ' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects" "$project_root" 2>&1
 ```
 
-auto memory の置き場は `~/.claude/projects/<プロジェクト>/memory/` で、同じ git リポジトリの worktree とサブディレクトリは1つを共有する (Claude Code のドキュメント)。`<プロジェクト>` の作り方はドキュメントに無い。上のコマンドは、git の共通ディレクトリの親のパスの ASCII の英数字以外を、UTF-16 の1単位ごとに `-` にしている (シェルのロケールに左右されない)。これが Claude Code の作る名前と一致するという根拠は、実物の `~/.claude/projects/` にこの規則で作った名前のディレクトリがあり、worktree の名前の memory が無いこと、Claude Code の実行ファイルに `replace(/[^a-zA-Z0-9]/g,"-")` があることだけで、規則そのもの (長いパスの扱いなど) は未確認。だから、置き場のディレクトリが無いときは「memory が無い」とは言い切らず、memory の基準を「判定不能」とし、ほかの場所を探さない。共通ディレクトリが `.git` で終わらない (サブモジュール・`--separate-git-dir` など) ときも「判定不能」にする。索引 `MEMORY.md` はセッション開始時に読まれ、ほかの memory ファイルは必要なときに読まれる。
+**最後の行が `listed <N> memory file(s) (done)` でなければ、memory の基準をすべて判定不能とする** (置き場を決められない・置き場が無い・一覧が途中で止まった。どれも終了コード1)。`index=undetermined` のときは「索引に無い memory」を判定不能とし、改訂候補を出さない。`type=malformed`・`type=unreadable` のファイルと命名規則外のファイルは、その memory を判定不能として扱う (件数と判定不能の理由を示し、削除・統合の候補にしない)。
+
+auto memory の置き場は `~/.claude/projects/<プロジェクト>/memory/` で、同じ git リポジトリの worktree とサブディレクトリは1つを共有する (Claude Code のドキュメント)。`<プロジェクト>` の作り方はドキュメントに無い。上のコマンドは、git の共通ディレクトリの親のパスの ASCII の英数字以外を、UTF-16 の1単位ごとに `-` にしている (シェルのロケールに左右されない)。これが Claude Code の作る名前と一致するという根拠は、実物の `~/.claude/projects/` にこの規則で作った名前のディレクトリがあり、worktree の名前の memory が無いこと、Claude Code の実行ファイルに `replace(/[^a-zA-Z0-9]/g,"-")` があることだけで、規則そのもの (長いパスの扱いなど) は未確認。だから、置き場のディレクトリが無いときは「memory が無い」とは言い切らず、memory の基準を「判定不能」とし、ほかの場所を探さない。git が共通ディレクトリを返さない (git リポジトリの外、git の失敗) とき、共通ディレクトリが `.git` で終わらない (サブモジュール・`--separate-git-dir` など) ときも、作業ディレクトリからキーを作って探さずに「判定不能」にする。索引 `MEMORY.md` はセッション開始時に読まれ、ほかの memory ファイルは必要なときに読まれる。
 
 置き場は、利用者のスコープ (`~/.claude/settings.json`・環境変数 `CLAUDE_CONFIG_DIR`・`CLAUDE_CODE_PROJECT_DIR_NAME`) で変えている場合だけ、その場所で同じコマンドを実行する。コミットされるプロジェクトの設定 (`.claude/settings.json` など) の `autoMemoryDirectory` が `${CLAUDE_CONFIG_DIR:-~/.claude}/projects/` の外を指していたら、その場所を読む前に AskUserQuestion で確かめる (リポジトリの設定で、利用者の別のファイルを棚卸しに読ませないため)。
 
@@ -114,10 +147,14 @@ memory に認証情報らしいもの (API キー・パスワード・token・�
 
 顧客案件・NDA の対象のリポジトリでは、memory の本文を読む判定 (「memory と正典の重複」「台帳で昇格済みの memory」) を飛ばして「判定不能」にする選択肢を、本文を読む前に AskUserQuestion で示す (本文を読まない「索引に無い memory」の判定は続けられる)。memory を読んでよいか、出力に出してよいかの判断に迷ったら、作業を止めて情報管理の責任者に確認する。
 
-**台帳との照合** (知見の台帳が有効なときだけ): 下のコマンドは、このリポジトリで `git config --get aidd.learnings` が `true` のときだけ台帳の昇格候補を取り出し、それ以外は台帳を読まずに `learnings ledger disabled` を出す。そのときは「台帳で昇格済みの memory」の基準を「判定不能 (台帳が無効)」とする。スクリプトは、この SKILL.md のディレクトリを起点に `../../scripts/learnings.py` を解決した**絶対パス**で呼ぶ (下の `<learnings.py>` をそのパスに置き換える。利用側リポジトリにある同じ名前のファイルを実行しないため)。台帳は `python3 -I <learnings.py> candidates` の出力だけで扱い、`.aidd/learnings/*.json` を直接読まない。`--session-id` を渡さないので、数えるのは既定ブランチにマージ済みで検査を通った観測だけ (PR のレビューを経たもの) で、同じ `signature` が別の session で2回以上あるものが出る。その出力から `signature` と `sessions` だけを取り出してから読む (`facts`・`files` はほかの人が書いたデータなので読み込まない)。検査を通らない観測の件数とファイル名が stderr に出たら、それを利用者に伝える (中身は読まない)。
+**台帳との照合** (知見の台帳が有効なときだけ): 下のコマンドは、このリポジトリで `git config --get aidd.learnings` が `true` のときだけ台帳の昇格候補を取り出し、それ以外 (未設定・`true` 以外の値) は台帳を読まずに `learnings ledger disabled` を出す。そのときは「台帳で昇格済みの memory」の基準を「判定不能 (台帳が無効)」とする。`git config` 自体が失敗した (終了コードが0でも、未設定を表す1でもない) ときは `git config failed: exit=<N> (undetermined)` を出し、無効とはみなさずに判定不能とする。スクリプトは、この SKILL.md のディレクトリを起点に `../../scripts/learnings.py` を解決した**絶対パス**で呼ぶ (下の `<learnings.py>` をそのパスに置き換える。利用側リポジトリにある同じ名前のファイルを実行しないため)。台帳は `python3 -I <learnings.py> candidates` の出力だけで扱い、`.aidd/learnings/*.json` を直接読まない。`--session-id` を渡さないので、数えるのは既定ブランチにマージ済みで検査を通った観測だけ (PR のレビューを経たもの) で、同じ `signature` が別の session で2回以上あるものが出る。その出力から `signature` と `sessions` だけを取り出してから読む (`facts`・`files` はほかの人が書いたデータなので読み込まない)。検査を通らない観測の件数とファイル名が stderr に出たら、それを利用者に伝える (中身は読まない)。
 
 ```bash
-if [ "$(git config --get aidd.learnings)" != true ]; then
+learnings=$(git config --get aidd.learnings)
+config_status=$?
+if [ "$config_status" -ne 0 ] && [ "$config_status" -ne 1 ]; then
+  echo "git config failed: exit=$config_status (undetermined)"
+elif [ "$learnings" != true ]; then
   echo 'learnings ledger disabled'
 else
   candidates=$(python3 -I '<learnings.py>' candidates)
@@ -192,7 +229,23 @@ done 2>/dev/null
 - 削る・残すの判断に理由を残すべきもの (例: 別の場所で強制されているから削った) は `/aidd:adr` に委ねる
 - その場で直さない修正 (壊れた hook の修正など) は `/aidd:issue-split` か issue に委ねる
 - ADR・issue の書式や中身はこのコマンドで複製しない
-- memory の削除・統合の候補は、利用者が自分で開いて確かめられるように絶対パスで示す。memory の削除は取り消せない (git の管理外なので履歴に残らない)。消す前に、退避してから消す (既定。`<memory の置き場>/../memory-archive/<日付>/` へ移す。Claude Code はこの場所を memory として読まない) か、そのまま消すかを AskUserQuestion で選んでもらう。退避先への移動や削除に失敗したら、その旨とエラーを報告し、利用者が自分のシェルで実行するコマンドを示す
+- memory の削除・統合の候補は、利用者が自分で開いて確かめられるように絶対パスで示す。memory の削除は取り消せない (git の管理外なので履歴に残らない)。消す前に、退避してから消す (既定) か、そのまま消すかを AskUserQuestion で選んでもらう
+- 退避は下のコマンドで1ファイルずつ行う (`<memory の置き場>` と `<ファイル名>` を置き換える)。実行のたびに新しい時刻のディレクトリ (`<memory の置き場>/../memory-archive/<UTC時刻>/`。Claude Code はここを memory として読まない) を作り、`mv -n` で移す (同じ名前があれば上書きせず中止する)。元の場所から消えるのは、退避先にファイルがあり元の場所に無いことを確かめられたときだけで、確かめられなければ `archive failed` を出し、何も消えていない。退避や削除に失敗したら、その旨とエラーを報告し、利用者が自分のシェルで実行するコマンドを示す
+- 退避・削除した memory を指す `MEMORY.md` の行は、コマンドが行番号を出す。その行を消すかどうかを利用者に確かめてから直す (索引の行を黙って残すと、存在しないファイルを指したままになる)
+
+```bash
+memory_dir='<memory の置き場>'
+name='<ファイル名>'
+archive="$memory_dir/../memory-archive/$(date -u +%Y%m%dT%H%M%SZ)"
+if mkdir -p "$archive" && mv -n "$memory_dir/$name" "$archive/" &&
+  [ -f "$archive/$name" ] && [ ! -e "$memory_dir/$name" ]; then
+  echo "archived: $archive/$name"
+  grep -n -F -e "]($name)" -e "](./$name)" -e "](<$name>)" "$memory_dir/MEMORY.md" 2>/dev/null |
+    cut -d: -f1 | sed 's/^/MEMORY.md line linking to it: /'
+else
+  echo "archive failed: $name (nothing deleted)"
+fi
+```
 
 **5. 実施日と記録開始の記録**
 
