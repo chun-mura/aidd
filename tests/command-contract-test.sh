@@ -140,7 +140,8 @@ grep -F -- '**`add` のそれ以外の0でない終了コード (2、検査の�
 # failure or a rejection to rewrite; exit 0 may carry the notice that the default branch was not checked.
 grep -F -- '**終了コード5は記録済み**' "$incident_retro"
 grep -F -- '失敗とも検査の拒否とも扱わず、書き直して再実行せず' "$incident_retro"
-grep -F -- '作業ツリーだけで重複を確かめた場合は stderr にそう出る' "$incident_retro"
+grep -F -- '作業ツリーだけで重複を確かめた場合' "$incident_retro"
+grep -F -- '読めない・検査に通らない観測があって重複を確かめきれなかった場合 (件数と場所だけが出る) は stderr にそう出る' "$incident_retro"
 if grep -Eq -- 'python3 -I \.\./\.\./scripts/learnings\.py' "$incident_retro"; then
   exit 1
 fi

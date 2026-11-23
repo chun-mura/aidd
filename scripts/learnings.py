@@ -368,6 +368,7 @@ def hash_session(raw):
 DEFAULT_REFS = ("refs/remotes/origin/main", "refs/remotes/origin/master", "refs/heads/main", "refs/heads/master")
 EXIT_UNCOUNTED = 4  # merged observations could not be counted (3 means the ledger is disabled)
 EXIT_DUPLICATE = 5  # add wrote nothing: this session already recorded the signature
+EXIT_UNREADABLE = 6  # add wrote nothing: the working-tree ledger could not be read
 
 
 class Uncounted(Exception):
@@ -426,19 +427,21 @@ def working_tree(top, current_session, merged, seen, skipped):
 
 
 def recorded(top, session, signature):
-    """Return (names, unchecked): of the observations candidates counts for this session, the ones
-    with this session and signature, and why the default branch could not be read (None
-    if it was). Unreadable, it falls back to the working tree alone rather than stop."""
+    """Return (names, unchecked, skipped): of the observations candidates counts for this session,
+    the ones with this session and signature; why the default branch could not be read (None if
+    it was); and (file name, where) of the files that fail the check or cannot be read, whose
+    session and signature are unknown. Unreadable, it falls back to the working tree alone rather
+    than stop. OSError from reading the working tree is left to the caller."""
     try:
-        counted, _ = observations(top, session)
+        counted, skipped = observations(top, session)
         unchecked = None
     except Uncounted as exc:
-        seen = {}
-        working_tree(top, session, set(), seen, [])
+        seen, skipped = {}, []
+        working_tree(top, session, set(), seen, skipped)
         counted = [(name, json.loads(raw.decode("utf-8"))) for name, raw in sorted(seen.items())]
         unchecked = str(exc)
-    return [name for name, data in counted
-            if data["session"] == session and data["signature"] == signature], unchecked
+    names = [name for name, data in counted if data["session"] == session and data["signature"] == signature]
+    return names, unchecked, skipped
 
 
 # --- commands --------------------------------------------------------------------------------
@@ -485,10 +488,20 @@ def cmd_add(args):
         for error in errors:
             print(f"  {error}", file=sys.stderr)
         return 1
-    names, unchecked = recorded(top, data["session"], data["signature"])
+    try:
+        names, unchecked, skipped = recorded(top, data["session"], data["signature"])
+    except OSError as exc:  # the message may hold a path, so only the exception's name
+        print(f"the working-tree ledger could not be read ({type(exc).__name__}); nothing written",
+              file=sys.stderr)
+        return EXIT_UNREADABLE
     if unchecked:
         print(f"the default branch could not be checked for a duplicate ({unchecked}); "
               "checked the working tree only", file=sys.stderr)
+    for where in ("default branch", "working tree"):
+        count = sum(1 for _, w in skipped if w == where)
+        if count:
+            print(f"{count} observation(s) on the {where} cannot be read or fail the check, "
+                  "so the duplicate check is incomplete", file=sys.stderr)
     if names:
         print("already recorded: an observation with the same session and signature exists; nothing written",
               file=sys.stderr)
@@ -569,7 +582,8 @@ def main(argv=None):
     check.add_argument("--repo", default=".")
     check.add_argument("files", nargs="+")
     add = sub.add_parser("add", help="check one observation from stdin and write it if it passes; "
-                         "exit 5 (writes nothing) if this session already recorded its signature")
+                         "exit 5 (writes nothing) if this session already recorded its signature, "
+                         "6 (writes nothing) if the working-tree ledger cannot be read")
     add.add_argument("--repo", default=".")
     add.add_argument("--session-id", required=True)
     cand = sub.add_parser("candidates", help="print signatures seen in two or more sessions (merged + this session)")

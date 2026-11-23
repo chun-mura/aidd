@@ -554,7 +554,8 @@ grep -F "$first" "$tmp_dir/add.err"
 # A merged observation of the same signature from another session is not a duplicate.
 [ "$(add_status "$dup_repo" d3 'git stash')" -eq 0 ]
 [ "$(ledger_count "$dup_repo")" -eq 1 ]
-# A same-session file that fails the check is not counted as a duplicate.
+# A same-session file that fails the check is not counted as a duplicate; add writes and says the
+# duplicate check is incomplete, by count and place only (never the file's values).
 mkdir -p "$dup_repo/.aidd/learnings"
 python3 -c '
 import hashlib, json, sys
@@ -564,6 +565,21 @@ json.dump({"schema_version": 1, "source": "incident-retro", "scope": "tool", "st
 ' "$dup_repo/.aidd/learnings/20261122T000000Z-00000009.json"
 [ "$(add_status "$dup_repo" d1 'git log')" -eq 0 ]
 [ "$(ledger_count "$dup_repo")" -eq 3 ]
+grep -F '1 observation(s) on the working tree cannot be read or fail the check' "$tmp_dir/add.err"
+if grep -Fq 'someone' "$tmp_dir/add.err"; then
+  echo "add echoed a value of an observation that fails the check" >&2
+  exit 1
+fi
+# Only the scope breaks the schema: same session and signature, still written with the notice.
+python3 -c '
+import hashlib, json, sys
+json.dump({"schema_version": 1, "source": "incident-retro", "scope": "galaxy", "status": "observed",
+           "signature": "git diff", "fact": "A plain observation for the test.",
+           "evidence": [], "session": hashlib.sha256(b"d1").hexdigest()[:12]}, open(sys.argv[1], "w"))
+' "$dup_repo/.aidd/learnings/20261122T000000Z-0000000a.json"
+[ "$(add_status "$dup_repo" d1 'git diff')" -eq 0 ]
+grep -F '2 observation(s) on the working tree cannot be read or fail the check' "$tmp_dir/add.err"
+[ "$(ledger_count "$dup_repo")" -eq 5 ]
 
 # Default branch unreadable (the situation of candidates' exit 4): judge on the working tree
 # alone, write, and say on stderr that the default branch was not checked (user decision D2).
@@ -573,9 +589,43 @@ grep -F 'default branch could not be checked' "$tmp_dir/add.err"
 [ "$(ledger_count "$trunk_repo")" -eq 1 ]
 [ "$(add_status "$trunk_repo" t1 'git stash')" -eq 5 ]
 [ "$(ledger_count "$trunk_repo")" -eq 1 ]
+# On that working-tree-only path too, a file that fails the check is reported as an incomplete check.
+python3 -c '
+import hashlib, json, sys
+json.dump({"schema_version": 1, "source": "incident-retro", "scope": "galaxy", "status": "observed",
+           "signature": "git diff", "fact": "A plain observation for the test.",
+           "evidence": [], "session": hashlib.sha256(b"t1").hexdigest()[:12]}, open(sys.argv[1], "w"))
+' "$trunk_repo/.aidd/learnings/20261122T000000Z-0000000b.json"
+[ "$(add_status "$trunk_repo" t1 'git diff')" -eq 0 ]
+grep -F '1 observation(s) on the working tree cannot be read or fail the check' "$tmp_dir/add.err"
 # The merged duplicate is not seen when the default branch cannot be listed, so it is written.
 [ "$(PATH="$fake_bin:$PATH" add_status "$dup_repo" d1 'git stash')" -eq 0 ]
 grep -F 'default branch could not be checked' "$tmp_dir/add.err"
+# A merged file that git cannot read (cat-file fails) leaves the check incomplete: written, with
+# the notice for the default branch.
+catfile_bin="$tmp_dir/catfile-bin"
+mkdir -p "$catfile_bin"
+cat > "$catfile_bin/git" <<EOF
+#!/bin/bash
+for arg in "\$@"; do [ "\$arg" = cat-file ] && exit 128; done
+exec "$real_git" "\$@"
+EOF
+chmod +x "$catfile_bin/git"
+[ "$(PATH="$catfile_bin:$PATH" add_status "$dup_repo" d1 'gh pr view')" -eq 0 ]
+grep -E '^[0-9]+ observation\(s\) on the default branch cannot be read or fail the check' "$tmp_dir/add.err"
+# A working-tree ledger that cannot be read: exit 6, nothing written, no traceback.
+before=$(ledger_count "$dup_repo")
+chmod 000 "$dup_repo/.aidd/learnings"
+status=$(add_status "$dup_repo" d5 'git stash')
+chmod 755 "$dup_repo/.aidd/learnings"
+[ "$status" -eq 6 ]
+[ ! -s "$tmp_dir/add.out" ]
+grep -F 'the working-tree ledger could not be read' "$tmp_dir/add.err"
+if grep -Fq 'Traceback' "$tmp_dir/add.err"; then
+  echo "add leaked a traceback" >&2
+  exit 1
+fi
+[ "$(ledger_count "$dup_repo")" -eq "$before" ]
 
 # --- scan: a reflux draft for the aidd repository (#107) ------------------------------------
 # The draft goes outside the using repository, so it gets the same pattern check line by line,
