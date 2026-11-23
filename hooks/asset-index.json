@@ -14,7 +14,7 @@
     {
       "kind": "skill",
       "name": "asset-audit",
-      "description": "利用側プロジェクトの .claude/ と CLAUDE.md を棚卸しし、削除・改訂・修正の候補を出す"
+      "description": "利用側プロジェクトの .claude/ と CLAUDE.md と auto memory を棚卸しし、削除・改訂・修正の候補を出す"
     },
     {
       "kind": "skill",
