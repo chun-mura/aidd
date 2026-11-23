@@ -270,6 +270,10 @@ def scan(args, short_with_value="", long_with_value=(), short_attached=""):
     return shorts, longs, positionals
 
 
+def valid_timestamp(value, now):
+    return type(value) in (int, float) and 0 <= value <= now
+
+
 STATE_DIR = env.get("AIDD_TEST_STATE_DIR") or os.path.join(os.path.expanduser("~"), ".claude", "aidd")
 
 
@@ -279,11 +283,22 @@ def update_state(name, change):
         os.makedirs(STATE_DIR, exist_ok=True)
         path = os.path.join(STATE_DIR, name)
         with open(path + ".lock", "w") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
+            deadline = time.monotonic() + 0.1
+            while True:
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        return None
+                    time.sleep(min(0.01, remaining))
             try:
                 with open(path) as f:
                     data = json.load(f)
             except Exception:
+                data = {}
+            if not isinstance(data, dict):
                 data = {}
             result = change(data)
             old_umask = os.umask(0o077)
@@ -294,7 +309,7 @@ def update_state(name, change):
             finally:
                 os.umask(old_umask)
             return result
-    except OSError:
+    except Exception:
         return None
 
 
@@ -721,26 +736,32 @@ def warn_shared_main_tree(directory):
     # A warning, not a denial: session_id is not guaranteed to survive resume or compact, so a
     # "different session" may be this one under a new id.
     session = event.get("session_id")
-    if env.get("AIDD_DISABLE_MAIN_TREE_WARNING") == "1" or not session:
+    if env.get("AIDD_DISABLE_MAIN_TREE_WARNING") == "1" or not isinstance(session, str) or not session:
         return
     top = main_tree_of(directory)
     if not top:
         return
     ttl = env_int("AIDD_MAIN_TREE_TTL_MINUTES", 30) * 60
-    now = time.time()
 
     def record(data):
-        trees = data.setdefault("trees", {})
-        warned = data.setdefault("warned", {})
+        now = time.time()
+
+        trees = data.get("trees")
+        warned = data.get("warned")
+        data["trees"] = trees = trees if isinstance(trees, dict) else {}
+        data["warned"] = warned = warned if isinstance(warned, dict) else {}
         for path in list(trees):
-            trees[path] = {s: t for s, t in trees[path].items() if now - t < ttl}
+            if not isinstance(trees[path], dict):
+                del trees[path]
+                continue
+            trees[path] = {s: t for s, t in trees[path].items() if valid_timestamp(t, now) and now - t < ttl}
             if not trees[path]:
                 del trees[path]
         # A pair is forgotten only once the peer's occupancy has expired, so a peer that keeps
         # working is warned about once, not once per TTL.
         for key in list(warned):
             parts = key.split("\t")
-            if len(parts) != 3 or parts[2] not in trees.get(parts[1], {}):
+            if not valid_timestamp(warned[key], now) or len(parts) != 3 or parts[2] not in trees.get(parts[1], {}):
                 del warned[key]
         others = [s for s in trees.get(top, {}) if s != session]
         trees.setdefault(top, {})[session] = now
@@ -776,11 +797,10 @@ def target_repo(repo_flag, directory):
 def record_issue_search(args, repo):
     session = event.get("session_id")
     if session and option_values(args, "--search", "-S"):
-        now = time.time()
-
         def record(data):
+            now = time.time()
             data[f"{session}\t{repo}"] = now
-            for key in [k for k, t in data.items() if not isinstance(t, (int, float)) or now - t > 86400]:
+            for key in [k for k, t in data.items() if not valid_timestamp(t, now) or now - t > 86400]:
                 del data[key]
 
         update_state("issue-search.json", record)
@@ -792,7 +812,8 @@ def require_issue_search(repo):
         return
     ttl = env_int("AIDD_ISSUE_SEARCH_TTL_MINUTES", 30) * 60
     last = update_state("issue-search.json", lambda data: data.get(f"{session}\t{repo}"))
-    if not isinstance(last, (int, float)) or time.time() - last > ttl:
+    now = time.time()
+    if not valid_timestamp(last, now) or now - last > ttl:
         where = f" ({repo})" if repo else ""
         add(denials,
             f"aidd: gh issue create の前に、このセッションで起票先のリポジトリ{where}に対して gh issue list --search '<キーワード>' を実行して重複を確認すること (直近 {ttl // 60} 分以内の検索が無い)。"

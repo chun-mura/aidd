@@ -369,6 +369,153 @@ PYEOF
 [ -z "$(AIDD_DISABLE_MAIN_TREE_WARNING=1 hook PreToolUse "$shared" 'git status' session-v)" ]
 AIDD_WORKTREE_DIR=/elsewhere hook PreToolUse "$shared" 'git status' session-u | grep -F '/elsewhere/<name>'
 
+# Shared-state corruption and recording failures never remove the safety verdict.
+python3 - "$dispatcher" "$shared" "$tmp_dir/state-safety" <<'PYEOF'
+import concurrent.futures, fcntl, json, math, os, pathlib, signal, subprocess, sys, time
+
+dispatcher, repo, root = sys.argv[1], sys.argv[2], pathlib.Path(sys.argv[3])
+root.mkdir()
+
+def invoke(state_dir, session="state-safety", command="git reset --hard; git add -A", timeout=3):
+    env = dict(os.environ, AIDD_TEST_STATE_DIR=str(state_dir))
+    for name in ("AIDD_DISABLE_GIT_SAFETY", "AIDD_DISABLE_MAIN_TREE_WARNING", "AIDD_DISABLE_ISSUE_SEARCH_GATE"):
+        env.pop(name, None)
+    payload = json.dumps({"hook_event_name": "PreToolUse", "cwd": repo, "session_id": session,
+                          "tool_name": "Bash", "prompt": "PROMPT_BODY_SENTINEL",
+                          "tool_input": {"command": command + " # COMMAND_BODY_SENTINEL"}})
+    process = subprocess.Popen(["bash", dispatcher], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, text=True, env=env, start_new_session=True)
+    try:
+        out, err = process.communicate(payload, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.communicate()
+        raise AssertionError("state lock delayed the safety verdict")
+    assert process.returncode == 0, (process.returncode, err)
+    assert out.strip(), (str(state_dir), "missing safety verdict")
+    result = json.loads(out)["hookSpecificOutput"]
+    assert result.get("permissionDecision") == "deny", result
+    if command.startswith("git reset"):
+        assert "git reset" in result["permissionDecisionReason"], result
+        assert "git add" in result["permissionDecisionReason"], result
+    return result
+
+def read_state(state_dir):
+    data = json.loads((state_dir / "main-tree.json").read_text())
+    assert isinstance(data, dict), data
+    assert isinstance(data["trees"], dict) and isinstance(data["warned"], dict), data
+    for sessions in data["trees"].values():
+        assert isinstance(sessions, dict), sessions
+        assert all(type(t) in (int, float) and math.isfinite(t) and t >= 0 for t in sessions.values()), sessions
+    assert all(type(t) in (int, float) and math.isfinite(t) and t >= 0 for t in data["warned"].values()), data
+    assert "PROMPT_BODY_SENTINEL" not in json.dumps(data), data
+    assert "COMMAND_BODY_SENTINEL" not in json.dumps(data), data
+    assert not (state_dir / "main-tree.json.tmp").exists()
+    return data
+
+now = time.time()
+fixtures = ["{}", "[", "[]", "null", '"text"', "42", "true"]
+fixtures += [json.dumps(value) for value in (
+    {"trees": []}, {"trees": None}, {"trees": {repo: []}},
+    {"warned": ["peer"]}, {"warned": {"bad": []}},
+)]
+fixtures += [json.dumps({"trees": {repo: {"bad": value}}})
+    for value in ("text", None, [], {}, True, -1, float("nan"), float("inf"), 10**400, now + 86400)
+]
+for index, raw in enumerate(fixtures):
+    state_dir = root / str(index)
+    state_dir.mkdir()
+    (state_dir / "main-tree.json").write_text(raw)
+    invoke(state_dir)
+    data = read_state(state_dir)
+    assert "state-safety" in data["trees"][repo], data
+    assert "bad" not in data["trees"][repo], data
+
+peer_dir = root / "valid-peer"
+peer_dir.mkdir()
+(peer_dir / "main-tree.json").write_text(json.dumps({"trees": {repo: {"peer": now, "expired": 0}}, "warned": {}}))
+assert "主ツリー" in invoke(peer_dir).get("additionalContext", "")
+assert "主ツリー" not in invoke(peer_dir).get("additionalContext", "")
+assert "peer" in read_state(peer_dir)["trees"][repo]
+assert "expired" not in read_state(peer_dir)["trees"][repo]
+
+for blocked_name in ("main-tree.json.lock", "main-tree.json.tmp", "main-tree.json"):
+    state_dir = root / ("blocked-" + blocked_name)
+    state_dir.mkdir()
+    (state_dir / blocked_name).mkdir()
+    invoke(state_dir)
+    assert (state_dir / blocked_name).is_dir()
+blocked_dir = root / "not-a-directory"
+blocked_dir.write_text("unchanged")
+invoke(blocked_dir)
+assert blocked_dir.read_text() == "unchanged"
+
+for name, command in (("main-tree.json", "git reset --hard; git add -A"),
+                      ("issue-search.json", "gh issue create --title test")):
+    state_dir = root / ("locked-" + name)
+    state_dir.mkdir()
+    (state_dir / name).write_text("{}")
+    with (state_dir / (name + ".lock")).open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        started = time.monotonic()
+        invoke(state_dir, command=command, timeout=2)
+        assert time.monotonic() - started < 2
+        assert (state_dir / name).read_text() == "{}"
+        assert not (state_dir / (name + ".tmp")).exists()
+    invoke(state_dir)
+    assert "state-safety" in read_state(state_dir)["trees"][repo]
+
+parallel_dir = root / "parallel"
+parallel_dir.mkdir()
+(parallel_dir / "main-tree.json").write_text(json.dumps({"trees": {repo: {"peer": time.time()}}, "warned": {}}))
+sessions = ["parallel-" + str(i) for i in range(4)]
+with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+    results = list(pool.map(lambda session: invoke(parallel_dir, session=session), sessions))
+recorded = {session for session, result in zip(sessions, results) if "主ツリー" in result.get("additionalContext", "")}
+assert recorded, results
+assert recorded <= set(read_state(parallel_dir)["trees"][repo])
+for session in set(sessions) - set(read_state(parallel_dir)["trees"][repo]):
+    invoke(parallel_dir, session=session)
+assert set(sessions) <= set(read_state(parallel_dir)["trees"][repo])
+
+callback_dir = root / "callback-failure"
+callback_dir.mkdir()
+(callback_dir / "commit-why.json").write_text('{"judged": []}')
+assert subprocess.run(["git", "-C", repo, "rev-parse", "--verify", "HEAD"],
+                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+payload = json.dumps({"hook_event_name": "PostToolUse", "cwd": repo, "session_id": "callback-test",
+                      "tool_input": {"command": "git commit -m test; git push origin feat"}})
+result = subprocess.run(["bash", dispatcher], input=payload, capture_output=True, text=True, timeout=3,
+                        env=dict(os.environ, AIDD_TEST_STATE_DIR=str(callback_dir), AIDD_COMMIT_TYPES="feat"))
+assert result.returncode == 0 and result.stdout.strip(), result
+assert "open PR" in json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+assert (callback_dir / "commit-why.json").read_text() == '{"judged": []}'
+
+for index, value in enumerate((10**400, float("nan"), float("inf"), True, -1, now + 86400, "text", [], {})):
+    state_dir = root / ("search-time-" + str(index))
+    state_dir.mkdir()
+    (state_dir / "issue-search.json").write_text(json.dumps({"state-safety\towner/repo": value,
+                                                           "other\towner/repo": value}))
+    command = "git reset --hard; git add -A; gh issue create -R owner/repo --title test"
+    result = invoke(state_dir, command=command)
+    assert "gh issue list --search" in result["permissionDecisionReason"], result
+    for event_name, command in (("PostToolUse", "gh issue list -R owner/repo --search test"),
+                                ("PreToolUse", "gh issue create -R owner/repo --title test")):
+        payload = json.dumps({"hook_event_name": event_name, "cwd": repo, "session_id": "state-safety",
+                              "tool_input": {"command": command}})
+        env = dict(os.environ, AIDD_TEST_STATE_DIR=str(state_dir))
+        env.pop("AIDD_DISABLE_ISSUE_SEARCH_GATE", None)
+        result = subprocess.run(["bash", dispatcher], input=payload, capture_output=True, text=True,
+                                timeout=3, env=env)
+        assert result.returncode == 0, result
+        data = json.loads((state_dir / "issue-search.json").read_text())
+        assert set(data) == {"state-safety\towner/repo"}, data
+        assert math.isfinite(data["state-safety\towner/repo"]), data
+        if event_name == "PreToolUse":
+            assert json.loads(result.stdout)["hookSpecificOutput"].get("permissionDecision") != "deny", result
+print("shared-state safety: OK")
+PYEOF
+
 # #21 (3): gh issue create needs this session's gh issue list --search first.
 out=$(hook PreToolUse "$repo" 'gh issue create --title t' session-s1)
 [ "$(printf '%s\n' "$out" | json_count)" = 1 ]
