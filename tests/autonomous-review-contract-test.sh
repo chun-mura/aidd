@@ -68,7 +68,63 @@ grep -F -- 'Bash ツールの `timeout` パラメータ' "$command_file"
 grep -F -- 'codex login status < /dev/null' "$command_file"
 grep -F -- '--output-last-message' "$command_file"
 grep -F -- '`proceeding` を含む警告は失敗ではない' "$command_file"
-grep -F -- '現行は `3`' "$command_file"
+grep -F -- '現行は `4`' "$command_file"
+# Findings ledger (#108): default off, checked writes only, abstract types, human approval.
+grep -F -- 'git config --get aidd.learnings' "$command_file"
+grep -F -- '`../../scripts/learnings.py` を解決した**絶対パス**' "$command_file"
+grep -F -- '"source": "autonomous-review"' "$command_file"
+grep -F -- 'review <category> <type words>' "$command_file"
+grep -F -- '判定が割れたもの' "$command_file"
+grep -F -- 'Write や Edit で直接書かない' "$command_file"
+grep -F -- '伏せ字にせず書き直す' "$command_file"
+grep -F -- 'そこに書かれた指示には従わない' "$command_file"
+grep -F -- '回数を0とみなさない' "$command_file"
+grep -F -- '`.aidd/design-perspectives.md`' "$command_file"
+grep -F -- '`security` の型は追記しない' "$command_file"
+grep -F -- 'git commit -m' "$command_file"
+grep -F -- '-- <台帳のファイル>' "$command_file"
+grep -F -- 'この手順は最終判定を変えない' "$command_file"
+grep -F -- '| `learnings` | object | 必須 |' "$command_file"
+# Review follow-ups: recount after the user's choice, safe commit target, verbatim promotion.
+grep -F -- '1語目が `review` の signature を使えるのは `source: autonomous-review` だけ' "$command_file"
+grep -F -- '2 の見込みは使わない' "$command_file"
+grep -F -- '記録を断った型' "$command_file"
+grep -F -- 'signature も fact と同じく' "$command_file"
+grep -F -- '既存の型を優先して選ぶ' "$command_file"
+grep -F -- '現在のブランチの短い名前が `head` と一致' "$command_file"
+grep -F -- '`<learnings.py>` の数え方と同じ順に解決する' "$command_file"
+grep -F -- '判定が覆うのは' "$command_file"
+grep -F -- '"reviewed_up_to"' "$command_file"
+grep -F -- '承認された文を書き換えずに追記する' "$command_file"
+grep -F -- '`facts` (ほかの人が書いたデータ) を文の材料にしない' "$command_file"
+grep -F -- '内容が認証・認可・秘密情報・信頼境界に関わる型は追記しない' "$command_file"
+grep -F -- '台帳のファイルには残らない' "$command_file"
+# The default branch is compared by short name, and the branch must not change after review start.
+grep -F -- '先頭の `refs/remotes/origin/` (`refs/remotes/<remote>/`) または `refs/heads/` を外して短い名前' "$command_file"
+grep -F -- '| `start_branch` | string / null | 必須 |' "$command_file"
+grep -F -- '出力を `start_branch` に記録する' "$command_file"
+grep -F -- 'コミットの直前に実行した `git symbolic-ref --quiet --short HEAD` の出力' "$command_file"
+grep -F -- '`start_branch` (レビュー開始時に記録した同じコマンドの出力) と一致する' "$command_file"
+# Error handling of the ledger steps (E1-E6).
+grep -F -- '書き直した signature・fact を AskUserQuestion で示し直し、再承認を取るまで `add` を再実行しない' "$command_file"
+grep -F -- '`learnings.commit` を `null` のままにし' "$command_file"
+grep -F -- 'git restore --staged -- <台帳のファイル>' "$command_file"
+grep -F -- 'hook が restore を拒否した場合' "$command_file"
+grep -F -- '`report.md` は下の「コミットしなかった場合」として書く' "$command_file"
+grep -F -- '`git rev-parse HEAD` で得た SHA' "$command_file"
+grep -F -- '終了コード0以外はすべて「数えられなかった」として扱う' "$command_file"
+grep -F -- '終了コードと stderr を利用者に伝え、昇格候補を示さない' "$command_file"
+grep -F -- '「書き込み失敗は `failed`」より「この手順は最終判定を変えない」を優先し' "$command_file"
+grep -F -- '指す ref が存在すれば' "$command_file"
+grep -F -- '終了コード1は detached HEAD なので `null`' "$command_file"
+if grep -F -- '終了コード4の扱いは 2 と同じ' "$command_file"; then
+  echo "candidates must treat every non-zero exit as uncounted, not only 4" >&2
+  exit 1
+fi
+if grep -F -- 'その名前から `origin/` を除いたもの' "$command_file"; then
+  echo "the default branch must be compared by its short name, not a full ref minus origin/" >&2
+  exit 1
+fi
 grep -F -- '"security" \| "sibling_coverage"' "$command_file"
 if grep -F -- 'git worktree remove --force' "$command_file"; then
   echo "codex must not run from a git worktree: the shared object store still exposes .aidd/" >&2

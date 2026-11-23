@@ -2,7 +2,7 @@
 """Learnings ledger: check, write and count observations under .aidd/learnings/.
 
 Run with `python3 -I` (standard library only). The same check_document() backs the write
-(`add`, called by /aidd:incident-retro) and the commit-time check in hooks/scripts/tool-reminder.sh.
+(`add`, called by /aidd:incident-retro and /aidd:autonomous-review) and the commit-time check in hooks/scripts/tool-reminder.sh.
 A finding is rejected, never masked, and its reason never repeats the offending value.
 Design: docs/superpowers/specs/2026-11-22-learnings-ledger-design.md
 """
@@ -25,6 +25,11 @@ SIGNATURE_HEAD = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]*$")
 SIGNATURE_WORD = re.compile(r"^(?:[a-z][a-z0-9-]*|-[A-Za-z0-9]+|--[A-Za-z0-9][A-Za-z0-9-]*)$")
 MAX_SIGNATURE = 80
 MAX_SIGNATURE_WORDS = 8
+# autonomous-review records the type of a finding, not a command: "review <category> <type words>".
+# A fixed category list keeps one word out of free text; the type words stay lowercase words.
+REVIEW_CATEGORIES = ("correctness", "error-handling", "security", "sibling-coverage", "test",
+                     "performance", "compatibility", "maintainability")
+REVIEW_TYPE_WORD = re.compile(r"^[a-z][a-z0-9-]*$")
 EVIDENCE_FORMS = (
     re.compile(r"^[0-9a-f]{7,40}$"),  # commit SHA
     re.compile(r"^#[0-9]+$"),  # PR / issue number
@@ -135,6 +140,35 @@ def check_signature(value):
     return errors
 
 
+def review_signature(data):
+    signature = data.get("signature")
+    return isinstance(signature, str) and signature.split(" ")[0] == "review"
+
+
+def check_review(data):
+    """Narrower rules for review finding types: findings are about the reviewed code, so the
+    observation holds an abstract finding type, stays project-scoped and cites no file paths.
+    Applied to source autonomous-review and to any signature headed "review", which only that
+    source may use: candidates groups by signature alone, so review types stay one source's."""
+    errors = []
+    if data.get("source") != "autonomous-review":
+        errors.append("signature: a signature headed \"review\" is for source autonomous-review only")
+    signature = data.get("signature")
+    words = signature.split(" ") if isinstance(signature, str) else []
+    if (len(words) < 3 or words[0] != "review" or words[1] not in REVIEW_CATEGORIES
+            or not all(REVIEW_TYPE_WORD.match(w) for w in words[2:])):
+        errors.append("signature: autonomous-review needs \"review <category> <type words>\" with a category from "
+                      + ", ".join(REVIEW_CATEGORIES))
+    if data.get("scope") != "project":
+        errors.append("scope: autonomous-review observations must be project")
+    evidence = data.get("evidence")
+    if isinstance(evidence, list):
+        for i, item in enumerate(evidence):
+            if isinstance(item, str) and not (EVIDENCE_FORMS[0].match(item) or EVIDENCE_FORMS[1].match(item)):
+                errors.append(f"evidence[{i}]: autonomous-review evidence is a commit SHA or #number only")
+    return errors
+
+
 def check_object(data):
     """Schema and pattern check of a parsed observation."""
     if not isinstance(data, dict):
@@ -180,6 +214,8 @@ def check_object(data):
                     strings.append((field, item, bool(EVIDENCE_FORMS[0].match(item))))
     if "session" in data and not (isinstance(data["session"], str) and SESSION.match(data["session"])):
         errors.append("session: must be 12 lowercase hex chars (hashed session ID)")
+    if data.get("source") == "autonomous-review" or review_signature(data):
+        errors += check_review(data)
     for field, text, sha in strings:
         errors += scan_text(field, text, sha)
     return errors

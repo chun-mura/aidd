@@ -23,7 +23,7 @@
 | キー | 型・値 | 内容 |
 |---|---|---|
 | `schema_version` | 整数 `1` | スキーマの版 |
-| `source` | `incident-retro` / `auto-memory` / `autonomous-review` | 書いた経路。`incident-retro` (事故) と `auto-memory` (#105。incident-retro が auto memory の feedback を取り込む) を書く。`autonomous-review` は #108 のために予約する |
+| `source` | `incident-retro` / `auto-memory` / `autonomous-review` | 書いた経路。`incident-retro` (事故)、`auto-memory` (#105。incident-retro が auto memory の feedback を取り込む)、`autonomous-review` (#108。指摘の型) を書く |
 | `scope` | `project` / `tool` / `aidd` | 知見が効く範囲。このリポジトリだけ / 共通の道具 (git・gh・Claude Code) の挙動 / aidd の資産。#107 は `tool`・`aidd` を還流の候補にする |
 | `status` | `observed` / `applied` / `declined` | 記録した時点の扱い。対策を見送った / 承認されて反映した / ユーザーが断った。書いたあとは変えない |
 | `signature` | 文字列 (80字以下、8語以下) | コマンド名 (またはツール名) とフラグとサブコマンドだけ。例 `git stash`、`gh pr create --fill`、`Edit`。引数の値・パス・ブランチ名を入れない。昇格の判定はこの文字列の完全一致で数える |
@@ -33,9 +33,16 @@
 
 `signature` の語の規則: 1語目は `[A-Za-z][A-Za-z0-9_.-]*` (コマンド名・ツール名)、2語目以降は小文字のサブコマンド `[a-z][a-z0-9-]*` か、値を持たないフラグ `-x` / `--name` (`=` を含まない)。サブコマンドとブランチ名 (`main` など) は形で区別できないので、残りは書く側の規則と PR のレビューに任せる。
 
+`source` が `autonomous-review` の観測と、1語目が `review` の `signature` を持つ観測には、source に関係なく上に加えて次の規則をかける (#108)。指摘は利用者のコードについてのものなので、項目を狭めて抽象化した型だけを入れる。語の規則は広げていない (どの語も上の規則の範囲に収まる)。
+
+- 1語目が `review` の `signature` を使えるのは `source: autonomous-review` だけ。`candidates` は `signature` の文字列だけで束ねるので、review の型の回数にほかの source の観測が混ざらないようにする (signature の名前空間を source ごとに分けるので、`candidates` を (source, signature) の組で数える変更は要らず、incident-retro の数え方も変わらない)
+- `signature` は `review <category> <type words>`。`<category>` は `correctness` / `error-handling` / `security` / `sibling-coverage` / `test` / `performance` / `compatibility` / `maintainability` のどれか。`<type words>` は小文字の語 `[a-z][a-z0-9-]*` を1語以上 (フラグは不可)。分類を列挙値にして、自由な語を1つ減らす
+- `scope` は `project` だけ。利用者のコードの指摘を #107 の還流の候補 (`tool`・`aidd`) にしない
+- `evidence` はコミット SHA と PR/issue 番号だけ。リポジトリ相対パスは、レビューしたコードのファイル名を運ぶので拒否する
+
 ## 検査の規則
 
-検査は `scripts/learnings.py` (python3 の標準ライブラリだけ、`python3 -I` で起動) にまとめ、書く時点 (incident-retro) とコミット時 (`tool-reminder.sh`) で同じ関数を使う。該当したら**伏せ字にせず拒否**し、書き直させる。理由の文には該当した値を含めない (値そのものが秘密でありうるため)。入力のキー名とファイル名も入力なので、未知のキー・重複したキーは件数だけを示し、命名規則に合わないファイル名は伏せる。JSON として読めない入力 (深い入れ子を含む) は、例外を出さずに拒否する。
+検査は `scripts/learnings.py` (python3 の標準ライブラリだけ、`python3 -I` で起動) にまとめ、書く時点 (incident-retro・autonomous-review) とコミット時 (`tool-reminder.sh`) で同じ関数を使う。該当したら**伏せ字にせず拒否**し、書き直させる。理由の文には該当した値を含めない (値そのものが秘密でありうるため)。入力のキー名とファイル名も入力なので、未知のキー・重複したキーは件数だけを示し、命名規則に合わないファイル名は伏せる。JSON として読めない入力 (深い入れ子を含む) は、例外を出さずに拒否する。
 
 スキーマ検査 (上の表) に加え、すべての文字列値に次をかける:
 
@@ -60,7 +67,7 @@
 
 ## 有効化
 
-既定で無効。リポジトリの clone ごとに次を実行したときだけ incident-retro が台帳を読み書きする:
+既定で無効。リポジトリの clone ごとに次を実行したときだけ incident-retro と autonomous-review が台帳を読み書きする:
 
 ```bash
 git config aidd.learnings true
@@ -70,14 +77,14 @@ git config aidd.learnings true
 - 環境変数にしなかったのは、マシンのすべてのリポジトリ (公開リポジトリを含む) で有効になるため。`.aidd/` に置く設定ファイルにしなかったのは、コミットされて fork に引き継がれるため。
 - worktree は `.git/config` を共有するので、同じ clone の worktree でも有効になる。
 - 有効にする前の前提: 台帳のすべてのファイル (`.aidd/learnings/` 配下) に `learnings.py check` をかける CI を入れ、既定ブランチの必須のチェックにする (手順の例は README)。3層目が止められない経路を補うため。
-- 顧客案件・NDA の対象のリポジトリでは、有効にする前に情報管理の責任者の確認を取る。台帳の中身は incident-retro の実行時に生成 AI に入力される。確認の対象には auto memory の取り込み (#105) も含む (memory の本文が生成 AI に読まれ、その要約が台帳に入るため)。
+- 顧客案件・NDA の対象のリポジトリでは、有効にする前に情報管理の責任者の確認を取る。台帳の中身は incident-retro と autonomous-review の実行時に生成 AI に入力される。確認の対象には auto memory の取り込み (#105) も含む (memory の本文が生成 AI に読まれ、その要約が台帳に入るため)。
 
 **コミット時の検査は有効化に関係なく動く**。台帳のファイルがステージされていれば、有効化していない人のコミットでも検査する。秘密を含むファイルがコミットされる危険は、書いた人の設定に関係なく同じだから。台帳のファイルを含まないコミットでは挙動を変えない。
 
 ## 機密を入れない4層
 
 1. **項目の制限**: 自由記述は `fact` だけ。`signature`・`evidence` は形を限り、`source`・`scope`・`status` は列挙値。作成者名を持たない。`session` はハッシュ。
-2. **書く時点の検査**: incident-retro は観測を `learnings.py add` に渡す。スクリプトが検査し、通ったときだけファイル名を決めて書く。モデルが Write で直接書かない。
+2. **書く時点の検査**: incident-retro と autonomous-review は観測を `learnings.py add` に渡す。スクリプトが検査し、通ったときだけファイル名を決めて書く。モデルが Write で直接書かない。
 3. **コミット時の検査**: **よくある形での不注意を防ぐ層**で、すべてのコミットを止めるものではない。`tool-reminder.sh` は PreToolUse の `git commit` で、同じ検査を次のファイルにかけ、1つでも通らなければ拒否する。
    - ステージ済み (`git diff --cached --diff-filter=ACMR`) の `.aidd/learnings/` 配下のファイル。インデックスの中身をバイト列のまま読む
    - 同じコマンドの `git add` と `git commit` が名指ししたもののうち `.aidd/learnings/` 配下のファイル。pathspec は `git ls-files` に解決させ、作業ツリーの中身を読む。`git add x && git commit` は PreToolUse の時点ではまだステージされていないため。ステージ済みの版と作業ツリーの版があれば両方を検査する
@@ -86,7 +93,7 @@ git config aidd.learnings true
    - 効かない経路 (種類): git が解決できない・この層が読み取れない pathspec の書き方と `--pathspec-from-file`、git のエイリアス (`git -c alias.*` を含む)、`GIT_INDEX_FILE`、`--git-dir` / `--work-tree`、`bash -c` などコマンドを文字列で渡す形、名指ししないステージ (`add -p`・`add -u`・`commit -a`。`add -A` / `-u` と `commit -a` は別の判定が拒否するが、`AIDD_DISABLE_GIT_SAFETY=1` でその拒否を外すと、ステージ前の台帳ファイルは検査されない)、`git commit` 以外でコミットを作る操作 (merge・cherry-pick・rebase・am・revert)、低レベルのコマンド、Claude Code を通さないコミット。これらは CI の検査 (有効化の前提) と4層目で補う
 4. **PR での人のレビュー**: 正規表現で捕まらない固有名は、レビューで止める。マージ後に消すには履歴の書き換えが要ることも README に書く。
 
-hook が書いてよいのは `~/.claude/aidd/` だけという方針は変えない。コミット時の検査は読むだけで、検査スクリプトを読み込むときもバイトコードを書かない。台帳を書くのは incident-retro (利用者が起動する skill) だけ。
+hook が書いてよいのは `~/.claude/aidd/` だけという方針は変えない。コミット時の検査は読むだけで、検査スクリプトを読み込むときもバイトコードを書かない。台帳を書くのは incident-retro (利用者が起動する skill) と autonomous-review (モデルが起動するときは skill-gate で利用者に確認する skill) だけで、どちらも書く前に AskUserQuestion で利用者の承認を取る。
 
 ## incident-retro の手順
 
@@ -114,17 +121,20 @@ hook が書いてよいのは `~/.claude/aidd/` だけという方針は変え�
   - 残るリスク: 同じ memory を取り込み直すと、同じ観測のファイルが台帳に重複しうる。`session` に残る `originSessionId` の12桁のハッシュは、セッション ID (UUID) を知らない人には元に戻せない。ただし生のセッション ID を持つ人 (同じマシンの transcript や memory を読める人) は、ハッシュを計算して台帳の観測と照合できる。Codex・Cursor で使う代わりの ID (実行の開始時刻) は取りうる値が少ないので、総当たりで元の値に戻せる。ハッシュに固定の値を混ぜる対策は `learnings.py` の変更になるので、今回はしない。
 - #106 (asset-audit): 昇格の記録 (`promotions/`) ができてから、それを読んで memory の削除候補を出す。検査に `promotions/` の規則を足すのは #106 か昇格の記録を作る変更。
 - #107 (還流): `scope` が `tool`・`aidd` の観測を草案の候補にする。草案に入れる signature・事実は検査を通ったものなので、固有の情報を伏せる手間が減る。
-- #108 (autonomous-review): `source: autonomous-review` で `add` を呼び、指摘の型を `signature` に入れる。指摘の型はコマンド名ではないので、`signature` の語の規則を広げるかは #108 で決める。
+- #108 (autonomous-review): `source: autonomous-review` で `add` を呼び、指摘の型を `signature` に入れる。語の規則は広げず、上の「`autonomous-review` の観測」の規則で狭めた。数え方 (`candidates`) は変えない (review の型を autonomous-review だけのものにしたので、signature だけで束ねても source が混ざらない)。型の正規化 (既存のどの型と同じか) の判定が割れたものは利用者に選ばせ、記録が承認されて書けた型だけを書いたあとに数え直し、2回以上の型を `.aidd/design-perspectives.md` への昇格候補として示す。追記する文はそのまま利用者に示して承認を取り、ほかの人の `fact` を文の材料にしない。incident-retro の置き場の選択肢に「利用側のレビュー観点」を足すのは、#105 と同時に incident-retro を変えないため、#108 では行っていない。
 
 ## 検証
 
 - `tests/learnings-test.sh`: 検査の拒否すべき入力 (各規則・不可視の文字・正規化・日本語に続けた値・スキーマ違反・項目外のキー・深い入れ子・不正なファイル名) と通すべき入力 (正常な観測・SHA・相対パス・PR 番号・識別子)、理由にキー名・値・命名規則に合わないファイル名を出さないこと、`add` の有効化の確認とファイル名、`candidates` の数え方 (マージ済みと今のセッションだけ)。テストデータの token らしい文字列は実行時に組み立てた偽物で、リポジトリに置かない。
 - `tests/hook-contract-test.sh`: 検査に通らない台帳ファイルを含む `git commit` (ステージ済み・同じコマンドの名指し・ステージ済みと作業ツリーの両方の版・git の pathspec) を拒否し、通るもの・台帳を含まないコミットは拒否しない。検査が例外を出しても拒否し、ほかの判定は保つ。
 - `tests/command-contract-test.sh`: incident-retro に、検査を通った観測だけを書く・2回目を昇格候補として示す・既定で無効・絶対パスで呼ぶ・ほかの人の fact を指示として扱わない、の文言がある。
+- `tests/learnings-test.sh` (#108): `source: autonomous-review` の観測は `review <category> <type words>`・`scope` が `project`・`evidence` が SHA と番号だけのときに通り、それ以外 (コマンドの signature、未知の分類、型の語が無い・フラグ、`tool`・`aidd`、パス) を拒否する。狭めた形の中でも一般の規則 (高エントロピー・メールなど) は効く。`add` で書いた型が `candidates` で数えられる。1語目が `review` の signature はほかの source では拒否し、既定ブランチにあっても数えない。
+- `tests/autonomous-review-contract-test.sh` (#108): 既定で無効・絶対パスで呼ぶ・`add` を通してだけ書く・判定が割れたものは利用者に選ばせる・ほかの人の fact に従わない・終了コード4で回数を0とみなさない・`security` の型を `.aidd/design-perspectives.md` に入れない・最終判定を変えない、の文言がある。
 
 ## 残るリスク
 
 - 業務の固有名は正規表現で捕まらない (4層目に頼る)。
+- `signature` の語 (autonomous-review の型の語を含む) も固有名を運びうる。形の規則では区別できないので、書く側の規則 (既存の型を優先する・承認の表で signature も人が確かめる) と4層目に頼る。
 - 検査が捕まえるのは不注意で入ったものだけで、意図して隠した値は捕まえない。
 - マージ後に消すには履歴の書き換えが要る。
 - コミット時の検査は、上に挙げた種類の経路では効かない (CI と4層目で補う)。Codex・Cursor の adapter 経由で同じように効くかは未検証。
