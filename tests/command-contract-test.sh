@@ -208,12 +208,17 @@ grep -F -- '`python3 -I <learnings.py> scan < <草案のファイル>`' "$incide
 grep -F -- '同じファイルを全文表示する' "$incident_retro"
 grep -F -- '草案をヒアドキュメントやコマンドの引数で渡さない' "$incident_retro"
 grep -F -- '--body-file -' "$incident_retro"
+# Review round 2: fixed placeholders, scan right before showing, scan again in the send command,
+# and only exit 1 is a rejection.
+grep -F -- '`<owner>`・`<repo>`・`<owner>/<repo>`・`<path>`・`<branch>`・`<file>`・`<dir>`・`<command>`・`<config-dir>`' "$incident_retro"
+grep -F -- '承認の直前にも同じファイルで `scan` を再実行し、通ったことを確かめてから全文を表示する' "$incident_retro"
+grep -F -- '終了コード1だけが拒否で、ほかの0以外は失敗' "$incident_retro"
 grep -F -- '編集履歴' "$incident_retro"
 grep -F -- '通知メールなど、すでに配信されたものは消せない' "$incident_retro"
 grep -F -- '質問の文そのものに' "$incident_retro"
 # The skill never files the issue: gh issue create appears once, as what the user runs.
 if [ "$(grep -oF -- 'gh issue create' "$incident_retro" | wc -l)" -ne 1 ] \
-  || ! grep -F -- 'gh issue create' "$incident_retro" | grep -Fq -- '利用者が送るときは `tail -n +2 <草案のファイル> | gh issue create'; then
+  || ! grep -F -- 'gh issue create' "$incident_retro" | grep -Fq -- '利用者が送るときは `python3 -I <learnings.py> scan < <草案のファイル> && tail -n +2 <草案のファイル> | gh issue create'; then
   echo "incident-retro files the reflux issue itself" >&2
   exit 1
 fi
@@ -399,6 +404,7 @@ bash "$retro_tmp/list.sh" > "$retro_tmp/out" 2> "$retro_tmp/err"
 grep -F "$(printf '#1\t2026-11-20T00:00:00Z\tgit stash\t[reflux] git stash: hides edits')" "$retro_tmp/out"
 [ "$(grep -c '(invalid signature)' "$retro_tmp/out")" -eq 2 ]
 grep -Fx 'listed 3 issue(s) (done)' "$retro_tmp/out"
+grep -F '1 issue(s) without the [reflux] title prefix were skipped' "$retro_tmp/err"
 if grep -Fq -e 'BODY_SENTINEL' -e 'not a reflux issue' -e 'src/app.ts' "$retro_tmp/out" "$retro_tmp/err"; then
   echo "retro's reflux listing printed a body, a non-reflux issue or an invalid signature" >&2
   exit 1

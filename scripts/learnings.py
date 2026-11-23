@@ -246,21 +246,23 @@ def display_name(name):
 
 # A reflux draft (#107) leaves the using repository for the aidd one, which may be public. On top of
 # scan_text it rejects what points back at the using repository: commit SHAs (any case, digit-only
-# short ones too, but not an 8-digit date), #numbers, a repository after -R/--repo, home-relative
-# paths and @-words. Placeholders such as <owner>/<repo> or <path> are what the draft writes instead,
-# so they are removed before these rules. The title and sections are what /aidd:retro reads.
+# short ones too, but not an 8-digit date), #numbers, a repository after -R/--repo other than the
+# <owner>/<repo> placeholder, any ~/ or ~name/ path, and @-words. The draft writes fixed placeholders
+# (<owner>, <repo>, <path>, <branch>, <file>, <dir>, <command>, <config-dir>) instead; they hold no
+# digit, #, @ or ~, so the rules run on the line as is and angle brackets let nothing else through.
+# The title and sections are what /aidd:retro reads.
 MAX_DRAFT_BYTES = 16384
 DRAFT_TITLE = "[reflux] "
 DRAFT_SECTIONS = ("## signature", "## 起きたこと", "## 再現の手順", "## 対象にする aidd の資産", "## その規則で壊れるもの")
-PLACEHOLDER = re.compile(r"<[^<>\s]+>")
 DRAFT_RULES = [
     ("a commit SHA or #number of the using repository", re.compile(
         r"(?<!&)#[0-9]+(?![0-9])"
         r"|(?<![0-9A-Za-z])(?=[0-9A-Fa-f]*[0-9])"
         r"(?!(?:19|20)[0-9]{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12][0-9]|3[01])(?![0-9A-Za-z]))"
         r"[0-9A-Fa-f]{7,40}(?![0-9A-Za-z])", re.A)),
-    ("a repository name after -R/--repo", re.compile(r"(?<![\w-])(?:-R|--repo)(?:\s+|=)[^\s/]+/\S+", re.A)),
-    ("a home-relative path", re.compile(r"(?<![\w~])~(?:[A-Za-z0-9_.-]+/|/[^\s/]+/)", re.A)),
+    ("a repository name after -R/--repo", re.compile(
+        r"(?<![\w-])(?:-R|--repo)(?:\s+|=)(?!<owner>/<repo>(?:[\s;,.)\"'`]|$))[^\s/]+/\S*", re.A)),
+    ("a home-relative path", re.compile(r"(?<![\w~])~[A-Za-z0-9_.-]*/", re.A)),
     ("an @-mention or package scope", re.compile(r"(?<![\w.@])@[A-Za-z0-9_]", re.A)),
 ]
 
@@ -298,8 +300,8 @@ def scan_draft(text):
     for number, line in enumerate(lines, 1):
         field = f"line {number}"
         errors += scan_text(field, line)
-        bare = PLACEHOLDER.sub("", unicodedata.normalize("NFKC", line))
-        errors += [f"{field}: contains {rule}" for rule, pattern in DRAFT_RULES if pattern.search(bare)]
+        normalized = unicodedata.normalize("NFKC", line)
+        errors += [f"{field}: contains {rule}" for rule, pattern in DRAFT_RULES if pattern.search(normalized)]
     return errors
 
 
@@ -467,14 +469,21 @@ def cmd_candidates(args):
 
 
 def cmd_scan(args):
-    raw = sys.stdin.buffer.read(MAX_DRAFT_BYTES + 1)
-    if len(raw) > MAX_DRAFT_BYTES:
-        errors = [f"draft: larger than {MAX_DRAFT_BYTES} bytes"]
-    else:
-        try:
-            errors = scan_draft(raw.decode("utf-8"))
-        except UnicodeDecodeError:
-            errors = ["draft: not valid UTF-8"]
+    """Exit 0 passed, 1 rejected, 2 failed (a failure must not read as a rejection or a pass)."""
+    try:
+        raw = sys.stdin.buffer.read(MAX_DRAFT_BYTES + 1)
+        if len(raw) > MAX_DRAFT_BYTES:
+            errors = [f"draft: larger than {MAX_DRAFT_BYTES} bytes"]
+        else:
+            try:
+                text = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                errors = ["draft: not valid UTF-8"]
+            else:
+                errors = scan_draft(text)
+    except Exception as exc:  # the message may hold input, so only the exception's name
+        print(f"scan failed ({type(exc).__name__})", file=sys.stderr)
+        return 2
     if errors:
         print("rejected (rewrite the draft; do not mask it):", file=sys.stderr)
         for error in errors:

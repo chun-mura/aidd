@@ -567,8 +567,16 @@ scan_reject "repo after --repo=" "repository name after -R/--repo" "Run gh pr vi
 scan_reject "home path" "home-relative path" "It wrote ~/work/someapp/out.log."
 scan_reject "named home" "home-relative path" "It wrote ~someone/out.log."
 scan_reject "@-word" "@-mention or package scope" "Ask @someone about it."
+# Any ~/ word, one level included (review R1, round 2); no ~/ form is allowed (<config-dir> instead).
+scan_reject "home path, one level" "home-relative path" "It wrote ~/notes.txt."
+scan_reject "home config dir" "home-relative path" "It read ~/.claude/settings.json."
+# Angle brackets are not a free pass: only the fixed placeholders are (review E1).
+scan_reject "bracketed #number" "commit SHA or #number" "Same as <#123> here."
+scan_reject "bracketed @-word" "@-mention or package scope" "Ask <@someone> about it."
+scan_reject "bracketed real repo" "repository name after -R/--repo" "Run gh pr view -R <someorg>/<someapp> first."
+scan_reject "half placeholder repo" "repository name after -R/--repo" "Run gh pr view -R <owner>/someapp first."
 # Ordinary numbers and placeholders are not taken for a SHA, repository or path.
-out=$(printf '%s\n%s\n' "$draft_ok" 'Seen on 0.69.0 at 2026-11-23 (20261123), 123456 lines, 3/4 runs; defaced; gh pr view -R <owner>/<repo>; --repo <owner>/<repo>; ~/<path>; git switch <branch>.' \
+out=$(printf '%s\n%s\n' "$draft_ok" 'Seen on 0.69.0 at 2026-11-23 (20261123), 123456 lines, 3/4 runs; defaced; gh pr view -R <owner>/<repo>; --repo=<owner>/<repo>; <config-dir>/<path>; cp -R <dir> <dir>; git switch <branch>; run <command> on <file>.' \
   | python3 -I "$script" scan)
 printf '%s\n' "$out" | grep -F 'draft passed the check'
 # The draft keeps the shape retro reads: the [reflux] title on line 1, every section, and a
@@ -602,5 +610,23 @@ printf '\n' | python3 -I "$script" scan >/dev/null 2>&1
 s2=$?
 set -e
 [ "$s1" -eq 1 ] && [ "$s2" -eq 1 ]
+# An unexpected failure is not a rejection: exit 2 with the exception name, no traceback (review E3).
+python3 -I - "$script" <<'PYEOF'
+import contextlib, importlib.util, io, sys
+sys.dont_write_bytecode = True
+spec = importlib.util.spec_from_file_location("learnings", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+def broken(text):
+    raise RuntimeError("boom")
+mod.scan_draft = broken
+sys.stdin = io.TextIOWrapper(io.BytesIO(b"[reflux] x\n"), encoding="utf-8")
+err = io.StringIO()
+with contextlib.redirect_stderr(err):
+    status = mod.cmd_scan(None)
+assert status == 2, status
+assert "scan failed (RuntimeError)" in err.getvalue(), err.getvalue()
+assert "boom" not in err.getvalue() and "Traceback" not in err.getvalue(), err.getvalue()
+PYEOF
 
 echo "learnings-test: ok"
