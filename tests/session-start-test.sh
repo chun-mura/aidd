@@ -4,7 +4,12 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
 output=$(AIDD_DISABLE_CLARIFY_NUDGE=1 bash "$repo_root/hooks/scripts/session-start.sh")
 
-printf '%s\n' "$output" | grep -F 'aidd: 設計案は design-review'
+# Same intent as the CLAUDE.md template (#127): design-review only for the design lane,
+# test perspectives before implementation, never a per-commit step.
+printf '%s\n' "$output" | grep -F 'aidd: 設計レーンの変更は design-review、不明点は確認、実装前に test-perspectives で観点を出す。'
+if printf '%s\n' "$output" | grep -Fq 'コミット前'; then
+  exit 1
+fi
 if printf '%s\n' "$output" | grep -Fq '/aidd:retro'; then
   exit 1
 fi

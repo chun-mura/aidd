@@ -2,7 +2,7 @@
 # SessionStart hook: surface aidd assets so they are used without relying on memory.
 # The agent roster is omitted on purpose — it already appears in the system prompt's agent list.
 
-echo 'aidd: 設計案は design-review、不明点は確認、コミット前は test-perspectives を検討。'
+echo 'aidd: 設計レーンの変更は design-review、不明点は確認、実装前に test-perspectives で観点を出す。'
 
 # Standing instruction, injected once per session (was a per-prompt UserPromptSubmit hook;
 # once in context it stays effective, so re-injecting every prompt only burned tokens).
