@@ -5,7 +5,8 @@ input=$(cat)
 # Cursor sends every Read here for skill-gate.sh; only one SKILL.md matters, so skip python for a Read
 # that surely is not that file. The test is file identity ([ -ef ] follows links and the filesystem's
 # case rules), done in bash builtins. Anything not plain enough to judge here goes to python and the gate:
-# the skill name in any case, a backslash (JSON escapes), more than one file_path key, a relative or ~ path.
+# the skill name in any case, a backslash (JSON escapes), more than one file_path key, a relative or ~ path,
+# a path with .., or a missing path too long to stat (the gate also compares the text-normalized path).
 gate_may_read() {  # 0 when the input may Read this plugin's skills/autonomous-review/SKILL.md
   local rest=$1 path='' n=0 re='"file_path"[[:space:]]*:[[:space:]]*"([^"]*)"'
   case "$rest" in *\\*) return 0 ;; esac
@@ -20,6 +21,8 @@ gate_may_read() {  # 0 when the input may Read this plugin's skills/autonomous-r
   [ "$n" -le 1 ] || return 0
   [ -n "$path" ] || return 1
   [ "${path#/}" != "$path" ] || return 0
+  case "$path" in */../* | */..) return 0 ;; esac
+  [ -e "$path" ] || [ "${#path}" -le 1000 ] || return 0
   [ "$path" -ef "$(dirname "$0")/../../skills/autonomous-review/SKILL.md" ]
 }
 case "${1-}" in

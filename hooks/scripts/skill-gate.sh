@@ -47,11 +47,14 @@ elif event.get("tool_name") == "Read":
         cwd = event.get("cwd")
         if isinstance(cwd, str) and cwd:
             path = os.path.join(cwd, path)  # a relative path is the reader's, not this hook's
-        try:
-            same = os.path.samefile(path, own)
-        except OSError:
-            same = False  # nothing there to read
-        if same:
+        def same(candidate):
+            try:
+                return os.path.samefile(candidate, own)
+            except (OSError, ValueError):
+                return False  # nothing there to read, or not a path (NUL)
+        # The reader may resolve the path as text (a missing directory before .., or past PATH_MAX),
+        # so a path that names the SKILL.md only once normalized is refused too.
+        if same(path) or same(os.path.normpath(path)):
             reply("deny", deny_reason)
 PYEOF
 )

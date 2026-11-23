@@ -1824,6 +1824,15 @@ json.dump({"hook_event_name": "preToolUse", "cursor_version": "x", "workspace_ro
 }
 nested_read /work/repo/new.txt "$alias_dir/alias.md"; adapter_gate | expect_cursor_deny
 nested_read "$alias_dir/alias.md" /work/repo/new.txt; expect_adapter_pass
+# A path the OS cannot resolve but that names the SKILL.md once normalized as text (a missing
+# directory before .., or longer than PATH_MAX) is still denied; unrelated .. paths still pass.
+cursor_read "$alias_dir/nonexist/../alias.md"; adapter_gate | expect_cursor_deny
+cursor_read "$repo_root/skills/nonexist/../autonomous-review/SKILL.md"; adapter_gate | expect_cursor_deny
+cursor_read "$alias_dir$(printf '/.%.0s' $(seq 2100))/alias.md"; adapter_gate | expect_cursor_deny
+# A NUL in the path is no file at all, not input the gate cannot judge.
+[ -z "$(gate '{"hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"/x\u0000/autonomous-review/SKILL.md"}}')" ]
+cursor_read "$alias_dir/nonexist/../other.md"; expect_adapter_pass
+cursor_read "$repo_root/skills/design-review/../design-review/SKILL.md"; expect_adapter_pass
 # JSON keeps the last of duplicate keys, so the cheap check must not judge by the first one.
 printf '{"hook_event_name":"preToolUse","cursor_version":"x","workspace_roots":["/work/repo"],"tool_name":"Read","tool_input":{"file_path":"/work/repo/new.txt","file_path":"%s"}}' "$alias_dir/alias.md" > "$adapter_in"
 adapter_gate | expect_cursor_deny
