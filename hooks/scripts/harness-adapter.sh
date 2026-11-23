@@ -160,6 +160,13 @@ def parse_script_output(text):
     except Exception:
         return ("text", text)
     if isinstance(value, dict):
+        specific = value.get("hookSpecificOutput")
+        if specific is not None:
+            if not isinstance(specific, dict):
+                return ("bad", None)
+            for key in ("permissionDecisionReason", "additionalContext"):
+                if specific.get(key) is not None and not isinstance(specific[key], str):
+                    return ("bad", None)
         return ("json", value)
     return ("bad", None)
 
@@ -181,6 +188,7 @@ def is_deny(obj):
 
 
 def merge_results(results, event_name):
+    denied = False
     denials = []
     contexts = []
     texts = []
@@ -194,13 +202,14 @@ def merge_results(results, event_name):
         if kind != "json":
             return None
         if is_deny(value):
+            denied = True
             text = reason_of(value)
             if text and text not in denials:
                 denials.append(text)
         ctx = additional_of(value)
         if ctx and ctx not in contexts:
             contexts.append(ctx)
-    if denials:
+    if denied:
         specific = {
             "hookEventName": event_name or "PreToolUse",
             "permissionDecision": "deny",
@@ -227,7 +236,7 @@ def convert_cursor(merged, event_name):
     if merged is None:
         return ""
     if isinstance(merged, str):
-        return json.dumps({"additional_context": merged}, ensure_ascii=False)
+        return json.dumps({"additional_context": merged}, ensure_ascii=True)
     if not isinstance(merged, dict):
         return None
     specific = merged.get("hookSpecificOutput") or {}
@@ -241,11 +250,11 @@ def convert_cursor(merged, event_name):
             "permission": "deny",
             "user_message": reason,
             "agent_message": agent,
-        }, ensure_ascii=False)
+        }, ensure_ascii=True)
     ctx = specific.get("additionalContext")
     if isinstance(ctx, str) and ctx:
         key = "agent_message" if event_name == "PreToolUse" else "additional_context"
-        return json.dumps({key: ctx}, ensure_ascii=False)
+        return json.dumps({key: ctx}, ensure_ascii=True)
     return ""
 
 
@@ -255,11 +264,11 @@ def convert_claude(merged):
     if isinstance(merged, str):
         return merged if merged.endswith("\n") else merged + "\n"
     if isinstance(merged, dict):
-        return json.dumps(merged, ensure_ascii=False)
+        return json.dumps(merged, ensure_ascii=True)
     return None
 
 
-def call_script(payload):
+def call_script(payload, skip):
     if not target:
         return "missing"
     if not os.path.isfile(target) or not os.access(target, os.X_OK):
@@ -276,7 +285,14 @@ def call_script(payload):
         )
     except OSError:
         return "failed"
+    except UnicodeError:
+        return "bad"
     parsed = parse_script_output(proc.stdout.decode("utf-8", "replace"))
+    if proc.returncode != 0:
+        skip("script_signaled" if proc.returncode < 0 else "script_nonzero_exit")
+        if parsed[0] == "json" and is_deny(parsed[1]):
+            return parsed
+        return ("empty", None)
     if parsed[0] == "bad":
         return "bad"
     return parsed
@@ -322,23 +338,23 @@ def main():
         for path in paths:
             if not path:
                 skip("unparsed_patch")
-                return
+                continue
             one = dict(normalized)
             one["tool_name"] = "Write"
             one["tool_input"] = {"file_path": abs_path(path, cwd)}
-            got = call_script(one)
+            got = call_script(one, skip)
             if got == "missing":
                 skip("missing_script")
-                return
+                continue
             if got == "failed":
                 skip("script_failed")
-                return
+                continue
             if got == "bad":
                 skip("bad_output")
-                return
+                continue
             results.append(got)
     else:
-        got = call_script(normalized)
+        got = call_script(normalized, skip)
         if got == "missing":
             skip("missing_script")
             return

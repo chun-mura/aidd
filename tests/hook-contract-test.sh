@@ -1195,6 +1195,178 @@ print(" ".join(e["reason"] for e in json.load(open(sys.argv[1])).get("entries", 
 ' "$tmp_dir/aidd/adapter-skips.json"
 }
 
+# Child exit status is observed through the real adapter, including partial patch failures.
+python3 - "$adapter" "$repo_root" "$tmp_dir/child-exits" <<'PYEOF'
+import json, os, signal, subprocess, sys
+from pathlib import Path
+
+adapter, repo, root = map(Path, sys.argv[1:])
+root.mkdir()
+child = root / "child.py"
+child.write_text("#!" + sys.executable + "\n" + r'''
+import json, os, signal, sys
+from pathlib import Path
+payload = json.load(sys.stdin)
+tool_input = payload.get("tool_input", {})
+mode = Path(tool_input["file_path"]).name if "file_path" in tool_input else tool_input["command"]
+status, _, output = mode.partition(":")
+print("stderr-secret-119", file=sys.stderr)
+specific = {"permissionDecision": "deny", "permissionDecisionReason": "fixture denied", "additionalContext": "fixture context"}
+if output == "deny-no-reason":
+    specific.pop("permissionDecisionReason")
+elif output == "deny-empty-reason":
+    specific["permissionDecisionReason"] = ""
+elif output == "deny-bad-reason":
+    specific["permissionDecisionReason"] = ["invalid"]
+elif output == "deny-bad-context":
+    specific["additionalContext"] = {"invalid": True}
+elif output == "deny-surrogate-reason":
+    specific["permissionDecisionReason"] = "bad\ud800"
+elif output == "deny-surrogate-context":
+    specific["additionalContext"] = "bad\ud800"
+if output.startswith("deny"):
+    print(json.dumps({"hookSpecificOutput": specific}), flush=True)
+elif output == "notice":
+    print(json.dumps({"hookSpecificOutput": {"additionalContext": "notice-secret-119"}}), flush=True)
+elif output == "text":
+    print("stdout-secret-119", flush=True)
+elif output == "bad":
+    print("[1]", flush=True)
+elif output == "bad-specific":
+    print('{"hookSpecificOutput": [1]}', flush=True)
+if status == "break":
+    Path(__file__).write_text("#!/aidd-119-missing-interpreter\n")
+if status == "signal":
+    os.kill(os.getpid(), signal.SIGTERM)
+sys.exit(42 if status == "exit42" else 0)
+''')
+child.chmod(0o700)
+original = child.read_text()
+env = {k: v for k, v in os.environ.items() if not k.startswith(("AIDD_", "CLAUDE_", "GIT_"))}
+env.update(HOME=str(root / "home"), TMPDIR=str(root) + "/", CLAUDE_CONFIG_DIR=str(root / "config"), GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_NOSYSTEM="1")
+
+
+def invoke(case, mode="ok:empty", *, cursor=False, paths=None, target=child):
+    state = root / case
+    event = {"cwd": str(root), "hook_event_name": "preToolUse" if cursor else "PreToolUse", "tool_name": "Shell" if cursor else "Bash", "tool_input": {"command": mode, "secret": "input-secret-119"}}
+    if cursor:
+        event["cursor_version"] = "2026.10.22-27dcf5f"
+    if paths is not None:
+        event["tool_name"] = "apply_patch"
+        event["tool_input"]["command"] = "*** Begin Patch\n" + "".join("*** Add File: " + p + "\n+x\n" for p in paths) + "*** End Patch"
+    result = subprocess.run(["bash", str(adapter), str(target)], input=json.dumps(event), text=True, capture_output=True, env=dict(env, AIDD_TEST_STATE_DIR=str(state)), timeout=15)
+    assert result.returncode == 0, (case, result)
+    assert result.stderr == "", (case, result.stderr)
+    path = state / "adapter-skips.json"
+    entries = json.loads(path.read_text())["entries"] if path.exists() else []
+    for entry in entries:
+        assert set(entry) == {"harness", "harness_version", "event", "tool_name", "reason", "count", "last_seen"}, entry
+        assert entry["harness"] == ("cursor" if cursor else "codex"), entry
+        assert entry["event"] == event["hook_event_name"] and entry["tool_name"] == event["tool_name"], entry
+    assert not any(s in json.dumps(entries) for s in ("stderr-secret-119", "stdout-secret-119", "notice-secret-119", "input-secret-119", mode)), entries
+    return result.stdout, {e["reason"]: e["count"] for e in entries}, state
+
+
+def assert_deny(out, cursor=False):
+    value = json.loads(out)
+    assert (value.get("permission") if cursor else value.get("hookSpecificOutput", {}).get("permissionDecision")) == "deny", value
+
+
+def assert_surrogate(out, output, cursor):
+    if output not in ("deny-surrogate-reason", "deny-surrogate-context"):
+        return
+    value = json.loads(out)
+    if cursor:
+        assert "bad\ud800" in value["agent_message"], ascii(value)
+    else:
+        key = "permissionDecisionReason" if output == "deny-surrogate-reason" else "additionalContext"
+        assert value["hookSpecificOutput"][key] == "bad\ud800", ascii(value)
+
+
+for cursor in (False, True):
+    for output in ("empty", "notice", "text", "deny", "deny-no-reason", "deny-empty-reason", "deny-surrogate-reason", "deny-surrogate-context"):
+        out, counts, _ = invoke(f"normal-{cursor}-{output}", "ok:" + output, cursor=cursor)
+        assert not counts, counts
+        if output.startswith("deny"):
+            assert_deny(out, cursor)
+            assert_surrogate(out, output, cursor)
+        elif output == "empty":
+            assert not out, out
+        else:
+            assert ("notice-secret-119" if output == "notice" else "stdout-secret-119") in out, out
+    for status, reason in (("exit42", "script_nonzero_exit"), ("signal", "script_signaled")):
+        for output in ("empty", "notice", "text", "bad", "bad-specific", "deny", "deny-no-reason", "deny-empty-reason", "deny-bad-reason", "deny-bad-context", "deny-surrogate-reason", "deny-surrogate-context"):
+            case = f"{cursor}-{status}-{output}"
+            out, counts, state = invoke(case, status + ":" + output, cursor=cursor)
+            assert counts == {reason: 1}, (case, counts)
+            if output in ("deny", "deny-no-reason", "deny-empty-reason", "deny-surrogate-reason", "deny-surrogate-context"):
+                assert_deny(out, cursor)
+                assert_surrogate(out, output, cursor)
+            else:
+                assert not out, (case, out)
+            if output == "empty":
+                _, counts, _ = invoke(case, status + ":" + output, cursor=cursor)
+                assert counts == {reason: 2}, counts
+
+broken = root / "broken.sh"
+broken.write_text("#!/aidd-119-missing-interpreter\n")
+broken.chmod(0o700)
+for name, target, reason in (("startup", broken, "script_failed"), ("missing", root / "absent", "missing_script")):
+    out, counts, _ = invoke(name, target=target)
+    assert not out and counts == {reason: 1}, (out, counts)
+broken.chmod(0o600)
+out, counts, _ = invoke("not-executable", target=broken)
+assert not out and counts == {"missing_script": 1}, (out, counts)
+
+for failing, reason in (("exit42:empty", "script_nonzero_exit"), ("signal:notice", "script_signaled"), ("ok:bad", "bad_output"), ("ok:bad-specific", "bad_output")):
+    for reverse in (False, True):
+        paths = ["ok:deny", failing]
+        if reverse:
+            paths.reverse()
+        out, counts, _ = invoke(f"batch-{failing}-{reverse}", paths=paths)
+        assert_deny(out)
+        assert counts == {reason: 1}, counts
+for reverse in (False, True):
+    paths = ["ok:deny", "bad\ud800", "exit42:empty"]
+    if reverse:
+        paths.reverse()
+    out, counts, _ = invoke(f"batch-unencodable-{reverse}", paths=paths)
+    assert_deny(out)
+    assert counts == {"bad_output": 1, "script_nonzero_exit": 1}, counts
+out, counts, _ = invoke("batch-empty-path", paths=["ok:deny", "", "exit42:empty"])
+assert_deny(out)
+assert counts == {"unparsed_patch": 1, "script_nonzero_exit": 1}, counts
+out, counts, _ = invoke("batch-startup", paths=["break:deny", "ok:deny"])
+assert_deny(out)
+assert counts == {"script_failed": 1}, counts
+child.write_text(original)
+out, counts, _ = invoke("batch-deny-no-reason", paths=["ok:deny-no-reason", "exit42:empty"])
+assert_deny(out)
+assert counts == {"script_nonzero_exit": 1}, counts
+
+# A recording failure cannot replace the child's valid denial.
+blocked = root / "blocked"
+blocked.write_text("not a directory")
+out, counts, _ = invoke("blocked", "exit42:deny")
+assert_deny(out)
+assert not counts, counts
+
+# Execute the existing doctor reader against generated records in a fake HOME.
+doctor_home = root / "doctor-home"
+doctor_state = doctor_home / ".claude/aidd"
+doctor_state.mkdir(parents=True)
+entries = []
+for case in ("False-exit42-empty", "False-signal-empty", "startup"):
+    entries.extend(json.loads((root / case / "adapter-skips.json").read_text())["entries"])
+(doctor_state / "adapter-skips.json").write_text(json.dumps({"entries": entries}))
+doctor = (repo / "skills/doctor/SKILL.md").read_text().split("import json, os\n", 1)[1].split("\nPY\n", 1)[0]
+result = subprocess.run([sys.executable, "-c", "import json, os\n" + doctor], env=dict(env, HOME=str(doctor_home)), text=True, capture_output=True, timeout=10)
+assert result.returncode == 0 and not result.stderr, result
+for reason, count in (("script_nonzero_exit", 2), ("script_signaled", 2), ("script_failed", 1)):
+    assert f"{reason} count={count}" in result.stdout, result.stdout
+print("adapter child-exit cases: OK")
+PYEOF
+
 # Existing hooks.json entries stay in place; apply_patch is only appended.
 python3 - "$repo_root/hooks/hooks.json" <<'PYEOF'
 import json, sys
