@@ -155,13 +155,21 @@ grep -F -- '**memory の候補は、台帳に書く `signature`・`fact`・`scop
 grep -F -- '`fact` と `signature` に社内のツール名・システム名を入れない' "$incident_retro"
 grep -F -- '**認証情報・個人情報・顧客の機密を含む memory は取り込まず、その値を会話に引用しない。**' "$incident_retro"
 grep -F -- '認証情報ならローテーション' "$incident_retro"
-grep -F -- "IFS= read -r AIDD_MEMORY_DIR <<'AIDD_MEMORY_DIR_END'" "$incident_retro"
-grep -F -- 'AIDD_MEMORY_DIR="$AIDD_MEMORY_DIR" python3 -I - <<'"'PY'" "$incident_retro"
-grep -F -- 'MEMORY_DIR = os.environ.get("AIDD_MEMORY_DIR", "")' "$incident_retro"
-if grep -Eq -- "python3 -I - '<memory-dir>'|r\"\"\"<memory-dir>" "$incident_retro"; then
-  echo "incident-retro puts the memory path in shell quotes or Python code" >&2
+# The model never copies the memory path: the snippet builds it from the git common directory
+# (the asset-audit key rule), so no heredoc, quoted argument or code literal carries a path.
+grep -F -- '1. 置き場は snippet が自分で決める。モデルはパスを書き写さない。' "$incident_retro"
+grep -F -- '"rev-parse", "--path-format=absolute", "--git-common-dir"' "$incident_retro"
+if grep -Eq -- '<memory-dir>|AIDD_MEMORY_DIR|MEMORY_DIR = ' "$incident_retro"; then
+  echo "incident-retro still has the model copy the memory path into the snippet" >&2
   exit 1
 fi
+# The listing is used only on exit 0 with the done line; exit 2 is an intended skip, anything
+# else is a failure even with partial stdout. Unreadable bodies are counted, not taken in (#105).
+grep -F -- '**snippet の終了コードが0で最後の行が done の行のときだけ一覧を使う。' "$incident_retro"
+grep -F -- '標準出力が部分的に出ていても一覧を使わず、取り込みの失敗として stderr とともに利用者に伝える。**' "$incident_retro"
+grep -F -- '0件のときも、done の行の走査数を利用者に伝える' "$incident_retro"
+grep -F -- '本文を読めなかったファイルは、件数だけを利用者に伝え、候補に入れない' "$incident_retro"
+grep -F -- '実在しなくても「memory が無い」とは言い切らない' "$incident_retro"
 if grep -Eq -- 'auto-memory:|数を足[しす]|`sessions` が同じなら' "$incident_retro"; then
   echo "incident-retro still keys memories by path or recounts candidates" >&2
   exit 1

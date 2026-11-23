@@ -11,21 +11,47 @@ script="$repo_root/scripts/learnings.py"
 # An explicit template keeps TMPDIR honored (macOS mktemp -d alone ignores it).
 tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/aidd-memory-intake-test.XXXXXX")
 tmp_dir=$(cd "$tmp_dir" && pwd -P)
-trap 'rm -rf "$tmp_dir"' EXIT
+trap 'chmod -R u+rwx "$tmp_dir" 2>/dev/null; rm -rf "$tmp_dir"' EXIT
 
-# --- the listing snippet: feedback files with a UUID originSessionId only, frontmatter only -----
-# The config dir path holds a quote, a Python triple quote, a command substitution and backquotes:
-# the snippet takes the path through a quoted heredoc and an environment variable, so none of them
-# ends a string or runs (the snippet runs in $tmp_dir, where a "pwned" file would appear).
+# --- the listing snippet: the memory directory is built inside the snippet, never copied --------
+# The snippet finds <config dir>/projects/<key>/memory from the git common directory, so the test
+# runs it inside a fake repository. The config dir path holds a quote, a Python triple quote, a
+# command substitution and backquotes, none of which may run (a "pwned" file would appear).
+export GIT_CONFIG_NOSYSTEM=1 HOME="$tmp_dir/home"
+mkdir -p "$HOME"
+export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
 config="$tmp_dir/cfg'q\"\"\"\$(touch pwned)\`touch pwned\`"
-memory="$config/projects/-fake-project/memory"
+# A non-ASCII letter and a character outside the BMP (two UTF-16 units) exercise the key rule.
+proj="$tmp_dir/proj é😀"
+git init -q --template= -b main "$proj"
+git -C "$proj" commit -q --allow-empty -m 'chore: base'
+key_for() {  # the key rule, computed independently: one "-" per UTF-16 unit of a non-alnum char
+  python3 -c '
+import sys
+print("".join(c if c.isascii() and c.isalnum() else "-" * (len(c.encode("utf-16-le")) // 2)
+              for c in sys.argv[1]))' "$1"
+}
+key=$(key_for "$proj")
+[ "$key" = "$(key_for "$tmp_dir")-proj----" ] || { echo "unexpected key: $key" >&2; exit 1; }
+memory="$config/projects/$key/memory"
 mkdir -p "$memory" "$tmp_dir/outside"
 sed -n '/^# auto memory intake: list feedback memories/,/^PY$/p' "$skill" > "$tmp_dir/list.sh"
-grep -Fq '<memory-dir>' "$tmp_dir/list.sh" || { echo "listing snippet not found in $skill" >&2; exit 1; }
-run_listing() {  # run_listing MEMORY_DIR [SHELL [CONFIG_DIR]] -> stdout; stderr to $tmp_dir/list.err
-  python3 -c 'import sys; print(open(sys.argv[1]).read().replace("<memory-dir>", sys.argv[2]), end="")' \
-    "$tmp_dir/list.sh" "$1" > "$tmp_dir/list-run.sh"
-  (cd "$tmp_dir" && CLAUDE_CONFIG_DIR="${3:-$config}" "${2:-bash}" "$tmp_dir/list-run.sh" 2> "$tmp_dir/list.err")
+grep -Fq 'python3 -I - <<' "$tmp_dir/list.sh" || { echo "listing snippet not found in $skill" >&2; exit 1; }
+run_listing() {  # run_listing DIR [SHELL [CONFIG_DIR]] -> stdout; stderr to $tmp_dir/list.err
+  (cd "$1" && env -u CLAUDE_PROJECT_DIR CLAUDE_CONFIG_DIR="${3:-$config}" "${2:-bash}" "$tmp_dir/list.sh" \
+    2> "$tmp_dir/list.err")
+}
+expect_skip() {  # expect_skip DIR CONFIG_DIR REASON: exit 2, empty stdout, the reason, no path
+  local status=0 out
+  out=$(run_listing "$1" bash "$2") || status=$?
+  if ! { [ "$status" -eq 2 ] && [ -z "$out" ] && grep -Fq -- "$3" "$tmp_dir/list.err"; }; then
+    printf 'expected a skip (%s): status=%s out=%s err=%s\n' "$3" "$status" "$out" "$(cat "$tmp_dir/list.err")" >&2
+    exit 1
+  fi
+  if grep -Fq "$tmp_dir" "$tmp_dir/list.err"; then
+    echo "listing snippet printed a path on skip" >&2
+    exit 1
+  fi
 }
 
 cur=11111111-1111-4111-8111-111111111111
@@ -57,6 +83,13 @@ memory_file "$memory/user.md" 'name: k' 'type: user' "originSessionId: $sess_b"
 printf '%s\n' 'type: feedback' 'BODY_SENTINEL no frontmatter.' > "$memory/nofm.md"
 printf '%s\n' '---' 'type: feedback' "originSessionId: $sess_b" 'BODY_SENTINEL never closed.' > "$memory/open.md"
 printf '%s\n' '---' 'type: feedback' "originSessionId: $sess_b" '---' > "$memory/notes.txt"
+# Unparsed (no frontmatter, never closed, BOM before ---) and unreadable files are counted.
+printf '\xef\xbb\xbf---\ntype: feedback\noriginSessionId: %s\n---\n' "$sess_b" > "$memory/bom.md"
+memory_file "$memory/unreadable.md" 'type: feedback' "originSessionId: $sess_b"
+chmod 000 "$memory/unreadable.md"
+# A trailing comment and quotes are removed from values, as asset-audit reads them.
+sess_c=cccccccc-cccc-4ccc-8ccc-cccccccccccc
+memory_file "$memory/cmt.md" 'type: feedback # a note' "originSessionId: \"$sess_c\""
 # Entries that could forge a line, point outside, or repeat a file through a link: skipped and counted (4).
 memory_file "$memory/tab	name.md" 'type: feedback' "originSessionId: $sess_b"
 memory_file "$memory/new
@@ -65,58 +98,90 @@ memory_file "$tmp_dir/outside/target.md" 'type: feedback' "originSessionId: $ses
 ln -s "$tmp_dir/outside/target.md" "$memory/link.md"
 ln -s fb-nested.md "$memory/link-inside.md"
 
-listing=$(run_listing "$memory")
-expected=$(printf '%s\t%s\n' \
+listing=$(run_listing "$proj")
+rows=$(printf '%s\t%s\n' \
+  "$sess_c" "$memory/cmt.md" \
   "$sess_b" "$memory/fb-nested.md" \
   "$sess_a" "$memory/fb-old.md" \
   "$cur" "$memory/fb-top.md")
+expected="$rows
+scanned 17 file(s), 4 feedback (done)"
 if [ "$listing" != "$expected" ]; then
   printf 'listing snippet output differs.\n--- got\n%s\n--- expected\n%s\n' "$listing" "$expected" >&2
   exit 1
 fi
-grep -Eq '^4 feedback memories have no originSessionId in the UUID form' "$tmp_dir/list.err" \
-  || { echo "listing snippet did not report 4 memories without a usable ID: $(cat "$tmp_dir/list.err")" >&2; exit 1; }
-grep -Eq '^4 entries are skipped' "$tmp_dir/list.err" \
-  || { echo "listing snippet did not report 4 skipped entries: $(cat "$tmp_dir/list.err")" >&2; exit 1; }
+for line in '4 feedback memories have no originSessionId in the UUID form' '4 entries are skipped' \
+    '1 file(s) could not be read' '3 file(s) have no frontmatter that opens and closes with ---'; do
+  grep -Fq -- "$line" "$tmp_dir/list.err" \
+    || { echo "listing snippet did not report '$line': $(cat "$tmp_dir/list.err")" >&2; exit 1; }
+done
 if grep -Fq BODY_SENTINEL <<<"$listing$(cat "$tmp_dir/list.err")" || grep -Fq -e "$memory" -e '.md' "$tmp_dir/list.err"; then
   echo "listing snippet printed a memory body or the name of a skipped memory" >&2
   exit 1
 fi
-[ ! -e "$tmp_dir/pwned" ]
-# zsh (the default shell on macOS) reads the snippet the same way.
+[ ! -e "$proj/pwned" ] && [ ! -e "$tmp_dir/pwned" ]
+# zsh (the default shell on macOS) runs the snippet the same way.
 if command -v zsh > /dev/null; then
-  [ "$(run_listing "$memory" zsh)" = "$expected" ] || { echo "listing snippet differs under zsh" >&2; exit 1; }
-  [ ! -e "$tmp_dir/pwned" ]
+  [ "$(run_listing "$proj" zsh)" = "$expected" ] || { echo "listing snippet differs under zsh" >&2; exit 1; }
 fi
+# A worktree and a subdirectory of the repository share the one memory directory.
+git -C "$proj" worktree add -q "$tmp_dir/wt" -b wt
+mkdir -p "$proj/sub"
+[ "$(run_listing "$tmp_dir/wt")" = "$expected" ] || { echo "a worktree did not reach the same memory" >&2; exit 1; }
+[ "$(run_listing "$proj/sub")" = "$expected" ] || { echo "a subdirectory did not reach the same memory" >&2; exit 1; }
 
-# A control character anywhere in the directory path: nothing is read, only the reason is printed.
-tab_config="$tmp_dir/cfg	tab"
-mkdir -p "$tab_config/projects/-fake-project/memory"
-cp "$memory/fb-nested.md" "$tab_config/projects/-fake-project/memory/"
-if out=$(run_listing "$tab_config/projects/-fake-project/memory" bash "$tab_config"); then
-  echo "listing snippet read a directory whose path holds a tab" >&2
-  exit 1
-fi
-[ -z "$out" ] && grep -Fq 'holds a control or format character; intake skipped' "$tmp_dir/list.err"
-if grep -Fq "$tmp_dir" "$tmp_dir/list.err"; then
-  echo "listing snippet printed the rejected path" >&2
-  exit 1
-fi
+# A config dir holding a newline, the old heredoc delimiter and a command, or a tab: nothing is
+# read and nothing runs.
+for bad in "$tmp_dir/cfg
+AIDD_MEMORY_DIR_END
+touch pwned" "$tmp_dir/cfg	tab"; do
+  mkdir -p "$bad/projects/$key/memory"
+  cp "$memory/fb-nested.md" "$memory/MEMORY.md" "$bad/projects/$key/memory/"
+  expect_skip "$proj" "$bad" 'holds a control or format character; intake skipped'
+  [ ! -e "$proj/pwned" ] && [ ! -e "$tmp_dir/pwned" ]
+done
 
-# A directory outside <config dir>/projects/<name>/memory is not read at all.
+# Outside git, a common directory not ending in .git, no directory, no MEMORY.md, a directory
+# that resolves elsewhere: each stops with its reason and reads nothing.
+mkdir -p "$tmp_dir/nogit"
+expect_skip "$tmp_dir/nogit" "$config" 'not inside a git repository'
+git init -q --bare "$tmp_dir/bare.git"
+expect_skip "$tmp_dir/bare.git" "$config" 'does not end in .git'
+git init -q --template= "$tmp_dir/other"
+expect_skip "$tmp_dir/other" "$config" 'no auto memory directory where Claude Code would put it'
+mkdir -p "$config/projects/$(key_for "$tmp_dir/other")/memory"
+cp "$memory/fb-nested.md" "$config/projects/$(key_for "$tmp_dir/other")/memory/"
+expect_skip "$tmp_dir/other" "$config" 'has no MEMORY.md'
+git init -q --template= "$tmp_dir/linked"
 mkdir -p "$tmp_dir/elsewhere/memory"
-cp "$memory/fb-nested.md" "$tmp_dir/elsewhere/memory/"
-if out=$(run_listing "$tmp_dir/elsewhere/memory"); then
-  echo "listing snippet read a directory outside the auto memory layout" >&2
+cp "$memory/fb-nested.md" "$memory/MEMORY.md" "$tmp_dir/elsewhere/memory/"
+mkdir -p "$config/projects/$(key_for "$tmp_dir/linked")"
+ln -s "$tmp_dir/elsewhere/memory" "$config/projects/$(key_for "$tmp_dir/linked")/memory"
+expect_skip "$tmp_dir/linked" "$config" 'resolves outside'
+
+# An empty memory directory is told apart from a failure: exit 0 and the done line with 0.
+git init -q --template= "$tmp_dir/empty"
+mkdir -p "$config/projects/$(key_for "$tmp_dir/empty")/memory"
+: > "$config/projects/$(key_for "$tmp_dir/empty")/memory/MEMORY.md"
+[ "$(run_listing "$tmp_dir/empty")" = "scanned 0 file(s), 0 feedback (done)" ] \
+  || { echo "an empty memory directory did not print the done line" >&2; exit 1; }
+
+# A failure while listing exits 1 with nothing on stdout (no partial list, no done line).
+git init -q --template= "$tmp_dir/broken"
+broken="$config/projects/$(key_for "$tmp_dir/broken")/memory"
+mkdir -p "$broken"
+cp "$memory/fb-nested.md" "$memory/MEMORY.md" "$broken/"
+chmod 300 "$broken"
+status=0
+out=$(run_listing "$tmp_dir/broken") || status=$?
+chmod 700 "$broken"
+if ! { [ "$status" -eq 1 ] && [ -z "$out" ] && grep -Fq 'listing failed' "$tmp_dir/list.err"; }; then
+  echo "a listing failure was not exit 1 with empty stdout: $status $out" >&2
   exit 1
 fi
-[ -z "$out" ] && grep -Fq 'not an auto memory directory' "$tmp_dir/list.err"
 key_of() { awk -F '\t' -v f="$memory/$1" '$2 == f {print $1}' <<<"$listing"; }
 
 # --- a ledger with one merged observation from session A -------------------------------------
-export GIT_CONFIG_NOSYSTEM=1 HOME="$tmp_dir/home"
-mkdir -p "$HOME"
-export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
 repo="$tmp_dir/repo"
 git init -q --template= -b main "$repo"
 git -C "$repo" commit -q --allow-empty -m 'chore: base'
