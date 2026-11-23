@@ -1757,21 +1757,29 @@ out=$(PATH="$nopy_bin" AIDD_TEST_STATE_DIR="$nopy_state" "$nopy_bin/bash" "$adap
 
 # Issue #120: the adapter decides by file identity, not by the spelling of the input, so another
 # name for this plugin's SKILL.md (a link, a relative path, other case, JSON escapes) is still denied.
-cursor_read() {  # FILE_PATH [CWD] [escape]: write a Cursor Read event; "escape" spells it with \/ and \u
+cursor_read() {  # FILE_PATH [CWD] [escape|indent]: write a Cursor Read event; "escape" spells it with \/ and \u
   python3 - "$fixtures/cursor/preToolUse.read-before-edit.json" "$adapter_in" "$@" <<'PY'
 import json, sys
 p = json.load(open(sys.argv[1]))
 p["tool_input"]["file_path"] = sys.argv[3]
 if len(sys.argv) > 4 and sys.argv[4]:
     p["workspace_roots"] = [sys.argv[4]]
-text = json.dumps(p)
-if len(sys.argv) > 5:
+mode = sys.argv[5] if len(sys.argv) > 5 else ""
+text = json.dumps(p, indent=2 if mode == "indent" else None)
+if mode == "escape":
     text = text.replace("/", "\\/").replace("autonomous-review", "\\u0061utonomous\\u002dreview")
     text = text.replace("alias", "\\u0061lias")
 open(sys.argv[2], "w").write(text)
 PY
 }
 adapter_gate() { AIDD_TEST_STATE_DIR="$gate_dir" bash "$adapter" skill-gate.sh < "$adapter_in"; }
+expect_adapter_pass() {  # the Read goes through: no output, and no new skip record (an adapter failure)
+  local before after
+  before=$(cat "$gate_dir/adapter-skips.json" 2>/dev/null || true)
+  [ -z "$(adapter_gate)" ]
+  after=$(cat "$gate_dir/adapter-skips.json" 2>/dev/null || true)
+  [ "$before" = "$after" ]
+}
 expect_cursor_deny() {
   python3 -c '
 import json, sys
@@ -1789,20 +1797,47 @@ cursor_read alias.md "$alias_dir"; adapter_gate | expect_cursor_deny
 cursor_read autonomous-review/SKILL.md "$repo_root/skills"; adapter_gate | expect_cursor_deny
 cursor_read "$repo_root/skills/autonomous-review/SKILL.md" "" escape; adapter_gate | expect_cursor_deny
 cursor_read "$alias_dir/alias.md" "" escape; adapter_gate | expect_cursor_deny
-if [ -e "$alias_dir/ALIAS.MD" ]; then  # case-insensitive filesystem (macOS default)
+if [ -e "$alias_dir/ALIAS.MD" ] && [ -e "$repo_root/skills/AUTONOMOUS-REVIEW/skill.md" ]; then
   cursor_read "$alias_dir/ALIAS.MD"; adapter_gate | expect_cursor_deny
-fi
-if [ -e "$repo_root/skills/AUTONOMOUS-REVIEW/skill.md" ]; then
   cursor_read "$repo_root/skills/AUTONOMOUS-REVIEW/skill.md"; adapter_gate | expect_cursor_deny
+else
+  echo "skip: case-variant Cursor reads (case-sensitive filesystem)"
 fi
+# ~ is the reader's home directory.
+home_alias="$tmp_dir/home-alias"
+mkdir -p "$home_alias"
+ln -s "$repo_root/skills/autonomous-review/SKILL.md" "$home_alias/alias.md"
+cursor_read '~/alias.md'
+HOME="$home_alias" adapter_gate | expect_cursor_deny
+# A chain of links, and JSON with spaces and line breaks.
+ln -s "$alias_dir/alias.md" "$alias_dir/alias2.md"
+cursor_read "$alias_dir/alias2.md"; adapter_gate | expect_cursor_deny
+cursor_read "$alias_dir/alias.md" "" indent; adapter_gate | expect_cursor_deny
+# A file_path in another object does not hide the one in tool_input, and is not read itself.
+nested_read() {  # META_PATH TOOL_PATH: a Cursor Read with a second file_path outside tool_input
+  python3 -c '
+import json, sys
+json.dump({"hook_event_name": "preToolUse", "cursor_version": "x", "workspace_roots": ["/work/repo"],
+           "meta": {"file_path": sys.argv[2]}, "tool_name": "Read",
+           "tool_input": {"file_path": sys.argv[3]}}, open(sys.argv[1], "w"))
+' "$adapter_in" "$1" "$2"
+}
+nested_read /work/repo/new.txt "$alias_dir/alias.md"; adapter_gate | expect_cursor_deny
+nested_read "$alias_dir/alias.md" /work/repo/new.txt; expect_adapter_pass
 # JSON keeps the last of duplicate keys, so the cheap check must not judge by the first one.
 printf '{"hook_event_name":"preToolUse","cursor_version":"x","workspace_roots":["/work/repo"],"tool_name":"Read","tool_input":{"file_path":"/work/repo/new.txt","file_path":"%s"}}' "$alias_dir/alias.md" > "$adapter_in"
 adapter_gate | expect_cursor_deny
 # Same-name files outside this plugin and links to other files still pass.
-cursor_read "$alias_dir/other.md"; [ -z "$(adapter_gate)" ]
-cursor_read "$tmp_dir/copy/skills/autonomous-review/SKILL.md"; [ -z "$(adapter_gate)" ]
-cursor_read "$tmp_dir/copy/skills/autonomous-review/SKILL.md" "" escape; [ -z "$(adapter_gate)" ]
-cursor_read autonomous-review/SKILL.md "$tmp_dir/copy/skills"; [ -z "$(adapter_gate)" ]
+cursor_read "$alias_dir/other.md"; expect_adapter_pass
+cursor_read "$tmp_dir/copy/skills/autonomous-review/SKILL.md"; expect_adapter_pass
+cursor_read "$tmp_dir/copy/skills/autonomous-review/SKILL.md" "" escape; expect_adapter_pass
+cursor_read autonomous-review/SKILL.md "$tmp_dir/copy/skills"; expect_adapter_pass
+cursor_read "$repo_root/README.md" "" indent; expect_adapter_pass
+# Reading an existing unrelated file by absolute path never starts python (no skip record without it).
+nopy_read_state="$tmp_dir/adapter-nopy-read"
+cursor_read "$repo_root/README.md" "" indent
+[ -z "$(PATH="$nopy_bin" AIDD_TEST_STATE_DIR="$nopy_read_state" "$nopy_bin/bash" "$adapter" skill-gate.sh < "$adapter_in")" ]
+[ ! -e "$nopy_read_state/adapter-skips.json" ]
 # Known limit kept: without python3 a link to the SKILL.md reaches the python check and is only counted.
 nopy_alias_state="$tmp_dir/adapter-nopy-alias"
 cursor_read "$alias_dir/alias.md"
