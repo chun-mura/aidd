@@ -32,6 +32,8 @@
 <!-- 自動生成ファイル、他チーム管理の領域、既知の地雷 -->
 
 ## AI運用 (aidd プラグイン導入時)
-<!-- 不要なら削除 -->
-- 設計・実装方針の提示前: `/aidd:design-review`
-- コミット前: `/aidd:test-perspectives`
+<!-- 不要なら削除。設計書とレビューの要否は issue-implement の判定に任せ、ここに条件を書き写さない。design-review をコミットの必須条件にはしない -->
+- Issue を実装する: `/aidd:issue-implement <番号>`。設計書・多段レビューが要るかは、この skill の「レーン判定」が決める
+- Issue を使わない開発:
+  - 設計: issue-implement の「レーン判定」で設計レーンに当たる変更だけ `/aidd:design-doc` → `/aidd:design-review`。当たらない変更は設計書なしで進める
+  - 実装前: `/aidd:test-perspectives` で観点を1回出し、must を最初のテストにする
