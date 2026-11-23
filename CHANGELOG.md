@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.77.0 (2026-11-23)
+
+- Cursor の `skill-gate` が、入力の表記ではなく実ファイルの同一性で `autonomous-review` の SKILL.md の Read を判定するようにした (#120)。以前は `harness-adapter.sh` が生の入力に `autonomous-review` を含むかで python の前に抜けていたため、別名の symlink や JSON エスケープした入力が gate に届かず通っていた。adapter が python を起動せずに抜けるのは、`file_path` が無いときと、存在する絶対パスで `..` を含まず bash の `-ef` で対象と別ファイルだと分かったときだけにし、それ以外 (名前・バックスラッシュを含む、相対パス・`~`、存在しないパス、`file_path` が複数など) は gate に渡す。抜け道ごとに条件を足すと同じ種類の漏れが続いたため、抜ける側を絞った。gate は相対パスを入力の `cwd` から、`~` をホームから解決し、そのパスと `normpath` したパスのどちらかが対象と同じ実ファイルなら拒否する。外部の同名ファイルと無関係な Read は通し、存在する無関係な絶対パスの Read では従来どおり python を起動しない。NUL を含むパスは fail-closed として数えない。adapter の fail-open と、異常終了時に有効な拒否 JSON だけを保持する方針 (#119) は変えていない
+- 既知の限界: バックスラッシュを含むパス (Windows の Cursor など) と存在しないパスの Read は python に回る (macOS の実測で1回あたり約66〜70ms、既存ファイルの Read は約6ms のまま。Windows では未計測)。plugin の中の symlink の後ろに `..` があるパスは、正規化の比較で止める側に倒れて拒否されうる。python が無い環境では従来どおり `no_python3` として記録して通す
+- `tests/hook-contract-test.sh` に adapter 経由のケース (正規パス・別名・相対・`~`・大小文字・JSON エスケープ・重複/入れ子の `file_path`・symlink の連鎖・`..`・長いパス・外部の同名ファイル) を足し、通すケースは `adapter-skips.json` が増えないことも確かめる。`.claude/CLAUDE.md` と設計書 (2026-11-14) の記述を実装に合わせた
+
 ## 0.74.0 (2026-11-23)
 
 - `harness-adapter.sh` が子の非0終了とシグナル終了を区別して記録するようにした。起動失敗も含め `/aidd:doctor` で理由と件数を確認でき、標準エラー・コマンド本文・機密情報は記録しない (#119)。
