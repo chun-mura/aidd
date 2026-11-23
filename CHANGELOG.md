@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.67.0 (2026-11-22)
+## 0.67.0 (2026-11-23)
 
 - `asset-audit`: auto memory を棚卸しの対象に加えた。memory には `CLAUDE.md` や hook と重なる記述や、正典に昇格して要らなくなった記述が残るのに、棚卸しの対象に入っていなかったため (#106)。手順1で、このリポジトリの auto memory (`~/.claude/projects/<プロジェクト>/memory/`。worktree を含めて1リポジトリ1つ。`CLAUDE_CONFIG_DIR` に従う) のファイルごとに、名前・種類 (frontmatter の `type`。既知の4種以外は `other`)・索引 `MEMORY.md` に名前があるかを出す。判定基準に「索引に無い memory」(改訂候補)・「memory と正典の重複」(統合候補)・「台帳で昇格済みの memory」(削除候補) を足した。memory には個人的なメモや機密が入りうるので、本文を写さない
 - 「台帳で昇格済み」は、知見の台帳 (#104) が有効なとき (`git config aidd.learnings true`) だけ、`scripts/learnings.py candidates` (`--session-id` なし、既定ブランチにマージ済みの観測だけ) が別の session で2回以上と出した `signature` のうち、正典 (`CLAUDE.md`・`.claude/rules/`・hook) に既にその規則があるものとして判定する。昇格の記録 (`.aidd/learnings/promotions/`) はまだ無いので、それを作らずに既存の出力だけで判定した。台帳は skill のディレクトリから解決した絶対パスで呼び、`.aidd/learnings/*.json` を直接読まない。終了コード4 (既定ブランチの観測を数えられない) と台帳が無効なときは「判定不能」とする
