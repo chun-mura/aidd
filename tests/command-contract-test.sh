@@ -376,6 +376,25 @@ if grep -F -- '更新日 (`ls -l`)' "$asset_audit"; then
   echo "asset-audit must not take memory dates with ls -l (it prints the owner)" >&2
   exit 1
 fi
+# #128: zero candidates with complete evidence is "no problem"; missing evidence is
+# "undetermined" with what to measure next, never a candidate made up to fill the list.
+grep -F -- '「問題なし」「判定不能」「改善候補あり」' "$asset_audit"
+grep -F -- '候補を埋めるために、根拠のない削除・改訂や基準の強化を提案しない' "$asset_audit"
+grep -F -- '次に何を計測すればよいか' "$asset_audit"
+grep -F -- '全体の結論は、候補が1件でもあれば「改善候補あり」、候補が無く判定不能の基準があれば「判定不能」、どちらも無ければ「問題なし」' "$asset_audit"
+grep -F -- '先頭に全体の結論 (問題なし・判定不能・改善候補あり) を示し' "$asset_audit"
+grep -F -- '候補が0件なら確認するものは無いので、結論 (判定不能ならその基準と次の計測) を示して手順5へ進む' "$asset_audit"
+grep -F -- '候補がある基準でも、判定不能の対象があれば、その対象と次の計測を併記する' "$asset_audit"
+grep -F -- '「問題なし」とした基準にも、確かめた範囲を1行添える' "$asset_audit"
+grep -F -- '範囲を示せない基準は「判定不能」にする' "$asset_audit"
+for phrase in '候補が0件なら基準を疑う' '「問題なし」で終えない' '基準を疑う'; do
+  if grep -F -- "$phrase" "$asset_audit"; then
+    echo "asset-audit must allow zero candidates when the evidence is complete: $phrase" >&2
+    exit 1
+  fi
+done
+grep -F -- '承認されたものだけ変更する' "$asset_audit"
+grep -F -- '提示を終えたら (承認の有無に関わらず) 実施日を記録する' "$asset_audit"
 
 # Every eval case has planted false findings (high/mid only), and every planted ID has
 # its refutation evidence in the key, so the refuter's discrimination can be scored.
