@@ -1596,7 +1596,8 @@ for reverse in (False, True):
         paths.reverse()
     out, counts, _ = invoke(f"batch-unencodable-{reverse}", paths=paths)
     assert_deny(out)
-    assert counts == {"bad_output": 1, "script_nonzero_exit": 1}, counts
+    # A lone surrogate (#173) reaches the child escaped instead of failing the call.
+    assert counts == {"script_nonzero_exit": 1}, counts
 out, counts, _ = invoke("batch-empty-path", paths=["ok:deny", "", "exit42:empty"])
 assert_deny(out)
 assert counts == {"unparsed_patch": 1, "script_nonzero_exit": 1}, counts
@@ -2029,7 +2030,7 @@ text = json.dumps(p, indent=2 if mode == "indent" else None)
 if mode == "escape":
     text = text.replace("/", "\\/").replace("autonomous-review", "\\u0061utonomous\\u002dreview")
     text = text.replace("alias", "\\u0061lias")
-open(sys.argv[2], "w").write(text)
+open(sys.argv[2], "w").write(text.replace("<lone>", "\\ud800"))  # a lone surrogate, as JSON.stringify writes it
 PY
 }
 adapter_gate() { AIDD_TEST_STATE_DIR="$gate_dir" bash "$adapter" skill-gate.sh < "$adapter_in"; }
@@ -2113,6 +2114,44 @@ cursor_read "file:///%2f?/../..$repo_root/skills/autonomous-review/SKILL.md" /wo
 cursor_read "file://evil/?/../../..$repo_root/skills/autonomous-review/SKILL.md" /work; adapter_gate | expect_cursor_deny
 cursor_read "file:///%2f?/../../../autonomous-review/SKILL.md" "$repo_root/skills/design-review"; adapter_gate | expect_cursor_deny
 cursor_read "file:///%2f?/../..$alias_dir/other.md" /work; expect_adapter_pass
+# Issue #173 S2: Cursor resolves a relative Read from its workspace (one root: the hook's cwd), the roots'
+# common parent (several roots), or its own process cwd (no root, a GUI app's is usually /). The Read
+# event carries no cwd, so a relative path naming the SKILL.md from / or any ancestor of cwd is denied.
+cursor_read autonomous-review/SKILL.md "$repo_root/skills/design-review"; adapter_gate | expect_cursor_deny
+cursor_read "${repo_root#/}/skills/autonomous-review/SKILL.md" /work; adapter_gate | expect_cursor_deny
+cursor_read "../../..$repo_root/skills/autonomous-review/SKILL.md" /work; adapter_gate | expect_cursor_deny
+cursor_read design-review/SKILL.md "$repo_root/skills/design-review"; expect_adapter_pass
+cursor_read "${repo_root#/}/skills/design-review/SKILL.md" /work; expect_adapter_pass
+# S2-2: a lone surrogate reaches the gate, which reads it as Node does (U+FFFD); unrelated Reads still pass.
+cursor_read "$repo_root/skills/x<lone>/../autonomous-review/SKILL.md"; adapter_gate | expect_cursor_deny
+ln -s "$repo_root/skills/autonomous-review/SKILL.md" "$alias_dir/alias"$'\xef\xbf\xbd'".md"
+cursor_read "$alias_dir/alias<lone>.md"; adapter_gate | expect_cursor_deny
+cursor_read "$repo_root/skills/autonomous-review/SKILL.md<lone>"; expect_adapter_pass
+cursor_read "$alias_dir/other<lone>.md"; expect_adapter_pass
+# The root (the gate's cwd) may carry one too: Node opens it as U+FFFD, so the gate bases a relative path there.
+mkdir "$alias_dir/root"$'\xef\xbf\xbd'
+ln -s "$repo_root/skills/autonomous-review/SKILL.md" "$alias_dir/root"$'\xef\xbf\xbd'"/linked.md"
+cursor_read linked.md "$alias_dir/root<lone>"; adapter_gate | expect_cursor_deny
+cursor_read other.md "$alias_dir/root<lone>"; expect_adapter_pass
+# Cursor expands only ~ alone or before / (not ~user): ~root/.. stays relative and is judged from every base.
+cursor_read '~root/../autonomous-review/SKILL.md' "$repo_root/skills/design-review"; adapter_gate | expect_cursor_deny
+# No workspace root and no CURSOR_PROJECT_DIR: the gate still runs (from /), other scripts keep no_cwd.
+rootless_read() {  # FILE_PATH: a Cursor Read with workspace_roots []
+  python3 - "$fixtures/cursor/preToolUse.read-before-edit.json" "$adapter_in" "$1" <<'PY'
+import json, sys
+p = json.load(open(sys.argv[1]))
+p["workspace_roots"] = []
+p["tool_input"]["file_path"] = sys.argv[3]
+json.dump(p, open(sys.argv[2], "w"))
+PY
+}
+rootless_gate() { env -u CURSOR_PROJECT_DIR AIDD_TEST_STATE_DIR="$gate_dir" bash "$adapter" skill-gate.sh < "$adapter_in"; }
+rootless_read "$repo_root/skills/autonomous-review/SKILL.md"; rootless_gate | expect_cursor_deny
+rootless_read "${repo_root#/}/skills/autonomous-review/SKILL.md"; rootless_gate | expect_cursor_deny
+rootless_read /work/repo/new.txt
+before=$(cat "$gate_dir/adapter-skips.json" 2>/dev/null || true)
+[ -z "$(rootless_gate)" ]
+[ "$before" = "$(cat "$gate_dir/adapter-skips.json" 2>/dev/null || true)" ]
 cursor_read "$alias_dir/nonexist/../other.md"; expect_adapter_pass
 cursor_read "$alias_dir/nonexist.md"; expect_adapter_pass
 cursor_read "$repo_root/skills/design-review/../design-review/SKILL.md"; expect_adapter_pass
