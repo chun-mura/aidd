@@ -841,6 +841,7 @@ done
 # patterns, and the patterns it names keep being refused.
 run_write_guard Write file_path "$project/src/secretary.ts" | grep -qF "'*secret*'"
 run_write_guard Write file_path "$project/.env.example" | grep -qF "'.env.*'"
+run_write_guard Write file_path "$project/src/mycredentials_adapter.ts" | grep -qF "'*credential*'"
 own_patterns='.env:*.pem:id_ed25519*'
 for name in src/secretary.ts .env.example src/mycredentials_adapter.ts; do
   [ -z "$(AIDD_UNREADABLE_NAME_PATTERNS=$own_patterns run_write_guard Write file_path "$project/$name")" ]
