@@ -13,7 +13,7 @@ ASK_REASON="autonomous-review の実行にはユーザーの許可が必要で�
 DENY_REASON="autonomous-review はモデルからは起動できません。ユーザーに /autonomous-review を手で実行するよう依頼してください。"
 
 PY_CODE=$(cat <<'PYEOF'
-import json, os, sys
+import json, os, sys, urllib.parse
 
 plugin_root, ask_reason, deny_reason = sys.argv[1:4]
 
@@ -43,6 +43,11 @@ elif event.get("tool_name") == "Read":
     path = tool_input.get("file_path")
     own = os.path.join(plugin_root, "skills", "autonomous-review", "SKILL.md")
     if isinstance(path, str) and path:
+        if path.startswith("file://"):
+            # Cursor opens a file URI as the percent-decoded path it names, before ~ and cwd.
+            parts = urllib.parse.urlsplit(path)
+            if parts.netloc.lower() in ("", "localhost"):
+                path = urllib.parse.unquote(parts.path)
         path = os.path.expanduser(path)
         cwd = event.get("cwd")
         if isinstance(cwd, str) and cwd:

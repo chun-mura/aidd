@@ -1830,6 +1830,11 @@ cursor_read "$alias_dir$(printf '/.%.0s' $(seq 2100))/alias.md"; adapter_gate | 
 for tail in /. / // /./.; do
   cursor_read "$alias_dir/alias.md$tail"; adapter_gate | expect_cursor_deny
 done
+# Cursor opens a file:// URI as the percent-decoded path it names.
+cursor_read "file://$repo_root/skills/autonomous-review/SKILL.md"; adapter_gate | expect_cursor_deny
+cursor_read "file://$alias_dir/alias.md"; adapter_gate | expect_cursor_deny
+cursor_read "file://localhost$repo_root/skills/autonomous%2Dreview/SKILL.md"; adapter_gate | expect_cursor_deny
+cursor_read "file://$alias_dir/other.md"; expect_adapter_pass
 cursor_read "$alias_dir/nonexist/../other.md"; expect_adapter_pass
 cursor_read "$alias_dir/nonexist.md"; expect_adapter_pass
 cursor_read "$repo_root/skills/design-review/../design-review/SKILL.md"; expect_adapter_pass
