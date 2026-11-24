@@ -44,9 +44,75 @@ grep -F -- 'gh pr create' "$command_file"
 grep -F -- 'レビュー出力を `eval`・`source`・コマンド置換で実行してはならない' "$command_file"
 grep -F -- 'perspective_reviews' "$command_file"
 grep -F -- '観点別レビューを追加で実行' "$command_file"
-grep -F -- 'aidd:security-reviewer' "$command_file"
 # The security perspective fires on the same storage condition as design-review Agent 6 (#110).
-grep -F -- '公開エンドポイント、権限設定)、または機微情報 (個人情報・プロンプト・認証情報など) をファイル・ログ・キャッシュに保存する場合、`aidd:security-reviewer` を実行する' "$command_file"
+grep -F -- '公開エンドポイント、権限設定)、または機微情報 (個人情報・プロンプト・認証情報など) をファイル・ログ・キャッシュに保存する場合、実装差分の監査として `/security-review` を実行する' "$command_file"
+# aidd:security-reviewer is a design-document STRIDE reviewer; a run of it, or of design-review,
+# must not count as an audit of the implementation diff (#121).
+if grep -F -- '`aidd:security-reviewer` を実行する' "$command_file"; then
+  echo "the implementation diff must go to /security-review, not the design-only security-reviewer" >&2
+  exit 1
+fi
+grep -F -- '`aidd:security-reviewer` は設計書に対する STRIDE レビューであり、実装差分の監査に使わない' "$command_file"
+grep -F -- '`/aidd:design-review` のセキュリティ指摘も、実装差分の監査に数えない' "$command_file"
+# One audit output per round, like reviewer-round<N>.txt, so a later round does not overwrite it.
+grep -F -- '`security-review-round<N>.txt`' "$command_file"
+if grep -F -- '`security-review.txt`' "$command_file"; then
+  echo "the /security-review output must be saved per round" >&2
+  exit 1
+fi
+# Mapped severity decides fixing and eligibility, so it must never be lowered.
+grep -F -- '`severity` は重大度を下げずに写し (High は `blocker`、Medium は `major`、Low は `minor`)、重大度が無い・対応を判断できない指摘は `major` 以上とする' "$command_file"
+# Where it runs and how the audited range is matched against the confirmed diff.
+grep -F -- '`git diff --name-only origin/HEAD...` と `git diff origin/HEAD...` を取り' "$command_file"
+grep -F -- '作業ツリー差分だけが対象の run では、未コミットの差分を監査しないので実行せず未実行とする' "$command_file"
+grep -F -- '作業ディレクトリの `HEAD` がそのラウンドの対象コミット (head、2ラウンド目以降は修正後のコミット) を指している場合だけ実行する' "$command_file"
+grep -F -- '`git diff --no-ext-diff --name-only origin/HEAD...HEAD` を取り、確定した差分 (' "$command_file"
+grep -F -- '2ラウンド目以降は修正後のコミット) の `git diff --no-ext-diff --name-only` の出力と比べる' "$command_file"
+grep -F -- '監査の経路、対象にした差分 (`base_sha` と `head_sha`、または作業ツリー差分)、照合した変更ファイルの一致・不一致、結果のファイル、未実行ならその理由' "$command_file"
+grep -F -- '利用環境に `/security-review` が無い (Codex・Cursor など)、起動に失敗した、出力が無い・結果を読み取れない、または確定した差分と同じ範囲を監査したと確かめられない場合は、未実行として理由を記録し `human_required` とする' "$command_file"
+# The audited hunks depend on the start point, not only on the file names.
+grep -F -- '`git merge-base origin/HEAD HEAD` と `git merge-base <base_sha> HEAD` が同じコミットであることも確かめる。どれかが一致しない' "$command_file"
+# Fix commits from the last round must be audited before the final decision.
+grep -F -- '最後に `/security-review` を実行した HEAD が `head_sha_after_fixes` (無ければ `head_sha`) と一致することを確かめる' "$command_file"
+grep -F -- '再実行できない・照合が一致しない場合は未実行として `human_required` とする' "$command_file"
+grep -F -- '`executed` は、`head_sha_after_fixes` (無ければ `head_sha`) を監査し照合が一致した実行があるときだけ `true` とする' "$command_file"
+# /security-review excludes what the #110 storage trigger is about, so that trigger alone is not audited.
+grep -F -- 'Claude Code 2.1.330 の `/security-review` は、プロンプトで「Secrets or credentials stored on disk if they are otherwise secured」' "$command_file"
+grep -F -- '(版によって変わりうる)' "$command_file"
+grep -F -- '委譲先がその種類を除外していることを `residual_risks` と `report.md` に記録し、`human_required` とする' "$command_file"
+# The exclusion applies whenever the storage trigger matches, also together with the trust-boundary one.
+grep -F -- '機微情報をファイル・ログ・キャッシュに保存する条件に該当した差分 (信頼境界の条件にも該当する場合を含む) は' "$command_file"
+if grep -F -- '信頼境界を跨ぐことでは該当しない差分' "$command_file"; then
+  echo "the exclusion risk must not be limited to diffs that match only the storage trigger" >&2
+  exit 1
+fi
+# The final re-run keeps its own output and ids, and its confirmed blocker/major is not fixed past the round limit.
+grep -F -- '再実行の出力はラウンドのファイルを上書きせず `security-review-final.txt` に保存し、指摘の `id` は各ラウンドの `S<N>-<n>` と重ならない `SF-<n>` として、同じ写し方で 5 の現物検証にかける' "$command_file"
+# Same outcome as step 8: a confirmed blocker/major left unfixed is failed, not human_required.
+grep -F -- '最終判定の直前で、修正すると再び監査が必要になるので、confirmed の blocker / major があれば修正せず、8 と同じく `failed` とする' "$command_file"
+if grep -F -- 'confirmed の blocker / major があれば修正せず `human_required` とする' "$command_file"; then
+  echo "the final audit's confirmed blocker/major must end in failed like step 8" >&2
+  exit 1
+fi
+grep -F -- '`S<N>-<n>` はそのラウンドの `rounds[].finding_ids` に入れ、`SF-<n>` は `findings` にだけ入れる' "$command_file"
+# Later rounds compare against the diff up to that round's target commit.
+grep -F -- '確定した差分 (`<base_sha>...<そのラウンドの対象コミット>`。1ラウンド目は head、2ラウンド目以降は修正後のコミット)' "$command_file"
+grep -F -- '`id` は主レビューの `R<n>` と重ならないよう `S<N>-<n>` (`<N>` はラウンド) とし' "$command_file"
+# Inside the perspective-review step, aidd:security-reviewer may appear only in the two exclusion
+# sentences; once they are removed, no other mention (such as a rephrased "also run it") may remain.
+perspective_step=$(awk '/^4\. 差分の性質に応じて観点別レビューを追加で実行する/{on=1} /^5\. 各有効な指摘/{on=0} on' "$command_file")
+grep -F -- '`aidd:security-reviewer`' <<<"$perspective_step"
+allowed_design_only='`aidd:security-reviewer` は設計書に対する STRIDE レビューであり、実装差分の監査に使わない。'
+allowed_no_substitute='`aidd:security-reviewer` や自前のレビューで代えない。'
+grep -F -- "$allowed_design_only" <<<"$perspective_step"
+grep -F -- "$allowed_no_substitute" <<<"$perspective_step"
+perspective_step=${perspective_step//"$allowed_design_only"/}
+perspective_step=${perspective_step//"$allowed_no_substitute"/}
+if grep -F -- 'aidd:security-reviewer' <<<"$perspective_step"; then
+  echo "step 4 must mention aidd:security-reviewer only to exclude it from the implementation audit" >&2
+  exit 1
+fi
+grep -F -- '自前のレビューで代えない' "$command_file"
 grep -F -- '`approved` を返したことは、網羅的にレビューされたことを意味しない' "$command_file"
 grep -F -- '該当する観点別レビューの完了' "$command_file"
 grep -F -- 'state.json のスキーマ' "$command_file"
