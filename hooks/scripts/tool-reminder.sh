@@ -317,9 +317,21 @@ def update_state(name, change):
 DOCS_ONLY = r"(^docs/|\.md$|\.txt$)"
 
 
+def changed_paths(directory, *revs):
+    """The paths a diff changes, or None when git fails. --no-renames: a file moved elsewhere is
+    also a deletion where it was. --ignore-submodules=none: ignore = all in .gitmodules would hide a
+    submodule pointer. --no-relative: diff.relative from a subdirectory would hide changes outside
+    it. -z: paths with non-ASCII or control characters come unquoted (and nothing is stripped)."""
+    out = git_bytes(directory, "diff", "--no-ext-diff", "--no-renames", "--ignore-submodules=none",
+                    "--no-relative", "--name-only", "-z", *revs)
+    if out is None:
+        return None
+    return [path for path in out.decode("utf-8", "replace").split("\0") if path]
+
+
 def remind_test_perspectives(directory):
-    staged = git(directory, "diff", "--cached", "--name-only")
-    if staged and all(re.search(DOCS_ONLY, path) for path in staged.splitlines()):
+    staged = changed_paths(directory, "--cached")
+    if staged and all(re.search(DOCS_ONLY, path) for path in staged):
         return
     perspectives = os.path.join(directory, "docs", "test-perspectives")
     for path in glob.glob(os.path.join(perspectives, "**", "*.md"), recursive=True):
@@ -377,12 +389,10 @@ def covers_head(directory, reviewed, head_sha):
         return True
     if git(directory, "merge-base", reviewed, head_sha) != reviewed:
         return False
-    # --no-renames: a file moved into .aidd/ is also a deletion outside it. --ignore-submodules=none:
-    # ignore = all in .gitmodules would hide a submodule pointer. --no-relative: diff.relative from
-    # a subdirectory would hide changes outside it.
-    changed = git(directory, "diff", "--no-ext-diff", "--no-renames", "--ignore-submodules=none",
-                  "--no-relative", "--name-only", reviewed, head_sha)
-    return changed is not None and all(path.startswith(AFTER_REVIEW) for path in changed.splitlines())
+    # Both ends are compared, not each commit between them: a change undone later leaves the code
+    # the PR carries the same as the reviewed code.
+    changed = changed_paths(directory, reviewed, head_sha)
+    return changed is not None and all(path.startswith(AFTER_REVIEW) for path in changed)
 
 
 def has_review_evidence(directory, base_shas, head_sha):
@@ -393,7 +403,7 @@ def has_review_evidence(directory, base_shas, head_sha):
     if top:
         roots.insert(0, top)
     for root in dict.fromkeys(roots):
-        for state_file in glob.glob(os.path.join(root, ".aidd", "autonomous-review", "*", "state.json")):
+        for state_file in glob.glob(os.path.join(glob.escape(root), ".aidd", "autonomous-review", "*", "state.json")):
             try:
                 with open(state_file) as f:
                     state = json.load(f)
@@ -435,10 +445,14 @@ def warn_review_before_pr(args, directory):
     head_ref, head_sha = resolve_commit(directory, [head, "origin/" + head])
     if not head_ref:
         return
-    changed = git(directory, "diff", "--no-relative", "--name-only", base_ref + "..." + head_ref)
-    if not changed:
+    files = changed_paths(directory, base_ref + "..." + head_ref)
+    if files is None:  # no merge base (a shallow clone, unrelated histories), a git failure
+        add(contexts,
+            f"aidd: ブランチ {head} と {base} の差分を取得できないため、PR 前のレビュー証跡を確認していない。"
+            f"PR を出す前に /aidd:autonomous-review --base {base} --head {head} を実行したかを確かめること。")
         return
-    files = changed.splitlines()
+    if not files:
+        return
     skip = env_regex("AIDD_REVIEW_SKIP_PATHS", DOCS_ONLY)
     if all(skip.search(path) for path in files):
         return

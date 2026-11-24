@@ -18,8 +18,8 @@ argument-hint: "[対象] [--base <branch>] [--head <branch>] [--reviewer codex|c
   - `--base` だけ指定: `HEAD` を使うか別の `--head` かを選ばせる。
   - 利用者が質問を拒否した、または回答から有効なブランチを確定できない場合のみ `human_required` として終了する。
 - `--base` と `--head` は対で指定する。確定後に同じコミットを指す組、または空の差分は `human_required` として終了する。各値は先頭が `-` の値を拒否し、`git check-ref-format --branch <branch>` と `git rev-parse --verify --quiet --end-of-options <branch>^{commit}` の両方で検証してコミットを確定する。
-- `--base <base> --head <head>` 指定時は、確定したコミットだけを `git diff --no-ext-diff <base>...<head>` と `git diff --no-ext-diff --name-only <base>...<head>` の固定位置引数に渡す。`<head>` は比較対象と品質ゲートの実行対象であり、現在のチェックアウト状態には依存しない。
-- `--base` だけの指定時は、確認済みのブランチ名だけを `git diff --no-ext-diff <base>...HEAD` と `git diff --no-ext-diff --name-only <base>...HEAD` の固定位置引数に渡す。
+- `--base <base> --head <head>` 指定時は、確定したコミットだけを `git diff --no-ext-diff --no-relative <base>...<head>` と `git diff --no-ext-diff --no-relative --name-only <base>...<head>` の固定位置引数に渡す。`<head>` は比較対象と品質ゲートの実行対象であり、現在のチェックアウト状態には依存しない。
+- `--base` だけの指定時は、確認済みのブランチ名だけを `git diff --no-ext-diff --no-relative <base>...HEAD` と `git diff --no-ext-diff --no-relative --name-only <base>...HEAD` の固定位置引数に渡す。
 - `--base` 未指定時は、未コミット差分とステージ済み差分（`git diff --no-ext-diff` と `git diff --no-ext-diff --staged`）を対象にする。両方を空なら、未指定として AskUserQuestion でブランチ比較に切り替え、それでも空なら `human_required` として終了する。
 - `[対象]` がある場合は、確定した変更ファイル集合に含まれる相対パスまたは明示的な変更目的だけを許可する。対象に含まれない変更、追跡不能な生成物、または指定対象と変更ファイル集合の不一致があれば、**対象外の変更が混ざる場合、レビューを始めずに停止**する。
 - 各 Git 呼び出しは `--no-ext-diff` を付け、固定したサブコマンドと引数構成だけを使う。任意のシェル文字列、プロジェクト設定の検証コマンド、レビュー出力を `eval`・`source`・コマンド置換で実行してはならない。
@@ -96,9 +96,9 @@ argument-hint: "[対象] [--base <branch>] [--head <branch>] [--reviewer codex|c
 - `schema_version` が `5` 以上の整数。`4` 以下の証跡は、完了を表すキーを持たないので数えない (再実行する)
 - `status` と `final_decision` が同じ値で、`auto_merge_eligible`、または `human_required` かつ `human_required_reason` が `human_judgment`。`started` / `reviewing` / `gating`、`failed`、`review_incomplete`、`human_required_reason` のキーが無いものは数えない
 - `base_sha` が今の基点ブランチの先端と一致する。`origin/<base>` があればその先端、ローカルの `<base>` の先端は `origin/<base>` に含まれる (push していないコミットが無い) ときだけ数える。push していないローカルのコミットは PR に入るのにレビューの対象外になるため。`origin/<base>` が無ければ、ローカルの先端だけを数える。hook はネットワークに出ないので、`origin/<base>` が fetch されずに古い場合は検出できない
-- `head_sha_after_fixes` (無い・`null` なら `head_sha`) が PR の head と一致する。head が先に進んでいても、増えたコミットが `.aidd/autonomous-review/` (証跡) と `.aidd/learnings/` (台帳) だけを変えるなら一致とみなす。それ以外の `.aidd/` 配下の変更、名前の変更の元の場所、mode だけの変更、submodule のポインタの変更 (`.gitmodules` の `ignore` に関係なく) はコードの変更として数える
+- `head_sha_after_fixes` (無い・`null` なら `head_sha`) が PR の head と一致する。head が先に進んでいても、レビューしたコミットと head の差分 (途中のコミットごとではなく両端の比較) が `.aidd/autonomous-review/` (証跡) と `.aidd/learnings/` (台帳) だけを変えるなら一致とみなす。それ以外の `.aidd/` 配下の変更、名前の変更の元の場所、mode だけの変更、submodule のポインタの変更 (`.gitmodules` の `ignore` に関係なく) はコードの変更として数える
 - 型が表のとおりである (SHA は16進の完全な値)。作業ツリー差分の run (`base_sha` が `null`) は PR の差分のレビューとは数えない
-- 証跡の判定そのものが失敗した場合は、確認できなかったと書いて警告する (同じコマンドのほかの確認の結果は残す)
+- 証跡の判定そのものが失敗した場合と、基点と head の差分を取得できない場合 (merge base が無いなど) は、確認できなかったと書いて警告する (同じコマンドのほかの確認の結果は残す)
 
 ## レビュー・ループ
 

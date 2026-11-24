@@ -216,8 +216,9 @@ expect_warn
 ev_head=$(git -C "$ev" rev-parse feat)
 write_state "$run_dir"
 expect_quiet
-# A file moved into .aidd/ is a deletion outside it, not a change inside .aidd/ only.
-git -C "$ev" mv c.sh .aidd/c.sh
+# A file moved into the evidence directory is a deletion outside it, not a change inside it only.
+mkdir -p "$ev/.aidd/autonomous-review/run0"
+git -C "$ev" mv c.sh .aidd/autonomous-review/run0/c.sh
 git -C "$ev" commit -qm 'chore: move into .aidd'
 expect_warn
 git -C "$ev" reset -q --hard "$ev_head"
@@ -227,6 +228,11 @@ mkdir -p "$ev/.aidd/autonomous-review/run0"
 echo '{}' > "$ev/.aidd/autonomous-review/run0/report.md"
 git -C "$ev" add .aidd/autonomous-review/run0/report.md
 git -C "$ev" commit -qm 'chore: evidence'
+expect_quiet
+# git quotes a non-ASCII path unless -z: the quoted name must not hide that it is evidence.
+echo x > "$ev/.aidd/autonomous-review/run0/報告.txt"
+git -C "$ev" add .aidd/autonomous-review/run0/報告.txt
+git -C "$ev" commit -qm 'chore: evidence with a non-ASCII name'
 expect_quiet
 echo '{}' > "$ev/.aidd/design-perspectives.md"
 git -C "$ev" add .aidd/design-perspectives.md
@@ -314,16 +320,32 @@ git -C "$ev" update-ref -d refs/remotes/origin/main
 # Evidence written in any worktree counts, whichever worktree (or the main tree) opens the PR.
 rm -rf "$ev/.aidd/autonomous-review"
 git -C "$ev" switch -q main
-git -C "$ev" worktree add -q "$tmp_dir/wt-a" feat
+git -C "$ev" worktree add -q "$tmp_dir/wt-[a]" feat
 git -C "$ev" worktree add -q --detach "$tmp_dir/wt-b" main
-run_dir="$tmp_dir/wt-a/.aidd/autonomous-review/run1"
+run_dir="$tmp_dir/wt-[a]/.aidd/autonomous-review/run1"
 expect_warn feat "$tmp_dir/wt-b"
 write_state "$run_dir"
-for cwd in "$ev" "$tmp_dir/wt-a" "$tmp_dir/wt-b"; do
+for cwd in "$ev" "$tmp_dir/wt-[a]" "$tmp_dir/wt-b"; do
   expect_quiet feat "$cwd"
 done
-git -C "$ev" worktree remove --force "$tmp_dir/wt-a"
+git -C "$ev" worktree remove --force "$tmp_dir/wt-[a]"
 git -C "$ev" worktree remove --force "$tmp_dir/wt-b"
+# A branch moved into docs/ is not docs-only: the move deletes the code where it was.
+git -C "$ev" switch -qc moved main
+mkdir -p "$ev/docs"
+git -C "$ev" mv app.sh docs/app.md
+# The same holds for the staged files that decide the test-perspectives nudge.
+hook PreToolUse "$ev" 'git commit -m x' | grep -F '/aidd:test-perspectives'
+git -C "$ev" commit -qm 'docs: move'
+expect_warn moved
+# Without a merge base the diff cannot be taken: it says so instead of staying silent.
+git -C "$ev" switch -q --orphan lone
+echo lone > "$ev/lone.sh"
+git -C "$ev" add lone.sh
+git -C "$ev" commit -qm 'feat: unrelated history'
+pr_out lone | grep -F '差分を取得できない'
+git -C "$ev" switch -q feat
+
 # Without --base, origin/HEAD or AIDD_REVIEW_BASE, main then master is the base.
 master_repo="$tmp_dir/master-repo"
 git init -q --template= -b master "$master_repo"
