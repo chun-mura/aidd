@@ -21,7 +21,8 @@ gate_may_read() {  # 0 when the input may Read this plugin's skills/autonomous-r
   [ "$n" -le 1 ] || return 0
   [ -n "$path" ] || return 1
   [ "${path#/}" != "$path" ] || return 0
-  case "$path" in */../* | */..) return 0 ;; esac
+  # A trailing / or /. goes to python too: macOS stat sometimes finds a file behind "file/".
+  case "$path" in */../* | */.. | */ | */.) return 0 ;; esac
   [ -e "$path" ] || return 0
   [ "$path" -ef "$(dirname "$0")/../../skills/autonomous-review/SKILL.md" ]
 }
@@ -298,17 +299,21 @@ def call_script(payload, skip):
     env = os.environ.copy()
     env["CLAUDE_PLUGIN_ROOT"] = plugin_root
     try:
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    except UnicodeError:
+        # A lone surrogate (JSON.stringify writes one as \ud800) has no UTF-8 form. Pass it escaped,
+        # so the script still judges the input (a Read of the gated SKILL.md must not slip through).
+        data = json.dumps(payload).encode("ascii")
+    try:
         proc = subprocess.run(
             [target],
-            input=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            input=data,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             env=env,
         )
     except OSError:
         return "failed"
-    except UnicodeError:
-        return "bad"
     parsed = parse_script_output(proc.stdout.decode("utf-8", "replace"))
     if proc.returncode != 0:
         skip("script_signaled" if proc.returncode < 0 else "script_nonzero_exit")
@@ -343,6 +348,8 @@ def main():
         return
 
     cwd = resolve_cwd(event)
+    if not cwd and orig_tool == "Read" and os.path.basename(target) == "skill-gate.sh":
+        cwd = "/"  # the gate needs no cwd for an absolute path and already tries / for a relative one
     if not cwd:
         skip("no_cwd")
         return
