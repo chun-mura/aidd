@@ -341,7 +341,7 @@ def remind_test_perspectives(directory):
                 return
         except OSError:
             pass
-    add(contexts, "aidd: if /aidd:test-perspectives has not been run for this change, run it before committing (skip for docs-only or trivial changes).")
+    add(contexts, "aidd: no test perspectives saved under docs/test-perspectives/ in the last 6 hours. If none were produced for this change, run /aidd:test-perspectives <design doc path or change description> before the remaining implementation and write its must items as tests first. If they were already produced for this change, or the change is docs-only or trivial, do not run it again. If implementation is already complete, do not create them retroactively.")
 
 
 def resolve_commit(directory, names):
