@@ -33,7 +33,7 @@ argument-hint: "[対象] [--base <branch>] [--head <branch>] [--reviewer codex|c
 開始時に UTC 時刻とランダム値から実行IDを作り、消費側プロジェクトの `.aidd/autonomous-review/<実行ID>/` を新規作成する。既存の利用者ファイルは上書きしない。同じ時点で `git symbolic-ref --quiet --short HEAD` を実行し、出力を `start_branch` に記録する (終了コード1は detached HEAD なので `null`。それ以外の失敗も `null` とし、終了コードと stderr を利用者に伝える。どちらでも台帳のコミットはしない)。以下を逐次保存し、書き込み失敗は `failed` とする。
 
 - `state.json`: 下の「state.json のスキーマ」に従う有効なJSON。状態は `started` → `reviewing` → `gating` → 最終判定だけを許可する。
-- `report.md`: 対象差分と基準ブランチ、レビュー担当と実行可否、観点別レビューの該当理由と実行結果、各ラウンドの指摘・根拠・判定・修正／見送り理由、`deferred` の追跡先、観点とテストの対応表 (下記。ロジックを変えた場合だけ)、品質ゲートのコマンド・結果・スキップ理由、残存リスク・未検証の前提、最終判定と理由、知見の台帳への記録と昇格候補 (台帳が有効な場合) を記録する。レビュー担当の `approved` は網羅的レビューの証明ではないことを明記する。
+- `report.md`: 対象差分と基準ブランチ、レビュー担当と実行可否、観点別レビューの該当理由と実行結果、各ラウンドの指摘・根拠・判定・修正／見送り理由、`deferred` の追跡先、観点とテストの対応表 (下記。ロジックを変えた場合だけ)、品質ゲートのコマンド・結果・スキップ理由、残存リスク・未検証の前提、最終判定と理由 (`human_required` では `human_required_reason` の区分も)、知見の台帳への記録と昇格候補 (台帳が有効な場合) を記録する。レビュー担当の `approved` は網羅的レビューの証明ではないことを明記する。
 - レビュー担当の生出力など、上記以外の証跡ファイルの拡張子は `.txt` にする。`*.log` は一般的な `.gitignore` に当たり、`git add <dir>` から無言で落ちるため使わない。
 
 `report.md` の観点とテストの対応表は、レビュー・ループの 7 で出した観点と、追加・更新したテストを人が突き合わせなくて済むように書く。
@@ -54,7 +54,7 @@ argument-hint: "[対象] [--base <branch>] [--head <branch>] [--reviewer codex|c
 
 | キー | 型 | 必須 | 意味 |
 |------|----|------|------|
-| `schema_version` | number | 必須 | このスキーマの版。現行は `4` (`3` からの変更: `learnings` と `start_branch` を追加した。`2` から `3` への変更: `perspective_reviews` の `perspective` に `sibling_coverage` を追加した。`1` から `2` への変更: `rounds` の要素に `snapshot` を追加し、`worktree` を品質ゲート用だけにした) |
+| `schema_version` | number | 必須 | このスキーマの版。現行は `5` (`4` からの変更: `human_required_reason` と `local_diff` を追加した。`3` から `4` への変更: `learnings` と `start_branch` を追加した。`2` から `3` への変更: `perspective_reviews` の `perspective` に `sibling_coverage` を追加した。`1` から `2` への変更: `rounds` の要素に `snapshot` を追加し、`worktree` を品質ゲート用だけにした) |
 | `run_id` | string | 必須 | 実行ID |
 | `status` | string | 必須 | `started` / `reviewing` / `gating` / `auto_merge_eligible` / `human_required` / `failed` |
 | `target` | string | 必須 | `[対象]` または対象モードの説明 |
@@ -74,9 +74,24 @@ argument-hint: "[対象] [--base <branch>] [--head <branch>] [--reviewer codex|c
 | `residual_risks` | array | 必須 | 残存リスク・未検証の前提 |
 | `final_decision` | string / null | 必須 | 最終判定。確定前は `null` |
 | `final_decision_reason` | string / null | 必須 | 最終判定の理由。確定前は `null` |
+| `human_required_reason` | string / null | 必須 | `human_required` の理由の区分。`review_incomplete` はレビューが成立していない (レビュー担当の実行、該当する観点別レビュー、必須品質ゲートのどれかが未実施・未完了・失敗・未確定、入力や対象差分を確定できない、`local_diff` を記録できない)。`human_judgment` はそれらをすべて終えたうえで人が最終判断する (高リスク領域、`--reviewer claude` の自己レビュー、未追跡の `deferred` など)。両方に当たれば `review_incomplete`。最終判定が `human_required` 以外のときと確定前は `null` |
+| `local_diff` | object / null | 必須 | 作業ツリー差分が対象の run で、判定が覆う差分を識別する情報。`{ "head_commit": string, "staged_diff_hash": string, "unstaged_diff_hash": string }`。下の「作業ツリー差分の識別」に従う。ブランチ比較の run では `null` |
 | `learnings` | object | 必須 | 下の「指摘の台帳」の結果。`{ "enabled": bool, "observations": [{ "signature": string, "finding_ids": array, "path": string \| null }], "commit": { "sha": string, "reviewed_up_to": string \| null, "changes": ".aidd/learnings/ only", "human_review_required": true } \| null }`。`path` は台帳に書いたファイル (書かなかった型は `null`)。`commit` は台帳のファイルをコミットした場合だけ値を持ち、`sha` はそのコミット、`reviewed_up_to` は判定が覆う最後のコミット (`head_sha_after_fixes`、無ければ `head_sha`)。台帳のコミットは判定の対象外で、PR で人がレビューする。台帳の手順を終えるまでと台帳が無効のときは `{ "enabled": false, "observations": [], "commit": null }` |
 
-書き込みのたびに必須キーの有無と `status` / `final_decision` の値域を検証し、**必須キーを欠く、または値域外の状態を書こうとした場合は `failed` とする** (書き込み失敗を `failed` とするのと同じ扱い)。
+書き込みのたびに必須キーの有無と `status` / `final_decision` / `human_required_reason` の値域を検証し、**必須キーを欠く、または値域外の状態を書こうとした場合は `failed` とする** (書き込み失敗を `failed` とするのと同じ扱い)。
+
+### 作業ツリー差分の識別
+
+作業ツリー差分 (`--base` 未指定) の run は、どの差分をレビューしたかをブランチや SHA で示せない。最終判定を書く直前に、`git rev-parse --verify HEAD` の出力を `local_diff.head_commit` に、`git diff --no-ext-diff --binary --staged` と `git diff --no-ext-diff --binary` の出力を実行IDディレクトリの `local-staged-diff.txt` と `local-unstaged-diff.txt` に保存し、それぞれの `git hash-object <ファイル>` の出力を `staged_diff_hash` と `unstaged_diff_hash` に記録する (修正で差分が変わっても、判定が覆うのは最終の差分である)。どれか1つでも得られない場合は `local_diff` を `null` のままにし、差分を識別できないので `human_required` (`human_required_reason` は `review_incomplete`) とする。`auto_merge_eligible` にはしない。
+
+### PR 前の確認が数える証跡
+
+`gh pr create` の前に `hooks/scripts/tool-reminder.sh` は、どの worktree の `.aidd/autonomous-review/*/state.json` についても、次のすべてを満たすものだけを「現在の差分のレビューを完了した証跡」と数え、無ければ警告する (拒否はしない)。
+
+- `schema_version` が `5` 以上の整数。`4` 以下の証跡は、完了を表すキーを持たないので数えない (再実行する)
+- `status` と `final_decision` が同じ値で、`auto_merge_eligible`、または `human_required` かつ `human_required_reason` が `human_judgment`。`started` / `reviewing` / `gating`、`failed`、`review_incomplete` は数えない
+- `base_sha` が今の基点ブランチ (ローカルか `origin/` のどちらか) の先端と一致し、`head_sha_after_fixes` (無ければ `head_sha`) が PR の head と一致する。head が先に進んでいても、増えたコミットが `.aidd/` だけを変える (台帳や証跡のコミット) なら一致とみなす
+- 型が表のとおりである (SHA は16進の完全な値)。作業ツリー差分の run (`base_sha` が `null`) は PR の差分のレビューとは数えない
 
 ## レビュー・ループ
 
@@ -148,7 +163,7 @@ AIがLGTMだったことは安全性の保証ではない。**レビュー担当
 
 次を意味判断で検査し、一つでも該当すれば理由とファイルを記録して `human_required` とする: 認証・認可・秘密情報・暗号、決済・課金、DBスキーマまたはデータ移行、外部公開APIの破壊的変更、インフラ権限・デプロイ・CI権限、依存関係の大幅更新、ロールバック不能な変更、UIの見た目・操作感など人間の体験確認が必要な変更。
 
-`--reviewer claude` の場合は、自己レビューである残存リスクをレポートに必ず記録し、他条件を満たしていても最終判定は常に `human_required` とする（`auto_merge_eligible` にはしない）。`--reviewer codex` の場合、`auto_merge_eligible` は異種AIレビュー完了、該当する観点別レビューの完了、必須品質ゲート全成功、confirmed blocker / major なし、`tracking` が `unresolved` の `deferred` なし、高リスク領域非該当、実行証跡と残存リスク記録済みのすべてを満たす場合だけにする。それ以外で解決不能なレビュー・検証失敗は `failed`、人間の判断が必要な場合、または異種AIレビューが未実施の場合は `human_required` とする。
+`--reviewer claude` の場合は、自己レビューである残存リスクをレポートに必ず記録し、他条件を満たしていても最終判定は常に `human_required` とする（`auto_merge_eligible` にはしない）。`--reviewer codex` の場合、`auto_merge_eligible` は異種AIレビュー完了、該当する観点別レビューの完了、必須品質ゲート全成功、confirmed blocker / major なし、`tracking` が `unresolved` の `deferred` なし、高リスク領域非該当、実行証跡と残存リスク記録済みのすべてを満たす場合だけにする。それ以外で解決不能なレビュー・検証失敗は `failed`、人間の判断が必要な場合、または異種AIレビューが未実施の場合は `human_required` とする。`human_required` にするときは、理由の区分を `human_required_reason` に記録する: 確定した `--reviewer` のレビュー (`codex` では異種AIレビュー、`claude` では自己レビュー)・該当する観点別レビュー・必須品質ゲートのどれかが未実施・未完了・失敗・未確定なら `review_incomplete`、それらをすべて終えたうえで高リスク領域・自己レビュー・未追跡の `deferred` などにより人が最終判断するなら `human_judgment`。高リスクによる `human_required` でも、レビューが完了した事実は `human_judgment` で表せる。
 
 ## 指摘の台帳 (既定で無効)
 

@@ -93,35 +93,128 @@ AIDD_REVIEW_LIST_LIMIT=1 hook PreToolUse "$repo" 'gh pr create --head=feat' | gr
 # Opt-out.
 out=$(AIDD_DISABLE_REVIEW_BEFORE_PR=1 hook PreToolUse "$repo" 'gh pr create --head feat')
 if printf '%s\n' "$out" | grep -Fq 'autonomous-review'; then exit 1; fi
-# Evidence for the branch silences it.
-mkdir -p "$repo/.aidd/autonomous-review/run1"
-printf '{"head":"feat","head_sha":null}' > "$repo/.aidd/autonomous-review/run1/state.json"
-out=$(hook PreToolUse "$repo" 'gh pr create --head feat')
-if printf '%s\n' "$out" | grep -Fq 'autonomous-review'; then exit 1; fi
-rm -rf "$repo/.aidd"
 # A command that only mentions gh pr create in a quoted string is not an invocation.
 [ -z "$(hook PreToolUse "$repo" 'echo "gh pr create --head feat"')" ]
-# Evidence also matches by head_sha / head_sha_after_fixes (the branch may have been renamed).
-feat_sha=$(git -C "$repo" rev-parse feat)
-mkdir -p "$repo/.aidd/autonomous-review/run1"
-printf '{"head":"renamed","head_sha":"%s"}' "$feat_sha" > "$repo/.aidd/autonomous-review/run1/state.json"
-out=$(hook PreToolUse "$repo" 'gh pr create --head feat')
-if printf '%s\n' "$out" | grep -Fq 'autonomous-review'; then exit 1; fi
-printf '{"head":"renamed","head_sha":"0000000","head_sha_after_fixes":"%s"}' "$feat_sha" > "$repo/.aidd/autonomous-review/run1/state.json"
-out=$(hook PreToolUse "$repo" 'gh pr create --head feat')
-if printf '%s\n' "$out" | grep -Fq 'autonomous-review'; then exit 1; fi
-rm -rf "$repo/.aidd"
-# Evidence written in any worktree counts, whichever worktree (or the main tree) opens the PR.
-git -C "$repo" worktree add -q "$tmp_dir/wt-a" feat
-git -C "$repo" worktree add -q --detach "$tmp_dir/wt-b" main
-mkdir -p "$tmp_dir/wt-a/.aidd/autonomous-review/run1"
-printf '{"head":"feat","head_sha":"%s"}' "$feat_sha" > "$tmp_dir/wt-a/.aidd/autonomous-review/run1/state.json"
-for cwd in "$repo" "$tmp_dir/wt-a" "$tmp_dir/wt-b"; do
-  out=$(hook PreToolUse "$cwd" 'gh pr create --head feat --base main')
-  if printf '%s\n' "$out" | grep -Fq 'autonomous-review'; then exit 1; fi
+
+# #122: only finished evidence (schema_version >= 5) for the PR's current base and head silences
+# the warning. Its own repository, because the cases below move main and the branch.
+ev="$tmp_dir/ev-repo"
+git init -q --template= -b main "$ev"
+echo base > "$ev/app.sh"
+git -C "$ev" add app.sh
+git -C "$ev" commit -qm 'chore: base'
+git -C "$ev" switch -qc feat
+echo code > "$ev/a.sh"
+git -C "$ev" add a.sh
+git -C "$ev" commit -qm 'feat: code'
+ev_base=$(git -C "$ev" rev-parse main)
+ev_head=$(git -C "$ev" rev-parse feat)
+# write_state DIR [KEY=JSON ...]: a finished auto_merge_eligible run for main...feat, with overrides.
+write_state() {
+  local dir=$1
+  shift
+  mkdir -p "$dir"
+  python3 - "$dir/state.json" "$ev_base" "$ev_head" "$@" <<'PYEOF'
+import json, sys
+path, base_sha, head_sha, *overrides = sys.argv[1:]
+state = {"schema_version": 5, "run_id": "run1", "status": "auto_merge_eligible", "target": "t",
+         "base": "main", "head": "feat", "base_sha": base_sha, "head_sha": head_sha,
+         "head_sha_after_fixes": None, "final_decision": "auto_merge_eligible",
+         "human_required_reason": None, "local_diff": None}
+for item in overrides:
+    key, value = item.split("=", 1)
+    state[key] = json.loads(value)
+with open(path, "w") as f:
+    json.dump(state, f)
+PYEOF
+}
+run_dir="$ev/.aidd/autonomous-review/run1"
+pr_warns() { hook PreToolUse "${2:-$ev}" "gh pr create --base main --head ${1:-feat}" | grep -Fq '/aidd:autonomous-review --base main'; }
+expect_warn() { pr_warns "$@" || { echo "no warning: $(cat "$run_dir/state.json")" >&2; exit 1; }; }
+expect_quiet() { if pr_warns "$@"; then echo "warned: $(cat "$run_dir/state.json")" >&2; exit 1; fi; }
+expect_warn
+# The warning says which evidence counts.
+hook PreToolUse "$ev" 'gh pr create --base main --head feat' | grep -F 'レビューを完了した証跡'
+write_state "$run_dir"
+expect_quiet
+# The branch name does not matter: a renamed branch with the same commits is the same diff.
+write_state "$run_dir" head='"renamed"'
+expect_quiet
+# Review done, human judgment needed (high risk, self-review): the review itself counts.
+write_state "$run_dir" status='"human_required"' final_decision='"human_required"' human_required_reason='"human_judgment"'
+expect_quiet
+# Unfinished, failed, review not done, old schema, wrong types: none of them count.
+# shellcheck disable=SC2086,SC2089,SC2090 # the quotes are JSON, split into KEY=JSON words on purpose
+for override in \
+  'status="started" final_decision=null' \
+  'status="reviewing" final_decision=null' \
+  'status="gating" final_decision=null' \
+  'status="failed" final_decision="failed"' \
+  'status="human_required" final_decision="human_required" human_required_reason="review_incomplete"' \
+  'status="human_required" final_decision="human_required" human_required_reason=null' \
+  'status="auto_merge_eligible" final_decision="human_required"' \
+  'schema_version=4' 'schema_version="5"' 'schema_version=true' 'schema_version=null' \
+  'head_sha=123' 'base_sha=null' 'head_sha="feat"' 'head_sha_after_fixes=1' \
+  'status=1' 'human_required_reason="human_judgment"'; do
+  write_state "$run_dir" $override
+  expect_warn
 done
-git -C "$repo" worktree remove --force "$tmp_dir/wt-a"
-git -C "$repo" worktree remove --force "$tmp_dir/wt-b"
+printf '{"head":"feat","head_sha":"%s"}' "$ev_head" > "$run_dir/state.json"
+expect_warn
+printf '[]' > "$run_dir/state.json"
+expect_warn
+# A run over the working tree's uncommitted diff (no base/head) is not a review of the branch.
+write_state "$run_dir" base=null head=null base_sha=null head_sha=null \
+  local_diff='{"head_commit":"'"$ev_head"'","staged_diff_hash":"a","unstaged_diff_hash":"b"}'
+expect_warn
+# The head moved on after the review: stale, unless the fixes' final commit is recorded.
+write_state "$run_dir"
+echo more > "$ev/b.sh"
+git -C "$ev" add b.sh
+git -C "$ev" commit -qm 'feat: more'
+expect_warn
+write_state "$run_dir" head_sha='"'"$(git -C "$ev" rev-parse feat~1)"'"' head_sha_after_fixes='"'"$(git -C "$ev" rev-parse feat)"'"'
+expect_quiet
+# Commits after the reviewed one that touch only .aidd/ (the ledger, the evidence) keep it valid.
+ev_head=$(git -C "$ev" rev-parse feat)
+write_state "$run_dir"
+mkdir -p "$ev/.aidd/learnings"
+echo '{}' > "$ev/.aidd/learnings/x.json"
+git -C "$ev" add .aidd/learnings/x.json
+git -C "$ev" commit -qm 'chore: ledger'
+expect_quiet
+echo code2 > "$ev/c.sh"
+git -C "$ev" add c.sh
+git -C "$ev" commit -qm 'feat: after review'
+expect_warn
+ev_head=$(git -C "$ev" rev-parse feat)
+write_state "$run_dir"
+expect_quiet
+# The base moved on after the review: stale. A remote-tracking base that the local one lags
+# behind (or the other way round) still matches the side the review resolved.
+git -C "$ev" switch -q main
+echo next > "$ev/main.sh"
+git -C "$ev" add main.sh
+git -C "$ev" commit -qm 'chore: main moves'
+git -C "$ev" switch -q feat
+expect_warn
+git -C "$ev" update-ref refs/remotes/origin/main "$(git -C "$ev" rev-parse main)"
+git -C "$ev" branch -qf main "$ev_base"
+expect_quiet
+git -C "$ev" update-ref -d refs/remotes/origin/main
+# Evidence written in any worktree counts, whichever worktree (or the main tree) opens the PR.
+rm -rf "$ev/.aidd/autonomous-review"
+git -C "$ev" switch -q main
+git -C "$ev" worktree add -q "$tmp_dir/wt-a" feat
+git -C "$ev" worktree add -q --detach "$tmp_dir/wt-b" main
+run_dir="$tmp_dir/wt-a/.aidd/autonomous-review/run1"
+expect_warn feat "$tmp_dir/wt-b"
+write_state "$run_dir"
+for cwd in "$ev" "$tmp_dir/wt-a" "$tmp_dir/wt-b"; do
+  expect_quiet feat "$cwd"
+done
+git -C "$ev" worktree remove --force "$tmp_dir/wt-a"
+git -C "$ev" worktree remove --force "$tmp_dir/wt-b"
 # Without --base, origin/HEAD or AIDD_REVIEW_BASE, main then master is the base.
 master_repo="$tmp_dir/master-repo"
 git init -q --template= -b master "$master_repo"
