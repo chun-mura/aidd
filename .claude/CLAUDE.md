@@ -144,7 +144,10 @@ the skill's `name:` frontmatter.
   - `harness-adapter.sh` (PreToolUse `apply_patch` in `hooks.json`; Cursor Shell / Write / Read / SessionStart in
     `hooks-cursor.json`): rewrite Codex/Cursor input to the Claude Code shape, call one existing script,
     convert the reply, and on any failure exit 0 after counting the reason in `adapter-skips.json`. For
-    `skill-gate.sh` it exits before python unless the input mentions `autonomous-review` (every Cursor Read lands here)
+    `skill-gate.sh` it exits before python only when the input has no `file_path`, or the path is absolute,
+    exists, has no `..`, and bash `-ef` shows it is not this plugin's `skills/autonomous-review/SKILL.md`; every
+    other input (a missing, `..`, relative or `~` path, the skill name, a backslash, more than one `file_path`)
+    goes to python (every Cursor Read lands here)
   `tool-reminder.sh` and `write-guard.sh` resolve paths from the hook input's `cwd`, not `CLAUDE_PROJECT_DIR` (which
   stays on the main checkout inside a worktree); `session-start.sh` uses `${CLAUDE_PROJECT_DIR:-$PWD}`.
   All hook writes are confined to `~/.claude/aidd/` — no network calls, no writes elsewhere.
@@ -187,10 +190,14 @@ This is the most structurally complex asset — read the file itself before modi
 
 `/aidd:eval` measures the design-review pipeline's own precision by running it (always at `--depth=deep`, no
 shortcuts) against seeded-defect design docs in `tests/eval/cases/*.md` and grading against
-`tests/eval/keys/*.md`. Contamination guard: **keys must not be read until every case's review has completed** —
-reading them early would let the scoring pass (the main loop) leak into how it dispatches/reviews. The metrics
+`tests/eval/keys/*.md`. Contamination guard: each case and trial runs in a new executor session (`claude -p`)
+whose working directory is a staged temp `input/` holding only the case and a plugin copy — no keys, results, git
+history or planted file (planted rows are appended to the fixed prompt under neutral M IDs). The main loop freezes
+the raw output and the stream-json, records the printed hash of SHA256SUMS, and reads `tests/eval/keys/` only after
+verifying it. This separates input and context, not read permissions: absolute-path reads outside the working
+directory and arbitrary Bash commands are not blocked, and the files can be changed before the freeze. The metrics
 are defined in the table in `skills/eval/SKILL.md` (step 3); results are written to
-`tests/eval/results/YYYY-MM-DD.md` and compared against the most recent prior result. **Operating rule 6**: any release that changes `skills/design-review/SKILL.md`, `agents/refuter.md`,
+`tests/eval/results/YYYY-MM-DD.md`, with the raw output under `tests/eval/results/<run-id>/`, and compared against the most recent prior result. **Operating rule 6**: any release that changes `skills/design-review/SKILL.md`, `agents/refuter.md`,
 `agents/design-arbiter.md`, `agents/security-reviewer.md`, or `agents/reviewer.md` must run `/aidd:eval` before
 release and keep the result file — this is
 the only regression signal for pipeline prompt changes, since there's no automated scoring in CI.

@@ -4,6 +4,32 @@
 
 - `asset-audit`: 結論を基準ごとに「問題なし」「判定不能」「改善候補あり」に分けた (#128)。以前は「候補が0件なら基準を疑う、問題なしで終えない」としていたため、正常な資産にも問題を探す圧力になり、根拠のある候補ゼロと観測不足を区別できなかった。確かめた範囲 (対象の件数、読んだ記録やコマンドの範囲) を示せて候補が0件なら問題なしで終え、範囲を示せない基準は判定不能とする。根拠のない削除・改訂の候補や基準の強化を作らず、判定不能の対象には観測できなかったことと次に計測すべきこと (ラッパーで包む、記録開始を置いて期間を待つ、履歴を取得する、台帳を有効にする) だけを示す。候補がある基準でも判定不能の対象があれば併記する。全体の結論は候補が1件でもあれば改善候補あり、無く判定不能があれば判定不能、どちらも無ければ問題なしとし、候補が0件なら手順4の確認を飛ばして手順5へ進む。承認前に変更しないこと、承認の有無に関わらず実施日を記録すること、auto memory の棚卸し (#106・#145) は変えていない
 
+## 0.78.0 (2026-11-24)
+
+- `eval`: レビューの実行を、メインループ (採点者) と同じ文脈から、ケース・試行ごとに新しい実行担当セッション (`claude -p`、他のハーネスは手動起動で取れない値は「不明」) に分けた (#129)。前回の記録 (`results/2026-11-22-3.md`) でメインが過去結果を先に読んだと自己申告しており、分離が口頭の指示だけだったため。実行担当の作業ディレクトリは cases と plugin のコピーだけを置いた一時 `input/` で、keys・results・`.git`・planted のファイルが入っていないこと (名前は大小文字を区別せず、内容はハッシュで keys/results と照合) を staging で検証し、偽指摘は中立な M の ID で固定プロンプトの末尾に付ける (planted の行数と混ぜた行数が違えば止める)。メインはプロンプトに文言を足さない
+- 生出力 (最終回答と meta) と stream-json を凍結し、表示した SHA256SUMS の sha256 を採点前に記録して、照合 (raw・local・input・キーの一覧と内容) が通ってから keys と過去結果を読む。測定条件 (aidd の版・git SHA と未コミット変更・CLI・実測モデルと定義上のモデル・provider・読み込まれたプラグイン・入力/キー/プロンプトのハッシュ・試行ごとの session と時間) と、パイプライン・採点・合計のコスト (トークンと USD を分け、既知の合計と不明の項目を併記) を記録する。実測していない値は「不明」と書く。最終出力と SHA256SUMS は `tests/eval/results/<run-id>/` にコミットし、stream-json の全文はローカルに置く
+- これは入力・作業ディレクトリ・文脈の分離であり、権限による読み取り禁止ではない。作業ディレクトリ外の絶対パスや任意の Bash による読み取りは防げず、stream-json に残った参照 (作業ディレクトリ外・run の raw/local・`../`・`~`) を事後に「汚染の疑い」として記録するだけであること、凍結前は書き換えられることを明記した。`tests/command-contract-test.sh` で staging・extract・freeze・verify の各ブロックを、偽の `claude` と keys/results に目印を入れた偽リポジトリで実行し、混入・改ざんの各ケースが期待する理由で止まることを確かめる。この PR の中では eval を実行していない (最初の実地実行は #130)
+
+## 0.77.0 (2026-11-24)
+
+- Cursor の `skill-gate` が、入力の表記ではなく実ファイルの同一性で `autonomous-review` の SKILL.md の Read を判定するようにした (#120)。以前は `harness-adapter.sh` が生の入力に `autonomous-review` を含むかで python の前に抜けていたため、別名の symlink や JSON エスケープした入力が gate に届かず通っていた。adapter が python を起動せずに抜けるのは、`file_path` が無いときと、存在する絶対パスで `..` を含まず bash の `-ef` で対象と別ファイルだと分かったときだけにし、それ以外 (名前・バックスラッシュを含む、相対パス・`~`、存在しないパス、`file_path` が複数など) は gate に渡す。抜け道ごとに条件を足すと同じ種類の漏れが続いたため、抜ける側を絞った。gate は相対パスを入力の `cwd` から、`~` をホームから解決し、そのパスと `normpath` したパスのどちらかが対象と同じ実ファイルなら拒否する。外部の同名ファイルと無関係な Read は通し、存在する無関係な絶対パスの Read では従来どおり python を起動しない。NUL を含むパスは fail-closed として数えない。`file://` の URI は、Cursor (2026.10.22 のバンドルで確認) と同じく `startsWith("file://")` のときだけ WHATWG の規則で手で解析してパスに直し (ホストは無視して拒否側に倒す、例外は出さない)、変換に失敗した URI で Cursor が変換前の文字列を開く場合に備えて変換前の値も比べる (Cursor が変換前の文字列を開く基点は未確認なので、`/` と cwd のすべての祖先のどれを基点にしても対象を指すなら拒否する。誤って拒否するのは SKILL.md を名指しする URI に限る)。adapter の fail-open と、異常終了時に有効な拒否 JSON だけを保持する方針 (#119) は変えていない
+- 既知の限界: バックスラッシュを含むパス (Windows の Cursor など) と存在しないパスの Read は python に回る (macOS の実測で1回あたり約66〜70ms、既存ファイルの Read は約6ms のまま。Windows では未計測)。plugin の中の symlink の後ろに `..` があるパスは、正規化の比較で止める側に倒れて拒否されうる。 Cursor の Read の入力に `cwd` が入るか (gate は相対パスを `cwd` から解決するが、Cursor は workspace から解決する) と、孤立サロゲートを含む `file_path` で adapter が出力を作れず通す件は未確認・未対応。python が無い環境では従来どおり `no_python3` として記録して通す
+- `tests/hook-contract-test.sh` に adapter 経由のケース (正規パス・別名・相対・`~`・大小文字・JSON エスケープ・重複/入れ子の `file_path`・symlink の連鎖・`..`・長いパス・外部の同名ファイル) を足し、通すケースは `adapter-skips.json` が増えないことも確かめる。`.claude/CLAUDE.md` と設計書 (2026-11-14) の記述を実装に合わせた
+
+## 0.76.0 (2026-11-24)
+
+- `autonomous-review` のセキュリティ観点が、実装差分を設計書向けの `aidd:security-reviewer` (STRIDE) に渡していたのを改め、実装差分の監査を Claude Code 組み込みの `/security-review` に委ねた (#121)。設計レーンで受けた design-review のセキュリティ指摘も実装監査に数えない。対象差分・照合結果・結果ファイル・未実行の理由を `report.md` に残し、`/security-review` が無い (Codex・Cursor など)・起動に失敗した・結果を読めない・同じ範囲を監査したと確かめられない場合は未実行として `human_required` にする。`aidd:security-reviewer` や自前のレビューで代えない
+- `/security-review` (Claude Code 2.1.330 で確認) はセッションの作業ディレクトリの `origin/HEAD...HEAD` のコミット済み差分だけを監査するため、HEAD がそのラウンドの対象コミットのときだけ実行し、変更ファイルの集合と merge-base の一致で `<base_sha>...<対象コミット>` と照合する。作業ツリー差分だけの run と head がチェックアウトされていない run では未実行とする。結果はラウンドごとに `security-review-round<N>.txt` に残し、重大度は下げずに写し (High→blocker、Medium→major、Low→minor、不明は major 以上)、id は `S<N>-<n>` とする
+- 最後のラウンドの修正後の HEAD が監査済みでなければ再実行し、出力は `security-review-final.txt`、id は `SF-<n>` (`findings` にだけ入れる) とし、confirmed の blocker / major があれば手順8と同じく `failed` にする。`perspective_reviews.executed` は最終 HEAD を監査して照合が一致した実行があるときだけ true にする
+- `/security-review` (2.1.330) はディスク上の秘密情報・文書・非 PII のログを報告対象から除外するため、機微情報の保存の条件 (#110) に該当した差分は、信頼境界の条件にも該当する場合を含めて、除外を残存リスクに記録して `human_required` にする
+- `issue-implement`: 設計時の security-reviewer を実装監査の実行済みに数えない。autonomous-review が未実行とした監査は完了報告に書き、理由が対象の範囲なら、コミットして head をチェックアウトした状態で `/security-review` を自分で実行する。autonomous-review が実行済みと記録した場合は重ねない。機微情報の保存に当たる差分では、通常経路でも自分で実行する経路でも、除外される種類を残存リスクとして書く
+
+## 0.75.0 (2026-11-23)
+
+- `templates/CLAUDE.md.template` の「AI運用」節を書き直した (#127)。以前は、方針を出す前の `/aidd:design-review` とコミット前の `/aidd:test-perspectives` を一律に求めており、issue-implement の直行レーン (設計書を作らない) や実装前に観点を出す手順と食い違っていた。Issue の実装は `/aidd:issue-implement` に案内し、設計書・多段レビューの要否はその「レーン判定」(aidd プラグインの `skills/issue-implement/SKILL.md`) を参照するだけにして、条件は書き写さない。Issue を使わない開発には、次の2つの入口を書いた。設計レーンに当たる変更だけ `/aidd:design-doc` → `/aidd:design-review` にかけること。実装前に `/aidd:test-perspectives <設計書のパス、または変更内容の説明>` で観点を1回出すこと。引数を省くと git diff が対象になり、実装前は差分が空になるため。#2 の決定 (design-review をコミットの必須条件にしない) は維持した
+- `session-start.sh` が毎セッション入れるナッジを、テンプレートに合わせて「設計レーン (issue-implement のレーン判定) の変更は design-doc → design-review、不明点は確認、実装前は設計書か変更内容を test-perspectives に渡す」に改めた。git commit 時の `tool-reminder.sh` の催促文 (コミット前に test-perspectives) はこの PR では変えていない
+- `tests/redundancy-contract-test.sh` に検査を足した。テンプレート全体で、コミット前に `/aidd:*` を求める行と、レーンに触れない `/aidd:design-review` の行を拒否する。参照先の見出しと、テンプレートが名前を出す skill が実在することを確かめる。#2 の文があることを確かめる。`tests/session-start-test.sh` では、新しいナッジの文と「コミット前」が出ないことを確かめる
+
 ## 0.74.0 (2026-11-23)
 
 - `harness-adapter.sh` が子の非0終了とシグナル終了を区別して記録するようにした。起動失敗も含め `/aidd:doctor` で理由と件数を確認でき、標準エラー・コマンド本文・機密情報は記録しない (#119)。
