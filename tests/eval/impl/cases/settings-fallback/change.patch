@@ -1,0 +1,39 @@
+diff --git a/app/settings.py b/app/settings.py
+index 690b65d..a7054d9 100644
+--- a/app/settings.py
++++ b/app/settings.py
+@@ -6,7 +6,13 @@ DEFAULTS = {"retries": 3, "timeout_seconds": 10}
+ 
+ 
+ def load_settings(path: Path) -> dict:
+-    """Return the defaults overridden by the file's values."""
+-    with path.open(encoding="utf-8") as f:
+-        data = json.load(f)
++    """Return the defaults overridden by the file's values.
++
++    A service started without a settings file runs with the defaults.
++    """
++    try:
++        with path.open(encoding="utf-8") as f:
++            data = json.load(f)
++    except (OSError, ValueError):
++        return dict(DEFAULTS)
+     return {**DEFAULTS, **data}
+diff --git a/tests/test_settings.py b/tests/test_settings.py
+index 4b2fc37..651ed78 100644
+--- a/tests/test_settings.py
++++ b/tests/test_settings.py
+@@ -7,3 +7,13 @@ def test_file_values_override_defaults(tmp_path):
+     path = tmp_path / "settings.json"
+     path.write_text(json.dumps({"retries": 5}), encoding="utf-8")
+     assert load_settings(path) == {**DEFAULTS, "retries": 5}
++
++
++def test_missing_file_gives_defaults(tmp_path):
++    assert load_settings(tmp_path / "absent.json") == DEFAULTS
++
++
++def test_defaults_are_not_shared(tmp_path):
++    settings = load_settings(tmp_path / "absent.json")
++    settings["retries"] = 0
++    assert DEFAULTS["retries"] == 3

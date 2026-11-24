@@ -1,0 +1,77 @@
+diff --git a/app/fetch.py b/app/fetch.py
+index c347fba..578ed0d 100644
+--- a/app/fetch.py
++++ b/app/fetch.py
+@@ -1,5 +1,15 @@
+ """Read-only GET of a status page through an injected opener."""
++import time
+ 
+ 
+-def fetch(url: str, opener) -> bytes:
+-    return opener(url)
++def fetch(url: str, opener, attempts: int = 3, sleep=time.sleep) -> bytes:
++    """Retry a dropped connection with a doubling wait; other errors are raised at once."""
++    if attempts < 1:
++        raise ValueError("attempts must be 1 or more")
++    for attempt in range(1, attempts + 1):
++        try:
++            return opener(url)
++        except ConnectionError:
++            if attempt == attempts:
++                raise
++            sleep(2 ** (attempt - 1))
+diff --git a/tests/test_fetch.py b/tests/test_fetch.py
+index 2d89f48..890e95a 100644
+--- a/tests/test_fetch.py
++++ b/tests/test_fetch.py
+@@ -3,3 +3,50 @@ from app.fetch import fetch
+ 
+ def test_fetch_returns_the_body():
+     assert fetch("http://status.example/", lambda url: b"ok") == b"ok"
++
++
++def flaky(failures):
++    calls = []
++
++    def opener(url):
++        calls.append(url)
++        if len(calls) <= failures:
++            raise ConnectionError("dropped")
++        return b"ok"
++
++    return opener, calls
++
++
++def test_retries_a_dropped_connection():
++    opener, calls = flaky(2)
++    waits = []
++    assert fetch("u", opener, sleep=waits.append) == b"ok"
++    assert len(calls) == 3
++    assert waits == [1, 2]
++
++
++def test_gives_up_after_the_last_attempt():
++    opener, calls = flaky(5)
++    waits = []
++    try:
++        fetch("u", opener, sleep=waits.append)
++    except ConnectionError:
++        pass
++    else:
++        raise AssertionError("expected ConnectionError")
++    assert len(calls) == 3
++    assert waits == [1, 2]
++
++
++def test_other_errors_are_not_retried():
++    calls = []
++
++    def opener(url):
++        calls.append(url)
++        raise ValueError("bad body")
++
++    try:
++        fetch("u", opener, sleep=lambda s: None)
++    except ValueError:
++        pass
++    assert len(calls) == 1
