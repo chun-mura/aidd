@@ -338,6 +338,10 @@ grep -F -- '実配線を確かめていないハーネスは「未確認」と�
 grep -F -- '利用者の実際の設定ファイルや認証情報は読まない' "$doctor"
 grep -F -- 'aidd の文言 (`aidd:` で始まる) で止められたときだけ OK' "$doctor"
 grep -F -- '削除するのは自分で作ったディレクトリだけ' "$doctor"
+grep -F -- 'mktemp -d "${TMPDIR:-/tmp}/aidd-doctor-probe.XXXXXX"' "$doctor"
+grep -F -- 'パスを**リテラルで**渡す' "$doctor"
+grep -F -- '「未確認（設定で無効）」' "$doctor"
+grep -F -- 'Hand-written, not recorded' "$repo_root/tests/fixtures/hooks/claude/_process.json"
 sed -n '/^# Item 10:/,/^PY$/p' "$doctor" > "$doctor_tmp/item10.sh"
 [ -s "$doctor_tmp/item10.sh" ]
 run_item10() {  # run_item10 <plugin root>; the caller's state and a dummy token must not reach the hooks
@@ -352,10 +356,10 @@ for want in 'claude PreToolUse Bash git add -A: OK deny' 'claude PreToolUse Bash
   'claude PreToolUse Write .env.local: OK deny' 'claude PreToolUse Skill aidd:autonomous-review: OK ask' \
   'claude UserPromptSubmit /aidd:doctor: OK record usage.json' \
   'codex PreToolUse Bash git add -A: OK deny' 'codex PreToolUse apply_patch Add .env.local: OK deny' \
-  'codex PreToolUse apply_patch Add notes.txt: OK pass' 'cursor preToolUse Shell git add -A: OK deny' \
+  'codex PreToolUse apply_patch Add new-notes.txt: OK pass' 'cursor preToolUse Shell git add -A: OK deny' \
   'cursor preToolUse Write .env.local: OK deny' 'cursor preToolUse Read autonomous-review SKILL.md: OK deny' \
-  'cursor preToolUse Read notes.txt: OK pass' 'adapter missing child script: OK record adapter-skips.json' \
-  'hooks replay: 13/13 OK' 'not the real wiring'; do
+  'cursor preToolUse Read notes.txt: OK pass' 'cursor preToolUse Read missing unrelated path: OK pass' \
+  'adapter missing child script: OK record adapter-skips.json' 'hooks replay: 14/14 OK' 'not the real wiring'; do
   grep -Fq -- "$want" <<<"$out" || { echo "doctor item 10 missing '$want': $out" >&2; exit 1; }
 done
 if grep -Eq -- 'FAIL|WARN|DUMMY_TOKEN_SENTINEL' <<<"$out"; then
@@ -376,7 +380,7 @@ ln -s "$repo_root/skills" "$fake_root/skills"
 ln -s "$repo_root/tests" "$fake_root/tests"
 out=$(run_item10 "$fake_root")
 for want in 'claude PreToolUse Bash git add -A: FAIL expected deny, got pass' \
-  'cursor preToolUse Shell git add -A: FAIL expected deny, got pass' 'hooks replay: FAIL 10/13 OK'; do
+  'cursor preToolUse Shell git add -A: FAIL expected deny, got pass' 'hooks replay: FAIL 11/14 OK'; do
   grep -Fq -- "$want" <<<"$out" || { echo "doctor item 10 missed a broken hook ('$want'): $out" >&2; exit 1; }
 done
 # Without the fixtures the replay is skipped with a WARN, never reported as OK.
@@ -384,6 +388,25 @@ rm "$fake_root/tests"
 out=$(run_item10 "$fake_root")
 grep -Fq -- 'hooks replay: WARN fixtures not found' <<<"$out" || { echo "doctor item 10 without fixtures: $out" >&2; exit 1; }
 if grep -Fq -- ': OK' <<<"$out"; then echo "doctor item 10 reported OK without fixtures: $out" >&2; exit 1; fi
+# A partial fixture set is a WARN too, not a traceback, and the replay directory is still removed.
+mkdir -p "$fake_root/tests/fixtures/hooks/cursor"
+ln -s "$repo_root/tests/fixtures/hooks/claude" "$fake_root/tests/fixtures/hooks/claude"
+ln -s "$repo_root/tests/fixtures/hooks/codex" "$fake_root/tests/fixtures/hooks/codex"
+cp "$repo_root/tests/fixtures/hooks/cursor/preToolUse.write.json" "$fake_root/tests/fixtures/hooks/cursor/"
+out=$(run_item10 "$fake_root")
+grep -Fq -- 'hooks replay: WARN fixtures incomplete' <<<"$out" || { echo "doctor item 10 with partial fixtures: $out" >&2; exit 1; }
+if grep -Eq -- 'Traceback|: OK' <<<"$out"; then echo "doctor item 10 with partial fixtures: $out" >&2; exit 1; fi
+[ -z "$(ls -A "$doctor_tmp/h10/tmp")" ] || { echo "doctor item 10 left its directory behind" >&2; exit 1; }
+# A pass through the adapter is not OK when the adapter skipped (its child gave unusable output).
+rm -rf "$fake_root/tests"
+ln -s "$repo_root/tests" "$fake_root/tests"
+rm "$fake_root/hooks/scripts/tool-reminder.sh" "$fake_root/hooks/scripts/write-guard.sh"
+ln -s "$repo_root/hooks/scripts/tool-reminder.sh" "$fake_root/hooks/scripts/tool-reminder.sh"
+printf '%s\n' '#!/bin/bash' 'cat >/dev/null' "echo '[1]'" > "$fake_root/hooks/scripts/write-guard.sh"
+chmod +x "$fake_root/hooks/scripts/write-guard.sh"
+out=$(run_item10 "$fake_root")
+grep -Fq -- 'codex PreToolUse apply_patch Add new-notes.txt: FAIL the adapter skipped' <<<"$out" \
+  || { echo "doctor item 10 took an adapter skip for a pass: $out" >&2; exit 1; }
 
 # Item 11 runs only --version of each harness CLI; a missing CLI is a skip, and a version that
 # differs from the measured one is a WARN.
@@ -405,6 +428,41 @@ chmod +x "$fake_bin/claude"
 out=$(PATH="$fake_bin" "$fake_bin/bash" "$doctor_tmp/item11.sh" 2>&1)
 grep -Fq -- 'claude: WARN 2.1.109 (Claude Code) is older than 2.1.110' <<<"$out" \
   || { echo "doctor item 11 missed an old Claude Code: $out" >&2; exit 1; }
+# The measured version must match exactly, not as a substring.
+printf '%s\n' '#!/bin/bash' '[ "$1" = --version ] && echo "codex-cli 0.163.01"' > "$fake_bin/codex"
+out=$(PATH="$fake_bin" "$fake_bin/bash" "$doctor_tmp/item11.sh" 2>&1)
+grep -Fq -- 'codex: WARN codex-cli 0.163.01 differs from the measured 0.163.0' <<<"$out" \
+  || { echo "doctor item 11 took a substring as the measured version: $out" >&2; exit 1; }
+# Settings that switch off a probe are listed by name only, and make that probe 未確認, not FAIL.
+sed -n '/^# Item 11 settings:/,/^```$/{/^```$/!p;}' "$doctor" > "$doctor_tmp/item11-settings.sh"
+[ -s "$doctor_tmp/item11-settings.sh" ]
+out=$(env -u AIDD_DISABLE_GIT_SAFETY -u AIDD_DISABLE_UNREADABLE_NAME_GUARD -u AIDD_UNREADABLE_NAME_PATTERNS \
+  bash "$doctor_tmp/item11-settings.sh" 2>&1)
+for want in 'probe git add -A: run' 'probe .env.local write: run'; do
+  grep -Fq -- "$want" <<<"$out" || { echo "doctor item 11 settings missing '$want': $out" >&2; exit 1; }
+done
+out=$(AIDD_DISABLE_GIT_SAFETY=1 AIDD_UNREADABLE_NAME_PATTERNS=ENV_VALUE_SENTINEL bash "$doctor_tmp/item11-settings.sh" 2>&1)
+for want in 'AIDD_DISABLE_GIT_SAFETY AIDD_UNREADABLE_NAME_PATTERNS' 'probe git add -A: 未確認（設定で無効' \
+  'probe .env.local write: 未確認（設定で無効'; do
+  grep -Fq -- "$want" <<<"$out" || { echo "doctor item 11 settings missing '$want': $out" >&2; exit 1; }
+done
+if grep -Eq -- 'ENV_VALUE_SENTINEL|FAIL' <<<"$out"; then echo "doctor item 11 settings printed a value or FAIL: $out" >&2; exit 1; fi
+# Probe cleanup removes only an aidd-doctor-probe directory, and never recursively.
+sed -n '/^# Probe cleanup:/,/^```$/{/^```$/!p;}' "$doctor" > "$doctor_tmp/cleanup.sh"
+[ -s "$doctor_tmp/cleanup.sh" ]
+run_cleanup() { sed "s|<dir>|$1|" "$doctor_tmp/cleanup.sh" | bash 2>&1; }
+probe="$doctor_tmp/aidd-doctor-probe.abc123"
+mkdir -p "$probe" && printf 'AIDD_DOCTOR_PROBE=1\n' > "$probe/.env.local"
+out=$(run_cleanup "$probe")
+[ ! -e "$probe" ] || { echo "probe cleanup did not remove the probe directory: $out" >&2; exit 1; }
+mkdir -p "$probe" && printf 'x\n' > "$probe/keep.txt"
+out=$(run_cleanup "$probe")
+[ -f "$probe/keep.txt" ] || { echo "probe cleanup removed a file it did not create: $out" >&2; exit 1; }
+grep -Fq -- 'probe dir: WARN not removed' <<<"$out" || { echo "probe cleanup did not warn: $out" >&2; exit 1; }
+other="$doctor_tmp/not-a-probe"
+mkdir -p "$other"
+out=$(run_cleanup "$other")
+[ -d "$other" ] || { echo "probe cleanup removed a directory that is not a probe: $out" >&2; exit 1; }
 
 # asset-audit must not silently continue when its state write fails (e.g. under the sandbox),
 # or the SessionStart nudge never stops.

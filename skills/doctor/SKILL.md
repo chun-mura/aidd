@@ -25,15 +25,16 @@ aidd プラグインの動作環境を診断してください。各チェック
    - `sandbox.enabled` を、それを設定している最も優先順位の高いファイルの値で判定する。true でなければ「sandbox 未設定」とし、README の「ローカルで権限を絞って使う (Claude Code)」と `templates/sandbox-settings.json.template` を案内する。サーバー配信・MDM・レジストリの managed settings はファイルから読めないので、WARN のときは `/status` の `Setting sources` で確かめるよう添える。起動時の `--settings` (managed の次に優先) もここからは読めないので、`--settings` で sandbox を切り替えていれば結果は実際と違う。見るのは `sandbox.enabled` だけで、sandbox の外へ抜ける `allowUnsandboxedCommands`・`failIfUnavailable` は見ない (OK の行にもそう書く)
    - `excludedCommands` (全ファイルの和) に `gh` を除外するもの (`gh`・`gh *`・`gh:*`・`gh*`・`/opt/homebrew/bin/gh` のようなパス) があれば、「`gh` は sandbox の外で利用者の全権限で動く (任意のファイルへの書き込み・任意のホストへの送信。`GH_TOKEN` が無ければ `gh auth login` の保存済みの認証)」と知らせ、`excludedCommands` から外して README の手順2 (gh を sandbox の中で動かす) に従うよう案内する
    - `gh` が sandbox の中で動く (`sandbox.enabled` が true で、`excludedCommands` に無い) なら、この Bash の環境変数を見る。`GH_TOKEN` と `GITHUB_TOKEN` がどちらも空 (空白だけを含む) なら、`gh` は認証できないと知らせ、README の手順2 (対象リポジトリだけの fine-grained PAT を `GH_TOKEN` で渡す) を案内する。macOS で `SSL_CERT_FILE` が空なら `gh` は TLS で失敗する (`x509: OSStatus -26276`) と、`GH_CONFIG_DIR` が空なら読み取りを拒否した `~/.config/gh` を読めずに失敗しうると知らせ、雛形の `env` を案内する (プロジェクトの `env` はフォルダを trust するまで効かないことも添える)。変数は名前だけを出し、値は出さない。**token の値は表示しない**。有無だけを見て、値を echo・print しない。token の権限の範囲は見ないので、OK でも絞れているとは限らない (OK の行に `gh auth status` での確認を添える)。token が環境にあるので、python3 は利用側のファイルを import しないよう `-I` で動かす。`sandbox.credentials.envVars` で token を隠していると、ここからは無いように見える
-10. **hook の動作確認 (fixture の再生)**: `$ARGUMENTS` に `--hooks` があるときだけ実行する。無ければ「skip (`--hooks` で実行)」と書く。プラグインの `tests/fixtures/hooks/{claude,codex,cursor}/` の無害な入力を、プラグイン自身の hook スクリプトに渡し、期待する拒否 (deny)・通過 (pass)・確認 (ask)・記録 (record) が返るかを見る。HOME・状態ディレクトリ (`AIDD_TEST_STATE_DIR`)・`CLAUDE_CONFIG_DIR`・TMPDIR は使い捨てのディレクトリに向け、hook に渡す環境変数は PATH とそれらだけにする (利用者の `~/.claude/aidd/`・token・`AIDD_*` の設定は hook に届かない)。削除するのは自分で作ったディレクトリだけ。項目10と11では、利用者の実際の設定ファイルや認証情報は読まない。fixture が見つからなければ WARN にして、OK にしない。期待と違えば FAIL にする
+10. **hook の動作確認 (fixture の再生)**: `$ARGUMENTS` に `--hooks` があるときだけ実行する。無ければ「skip (`--hooks` で実行)」と書く。プラグインの `tests/fixtures/hooks/{claude,codex,cursor}/` の無害な入力を、プラグイン自身の hook スクリプトに渡し、期待する拒否 (deny)・通過 (pass)・確認 (ask)・記録 (record) が返るかを見る。HOME・状態ディレクトリ (`AIDD_TEST_STATE_DIR`)・`CLAUDE_CONFIG_DIR`・TMPDIR は使い捨てのディレクトリに向け、hook に渡す環境変数は PATH、それら、git の全体設定を読ませない `GIT_CONFIG_GLOBAL=/dev/null`・`GIT_CONFIG_NOSYSTEM=1` だけにする (利用者の `~/.claude/aidd/`・token・`AIDD_*` の設定は hook に届かない)。削除するのは自分で作ったディレクトリだけ。項目10と11では、利用者の実際の設定ファイルや認証情報は読まない。fixture が見つからなければ WARN にして、OK にしない。期待と違えば FAIL にする
    - 見るのはスクリプトの判定だけで、ハーネスが実際にその hook を呼ぶかは見ない。**fixture の再生が OK でも、実配線を OK にしない** (実配線は項目11)
    - `AIDD_*` の設定で判定を変えている利用者では、実際の挙動は再生結果と違いうる
 11. **実配線とハーネスごとの保護範囲**: `--hooks` のときだけ実行する
    - 各ハーネスの CLI の版: 下の `# Item 11:` で `claude`・`codex`・`cursor-agent` の `--version` だけを実行する (ログイン・通信をする操作はしない)。CLI が無ければ skip。Claude Code は 2.1.110 未満、Codex と Cursor は設計書の実測版 (Codex CLI `0.163.0`、Cursor agent CLI `2026.10.22-27dcf5f`) と違えば WARN にし、実配線の確認と fixture の取り直しを促す
-   - 実配線の確認は、いま doctor を実行しているハーネスでだけ行う。`mktemp -d` で空のディレクトリを作り、`git -C <dir> rev-parse --git-dir` が失敗する (どのリポジトリの中でもない) ことを確かめてから、次の2つを試す。リポジトリの中だった場合は試さず「未確認」にする
+   - 実配線の確認は、いま doctor を実行しているハーネスでだけ行う。先に下の `# Item 11 settings:` を実行し、確認の結果を変える設定の**名前だけ**を出す (値は出さない。見えるのはこの Bash の環境変数だけで、ハーネスが hook に渡す環境とは違いうる)。`AIDD_DISABLE_GIT_SAFETY` があれば1の結果を、`AIDD_DISABLE_UNREADABLE_NAME_GUARD` か `AIDD_UNREADABLE_NAME_PATTERNS` があれば2の結果を、止まらなくても FAIL にせず「未確認（設定で無効）」と書く
+   - 一時ディレクトリは `mktemp -d "${TMPDIR:-/tmp}/aidd-doctor-probe.XXXXXX"` で作る。Bash の状態 (変数・cd) は呼び出しをまたいで残らないので、表示されたパスを覚えておき、以降のコマンドとツールにはそのパスを**リテラルで**渡す (`<dir>` と書いた箇所)。`git -C <dir> rev-parse --git-dir` が失敗する (どのリポジトリの中でもない) ことを確かめてから、次の2つを試す。リポジトリの中だった場合は試さず「未確認」にする
      1. シェルのツール (Claude Code・Codex の Bash、Cursor の Shell) で `git -C <dir> add -A`。hook が効いていなければ git が `not a git repository` で失敗するだけで、何も変わらない
      2. ファイル作成のツール (Claude Code の Write、Codex の apply_patch、Cursor の Write) で `<dir>/.env.local` に `AIDD_DOCTOR_PROBE=1` を書く。hook が効いていなければ、作ったディレクトリの中にファイルができるだけ
-   - それぞれ、aidd の文言 (`aidd:` で始まる) で止められたときだけ OK。実行された・作られたら FAIL (hook が無効・未信頼・配線ずれ。Codex は `/hooks` での信頼、Claude Code は plugin の有効化と `disableAllHooks` を確かめるよう添える)。aidd 以外の理由 (権限の確認・ハーネスの拒否) で止まったら「未確認」。確認が終わったら、作ったディレクトリだけを削除する。この確認で増える hook の記録は、adapter が素通りしたときの `adapter-skips.json` だけ (リポジトリの外なので `main-tree.json` にも残らない)
+   - それぞれ、aidd の文言 (`aidd:` で始まる) で止められたときだけ OK。実行された・作られたら FAIL (hook が無効・未信頼・配線ずれ。Codex は `/hooks` での信頼、Claude Code は plugin の有効化と `disableAllHooks` を確かめるよう添える)。aidd 以外の理由 (権限の確認・ハーネスの拒否) で止まったら「未確認」。確認が終わったら、下の `# Probe cleanup:` の `<dir>` をそのパスに置き換えて実行し、作ったディレクトリだけを削除する。パスに `aidd-doctor-probe.` が含まれることを確かめてから、再帰削除は使わず `rm -f -- <dir>/.env.local` と `rmdir -- <dir>` で消す (ほかのファイルがあれば `rmdir` が失敗して残るので、その旨を報告する)。この確認で増える hook の記録は、adapter が素通りしたときの `adapter-skips.json` だけ (リポジトリの外なので `main-tree.json` にも残らない)
    - skill gate (autonomous-review の起動) の実配線は確かめない (確かめると利用者への確認や SKILL.md の読み込みが起きる)。結果は「未確認」と書く
    - 実配線を確かめていないハーネスは「未確認」と書く。doctor を実行していないハーネスは、CLI があっても未確認である。依存 skill/agent の利用可否は、Claude Code は項目1、Codex は項目8の結果を書く。Cursor はここからは見ないので「未確認」と書く
    - 最後に次の表を出す。保護される操作と残る限界は下の一覧から写し、版・再生・実配線の列はこの実行の結果を書く
@@ -42,8 +43,8 @@ aidd プラグインの動作環境を診断してください。各チェック
      |---|---|---|---|---|---|
 
    - **Claude Code**: 保護される操作は、Bash の作業を失う git 操作・名前を指定しないステージ・既定ブランチへの force push の拒否と `gh issue create` 前の検索 (`tool-reminder.sh`)、まだ無いファイルの Write・Edit・NotebookEdit のうち sandbox が読めない名前と重複資産の拒否 (`write-guard.sh`)、モデルによる autonomous-review の起動の確認 (`skill-gate.sh`)、使用回数の記録 (`usage-log.sh`)。残る限界は、hook はツールの呼び出しにしか効かない (Bash の中で動くスクリプトが行う操作や、利用者が手で打つコマンドは見ない)、plugin の無効化・`disableAllHooks`・python3 が無いと止まらない、`AIDD_*` で判定を切れる、Write の判定は新規ファイルだけ
-   - **Codex**: 保護される操作は、Bash の `tool-reminder.sh` (Claude Code と同じ判定) と、apply_patch の新規ファイルの `write-guard.sh` (adapter 経由)。残る限界は、`/hooks` で信頼していない hook は何も表示されずに実行されない、`hooks.json` のエントリが変わるリリースでは信頼し直すまでそのエントリが止まる、信頼はスクリプト本体の改変を検出しない、skill gate は無い (`openai.yaml` の `allow_implicit_invocation: false` が代わり)、adapter は変換できない入力を素通りさせて `adapter-skips.json` に数えるだけ
-   - **Cursor**: 保護される操作は、Shell の `tool-reminder.sh`、Write (編集も Write として届く) の `write-guard.sh`、モデルが autonomous-review の SKILL.md を Read することの拒否 (`skill-gate.sh`)。すべて adapter 経由。残る限界は、adapter はどの失敗でも素通りさせる (理由は `adapter-skips.json` に数える)、`ask` は無視されるので確認でなく拒否になる、利用者が手で打った `/autonomous-review` は止まらない、Claude Code に入れた aidd との併用で記録や案内が二重になる
+   - **Codex**: 保護される操作は、Bash の `tool-reminder.sh` (Claude Code と同じ判定) と、apply_patch の新規ファイルの `write-guard.sh` (adapter 経由)。残る限界は、`/hooks` で信頼していない hook は何も表示されずに実行されない、`hooks.json` のエントリが変わるリリースでは信頼し直すまでそのエントリが止まる、信頼はスクリプト本体の改変を検出しない、skill gate は無い (`openai.yaml` の `allow_implicit_invocation: false` が代わり)、adapter は変換できない入力を素通りさせて `adapter-skips.json` に数えるだけ、python3 が無いと止まらない
+   - **Cursor**: 保護される操作は、Shell の `tool-reminder.sh`、Write (編集も Write として届く) の `write-guard.sh`、モデルが autonomous-review の SKILL.md を Read することの拒否 (`skill-gate.sh`)。すべて adapter 経由。残る限界は、adapter はどの失敗でも素通りさせる (理由は `adapter-skips.json` に数える)、`ask` は無視されるので確認でなく拒否になる、利用者が手で打った `/autonomous-review` は止まらない、Claude Code に入れた aidd との併用で記録や案内が二重になる、python3 が無いと止まらない
 
 各項目を実行するには Bash tool で以下相当のコマンドを使う:
 
@@ -262,27 +263,40 @@ try:
         except (OSError, ValueError, LookupError, AttributeError, TypeError):
             return False
 
+    def skips():
+        try:
+            with open(os.path.join(state, "adapter-skips.json"), encoding="utf-8") as f:
+                return sum(e.get("count", 0) for e in json.load(f)["entries"])
+        except (OSError, ValueError, LookupError, AttributeError, TypeError):
+            return 0
+
     env_local = os.path.join(work, ".env.local")
     adapter = ["harness-adapter.sh"]
-    cases = [
-        ("claude PreToolUse Bash git add -A", ["tool-reminder.sh"], event("claude/PreToolUse.bash-git-add-all.json"), "deny"),
-        ("claude PreToolUse Bash git status", ["tool-reminder.sh"], event("claude/PreToolUse.bash-git-status.json"), "pass"),
-        ("claude PreToolUse Write .env.local", ["write-guard.sh"], event("claude/PreToolUse.write-new-file.json", path=env_local), "deny"),
-        ("claude PreToolUse Skill aidd:autonomous-review", ["skill-gate.sh"], event("claude/PreToolUse.skill-autonomous-review.json"), "ask"),
-        ("claude UserPromptSubmit /aidd:doctor", ["usage-log.sh"], event("claude/UserPromptSubmit.aidd-doctor.json"),
-         ("usage.json", lambda d: d["command_counts"]["doctor"] >= 1)),
-        ("codex PreToolUse Bash git add -A", ["tool-reminder.sh"], event("codex/PreToolUse.bash-git-add-all.json"), "deny"),
-        ("codex PreToolUse apply_patch Add .env.local", adapter + ["write-guard.sh"], event("codex/PreToolUse.apply_patch-add.json", patch=env_local), "deny"),
-        ("codex PreToolUse apply_patch Add notes.txt", adapter + ["write-guard.sh"], event("codex/PreToolUse.apply_patch-add.json", patch=os.path.join(work, "new-notes.txt")), "pass"),
-        ("cursor preToolUse Shell git add -A", adapter + ["tool-reminder.sh"], event("cursor/preToolUse.shell-git-add-all.json"), "deny"),
-        ("cursor preToolUse Write .env.local", adapter + ["write-guard.sh"], event("cursor/preToolUse.write.json", path=env_local), "deny"),
-        ("cursor preToolUse Read autonomous-review SKILL.md", adapter + ["skill-gate.sh"], event("cursor/preToolUse.read-before-edit.json", path=skill), "deny"),
-        ("cursor preToolUse Read notes.txt", adapter + ["skill-gate.sh"], event("cursor/preToolUse.read-before-edit.json", path=os.path.join(work, "notes.txt")), "pass"),
-        ("adapter missing child script", adapter + ["aidd-doctor-missing.sh"], event("cursor/preToolUse.shell-git-add-all.json"),
-         ("adapter-skips.json", lambda d: any(e["reason"] == "missing_script" for e in d["entries"]))),
-    ]
+    try:
+        cases = [
+            ("claude PreToolUse Bash git add -A", ["tool-reminder.sh"], event("claude/PreToolUse.bash-git-add-all.json"), "deny"),
+            ("claude PreToolUse Bash git status", ["tool-reminder.sh"], event("claude/PreToolUse.bash-git-status.json"), "pass"),
+            ("claude PreToolUse Write .env.local", ["write-guard.sh"], event("claude/PreToolUse.write-new-file.json", path=env_local), "deny"),
+            ("claude PreToolUse Skill aidd:autonomous-review", ["skill-gate.sh"], event("claude/PreToolUse.skill-autonomous-review.json"), "ask"),
+            ("claude UserPromptSubmit /aidd:doctor", ["usage-log.sh"], event("claude/UserPromptSubmit.aidd-doctor.json"),
+             ("usage.json", lambda d: d["command_counts"]["doctor"] >= 1)),
+            ("codex PreToolUse Bash git add -A", ["tool-reminder.sh"], event("codex/PreToolUse.bash-git-add-all.json"), "deny"),
+            ("codex PreToolUse apply_patch Add .env.local", adapter + ["write-guard.sh"], event("codex/PreToolUse.apply_patch-add.json", patch=env_local), "deny"),
+            ("codex PreToolUse apply_patch Add new-notes.txt", adapter + ["write-guard.sh"], event("codex/PreToolUse.apply_patch-add.json", patch=os.path.join(work, "new-notes.txt")), "pass"),
+            ("cursor preToolUse Shell git add -A", adapter + ["tool-reminder.sh"], event("cursor/preToolUse.shell-git-add-all.json"), "deny"),
+            ("cursor preToolUse Write .env.local", adapter + ["write-guard.sh"], event("cursor/preToolUse.write.json", path=env_local), "deny"),
+            ("cursor preToolUse Read autonomous-review SKILL.md", adapter + ["skill-gate.sh"], event("cursor/preToolUse.read-before-edit.json", path=skill), "deny"),
+            ("cursor preToolUse Read notes.txt", adapter + ["skill-gate.sh"], event("cursor/preToolUse.read-before-edit.json", path=os.path.join(work, "notes.txt")), "pass"),
+            ("cursor preToolUse Read missing unrelated path", adapter + ["skill-gate.sh"], event("cursor/preToolUse.read-before-edit.json", path=os.path.join(work, "no-such-dir", "unrelated.md")), "pass"),
+            ("adapter missing child script", adapter + ["aidd-doctor-missing.sh"], event("cursor/preToolUse.shell-git-add-all.json"),
+             ("adapter-skips.json", lambda d: any(e["reason"] == "missing_script" for e in d["entries"]))),
+        ]
+    except (OSError, ValueError, LookupError, AttributeError, TypeError) as e:
+        print("hooks replay: WARN fixtures incomplete in %s (%s); replay skipped (not OK)" % (fixtures, type(e).__name__))
+        raise SystemExit
     ok = 0
     for label, argv, payload, want in cases:
+        before = skips()
         cmd = ["bash", os.path.join(root, "hooks", "scripts", argv[0])] + argv[1:]
         try:
             proc = subprocess.run(cmd, input=json.dumps(payload), capture_output=True, text=True, env=env, cwd=work, timeout=60)
@@ -290,6 +304,8 @@ try:
             print("hooks replay %s: FAIL timed out" % label)
             continue
         got = decision(proc.stdout)
+        # A pass through the adapter counts only if the adapter did not skip (fail open).
+        skipped = argv[0] == "harness-adapter.sh" and want == "pass" and skips() != before
         if proc.returncode != 0:
             print("hooks replay %s: FAIL exit %d" % (label, proc.returncode))
         elif isinstance(want, tuple):
@@ -298,6 +314,8 @@ try:
                 print("hooks replay %s: OK record %s" % (label, want[0]))
             else:
                 print("hooks replay %s: FAIL nothing recorded in %s" % (label, want[0]))
+        elif skipped:
+            print("hooks replay %s: FAIL the adapter skipped (adapter-skips.json grew), so pass is not a decision" % label)
         elif got == want:
             ok += 1
             print("hooks replay %s: OK %s" % (label, want))
@@ -328,12 +346,39 @@ sys.exit(0 if m and tuple(map(int, m.groups())) >= (2, 1, 110) else 1)' "$v"; th
       fi ;;
     *)
       [ "$cli" = codex ] && measured=0.163.0 || measured=2026.10.22-27dcf5f
-      case "$v" in
-        *"$measured"*) echo "$cli: OK $v (measured version)" ;;
-        *) echo "$cli: WARN $v differs from the measured $measured; probe the real wiring there and re-record tests/fixtures/hooks/" ;;
-      esac ;;
+      # Exact match on the last word (codex prints "codex-cli 0.163.0"), not a substring.
+      if [ "${v##* }" = "$measured" ]; then
+        echo "$cli: OK $v (measured version)"
+      else
+        echo "$cli: WARN $v differs from the measured $measured; probe the real wiring there and re-record tests/fixtures/hooks/"
+      fi ;;
   esac
 done
+# Item 11 settings: names only (never values) of the settings that change the wiring probes.
+names=$(compgen -e | grep -E '^(AIDD_DISABLE_[A-Z0-9_]+|AIDD_UNREADABLE_NAME_PATTERNS)$' | sort | tr '\n' ' ')
+echo "probe settings: ${names:-none}"
+case " $names " in
+  *" AIDD_DISABLE_GIT_SAFETY "*) echo "probe git add -A: 未確認（設定で無効: AIDD_DISABLE_GIT_SAFETY）" ;;
+  *) echo "probe git add -A: run" ;;
+esac
+case " $names " in
+  *" AIDD_DISABLE_UNREADABLE_NAME_GUARD "* | *" AIDD_UNREADABLE_NAME_PATTERNS "*)
+    echo "probe .env.local write: 未確認（設定で無効: AIDD_DISABLE_UNREADABLE_NAME_GUARD / AIDD_UNREADABLE_NAME_PATTERNS）" ;;
+  *) echo "probe .env.local write: run" ;;
+esac
+```
+
+実配線の確認の後片付け (`<dir>` は `mktemp` が表示したパスをリテラルで書く):
+
+```bash
+# Probe cleanup: remove only the probe directory, never recursively.
+d='<dir>'
+case "$d" in
+  *aidd-doctor-probe.*)
+    rm -f -- "$d/.env.local"
+    rmdir -- "$d" && echo "probe dir: removed" || echo "probe dir: WARN not removed (not empty?): $d" ;;
+  *) echo "probe dir: WARN not removed ($d is not an aidd-doctor-probe directory)" ;;
+esac
 ```
 
 **出力**: 項目ごとに `OK` / `WARN` / `FAIL` と、`WARN`・`FAIL` には具体的な対処手順を1行で付ける。項目1–2と9を Claude Code 以外でスキップしたときは `Claude Code のみ` と書く。最後に総合サマリ (問題数) を1行で出す。
