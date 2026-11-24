@@ -352,8 +352,11 @@ def review_finished(state):
     status = state.get("status")
     if not isinstance(status, str) or status != state.get("final_decision"):
         return False
-    reason = state.get("human_required_reason")
-    after = state.get("head_sha_after_fixes")
+    # The reason must be present even when null: a run without it predates the split below.
+    if "human_required_reason" not in state:
+        return False
+    reason = state["human_required_reason"]
+    after = state.get("head_sha_after_fixes")  # optional in the schema
     if not all(isinstance(state.get(key), str) and SHA.match(state[key]) for key in ("base_sha", "head_sha")):
         return False
     if after is not None and not (isinstance(after, str) and SHA.match(after)):
@@ -370,7 +373,8 @@ def covers_head(directory, reviewed, head_sha):
         return True
     if git(directory, "merge-base", reviewed, head_sha) != reviewed:
         return False
-    changed = git(directory, "diff", "--no-ext-diff", "--name-only", reviewed, head_sha)
+    # --no-renames: a file moved into .aidd/ is also a deletion outside it.
+    changed = git(directory, "diff", "--no-ext-diff", "--no-renames", "--name-only", reviewed, head_sha)
     return changed is not None and all(path.startswith(".aidd/") for path in changed.splitlines())
 
 
@@ -390,7 +394,7 @@ def has_review_evidence(directory, base_shas, head_sha):
                 continue
             if not review_finished(state) or state["base_sha"] not in base_shas:
                 continue
-            if covers_head(directory, state["head_sha_after_fixes"] or state["head_sha"], head_sha):
+            if covers_head(directory, state.get("head_sha_after_fixes") or state["head_sha"], head_sha):
                 return True
     return False
 
@@ -431,17 +435,30 @@ def warn_review_before_pr(args, directory):
     skip = env_regex("AIDD_REVIEW_SKIP_PATHS", DOCS_ONLY)
     if all(skip.search(path) for path in files):
         return
-    # The review resolved the base to a local or a remote-tracking branch; either tip counts,
-    # an older base does not (the base moved on after the review).
-    base_shas = {sha for _, sha in (resolve_commit(directory, [name]) for name in ("origin/" + base, base)) if sha}
-    if has_review_evidence(directory, base_shas, head_sha):
+    # The review may have resolved the base to the local branch or to origin's; an older base does
+    # not count (the base moved on after the review). The local tip counts only when origin has
+    # all of it (no unpushed base commits that the PR would carry unreviewed), or when there is
+    # no origin/<base> to check against.
+    _, origin_sha = resolve_commit(directory, ["origin/" + base])
+    _, local_sha = resolve_commit(directory, [base])
+    base_shas = {origin_sha} if origin_sha else set()
+    if local_sha and (not origin_sha
+                      or git(directory, "merge-base", "--is-ancestor", local_sha, origin_sha) is not None):
+        base_shas.add(local_sha)
+    try:
+        found = has_review_evidence(directory, base_shas, head_sha)
+        unchecked = ""
+    except Exception:  # keep the other checks' verdicts; an unjudged evidence is not a review
+        found = False
+        unchecked = "レビュー証跡を確認できなかった (判定中に失敗した)。"
+    if found:
         return
     limit = env_int("AIDD_REVIEW_LIST_LIMIT", 20)
     listing = ", ".join(files[:limit])
     if len(files) > limit:
         listing += f" ほか {len(files) - limit} 件"
     add(contexts,
-        f"aidd: ブランチ {head} は {base} に対してコードを変更しているが、.aidd/autonomous-review/ に現在の差分のレビューを完了した証跡が無い"
+        f"aidd: {unchecked}ブランチ {head} は {base} に対してコードを変更しているが、.aidd/autonomous-review/ に現在の差分のレビューを完了した証跡が無い"
         " (schema_version 5 以上で、記録した base_sha と最終の head が今の基点ブランチと head に一致するもの。"
         "古い・未完了・失敗・型が不正な証跡と、human_required_reason が review_incomplete のものは数えない)。"
         f"PR を出す前に /aidd:autonomous-review --base {base} --head {head} を実行すること。"

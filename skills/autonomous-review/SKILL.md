@@ -82,16 +82,22 @@ argument-hint: "[対象] [--base <branch>] [--head <branch>] [--reviewer codex|c
 
 ### 作業ツリー差分の識別
 
-作業ツリー差分 (`--base` 未指定) の run は、どの差分をレビューしたかをブランチや SHA で示せない。最終判定を書く直前に、`git rev-parse --verify HEAD` の出力を `local_diff.head_commit` に、`git diff --no-ext-diff --binary --staged` と `git diff --no-ext-diff --binary` の出力を実行IDディレクトリの `local-staged-diff.txt` と `local-unstaged-diff.txt` に保存し、それぞれの `git hash-object <ファイル>` の出力を `staged_diff_hash` と `unstaged_diff_hash` に記録する (修正で差分が変わっても、判定が覆うのは最終の差分である)。どれか1つでも得られない場合は `local_diff` を `null` のままにし、差分を識別できないので `human_required` (`human_required_reason` は `review_incomplete`) とする。`auto_merge_eligible` にはしない。
+作業ツリー差分 (`--base` 未指定) の run は、どの差分をレビューしたかをブランチや SHA で示せない。各ラウンドでレビュー担当に渡す差分を確定した時点で、`git rev-parse --verify HEAD` の出力を実行IDディレクトリの `local-round<N>-head.txt` に、`git diff --no-ext-diff --binary --staged` と `git diff --no-ext-diff --binary` の出力を `local-round<N>-staged-diff.txt` と `local-round<N>-unstaged-diff.txt` に保存する (`--reviewer codex` ではスナップショットに当てる差分と同じもの)。最終判定を書く直前に同じ3つを取り直して `local-staged-diff.txt` と `local-unstaged-diff.txt` に保存し、HEAD の出力を `local_diff.head_commit` に、それぞれの `git hash-object <ファイル>` の出力を `staged_diff_hash` と `unstaged_diff_hash` に記録する。
+
+- 取り直した HEAD と2つのハッシュが、最後のラウンドで保存したもの (`git hash-object` で同じく求める) と1つでも違えば、レビューしていない差分が残っている (最後のラウンドの後の修正を含む) ので `human_required` (`human_required_reason` は `review_incomplete`) とする
+- どれか1つでも得られない場合は `local_diff` を `null` のままにし、差分を識別できないので `human_required` (`human_required_reason` は `review_incomplete`) とする
+- どちらの場合も `auto_merge_eligible` にはしない
 
 ### PR 前の確認が数える証跡
 
 `gh pr create` の前に `hooks/scripts/tool-reminder.sh` は、どの worktree の `.aidd/autonomous-review/*/state.json` についても、次のすべてを満たすものだけを「現在の差分のレビューを完了した証跡」と数え、無ければ警告する (拒否はしない)。
 
 - `schema_version` が `5` 以上の整数。`4` 以下の証跡は、完了を表すキーを持たないので数えない (再実行する)
-- `status` と `final_decision` が同じ値で、`auto_merge_eligible`、または `human_required` かつ `human_required_reason` が `human_judgment`。`started` / `reviewing` / `gating`、`failed`、`review_incomplete` は数えない
-- `base_sha` が今の基点ブランチ (ローカルか `origin/` のどちらか) の先端と一致し、`head_sha_after_fixes` (無ければ `head_sha`) が PR の head と一致する。head が先に進んでいても、増えたコミットが `.aidd/` だけを変える (台帳や証跡のコミット) なら一致とみなす
+- `status` と `final_decision` が同じ値で、`auto_merge_eligible`、または `human_required` かつ `human_required_reason` が `human_judgment`。`started` / `reviewing` / `gating`、`failed`、`review_incomplete`、`human_required_reason` のキーが無いものは数えない
+- `base_sha` が今の基点ブランチの先端と一致する。`origin/<base>` があればその先端、ローカルの `<base>` の先端は `origin/<base>` に含まれる (push していないコミットが無い) ときだけ数える。push していないローカルのコミットは PR に入るのにレビューの対象外になるため。`origin/<base>` が無ければ、ローカルの先端だけを数える
+- `head_sha_after_fixes` (無い・`null` なら `head_sha`) が PR の head と一致する。head が先に進んでいても、増えたコミットが `.aidd/` だけを変える (台帳や証跡のコミット。名前の変更は元の場所の削除として数える) なら一致とみなす
 - 型が表のとおりである (SHA は16進の完全な値)。作業ツリー差分の run (`base_sha` が `null`) は PR の差分のレビューとは数えない
+- 証跡の判定そのものが失敗した場合は、確認できなかったと書いて警告する (同じコマンドのほかの確認の結果は残す)
 
 ## レビュー・ループ
 

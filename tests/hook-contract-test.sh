@@ -109,7 +109,8 @@ git -C "$ev" add a.sh
 git -C "$ev" commit -qm 'feat: code'
 ev_base=$(git -C "$ev" rev-parse main)
 ev_head=$(git -C "$ev" rev-parse feat)
-# write_state DIR [KEY=JSON ...]: a finished auto_merge_eligible run for main...feat, with overrides.
+# write_state DIR [KEY=JSON | -KEY ...]: a finished auto_merge_eligible run for main...feat, with
+# overrides; -KEY drops the key.
 write_state() {
   local dir=$1
   shift
@@ -122,6 +123,9 @@ state = {"schema_version": 5, "run_id": "run1", "status": "auto_merge_eligible",
          "head_sha_after_fixes": None, "final_decision": "auto_merge_eligible",
          "human_required_reason": None, "local_diff": None}
 for item in overrides:
+    if item.startswith("-"):
+        del state[item[1:]]
+        continue
     key, value = item.split("=", 1)
     state[key] = json.loads(value)
 with open(path, "w") as f:
@@ -129,9 +133,24 @@ with open(path, "w") as f:
 PYEOF
 }
 run_dir="$ev/.aidd/autonomous-review/run1"
-pr_warns() { hook PreToolUse "${2:-$ev}" "gh pr create --base main --head ${1:-feat}" | grep -Fq '/aidd:autonomous-review --base main'; }
-expect_warn() { pr_warns "$@" || { echo "no warning: $(cat "$run_dir/state.json")" >&2; exit 1; }; }
-expect_quiet() { if pr_warns "$@"; then echo "warned: $(cat "$run_dir/state.json")" >&2; exit 1; fi; }
+# Both expectations also require the Japanese-language nudge, so a hook that crashed (and printed
+# nothing) fails them instead of passing for "no warning".
+pr_out() {
+  local out
+  out=$(hook PreToolUse "${2:-$ev}" "gh pr create --base main --head ${1:-feat}")
+  printf '%s\n' "$out" | grep -Fq 'タイトルと本文は日本語' || { echo "hook did not finish: $(cat "$run_dir/state.json")" >&2; exit 1; }
+  printf '%s\n' "$out"
+}
+expect_warn() {
+  local out
+  out=$(pr_out "$@") || exit 1
+  printf '%s\n' "$out" | grep -Fq '/aidd:autonomous-review --base main' || { echo "no warning: $(cat "$run_dir/state.json")" >&2; exit 1; }
+}
+expect_quiet() {
+  local out
+  out=$(pr_out "$@") || exit 1
+  if printf '%s\n' "$out" | grep -Fq '/aidd:autonomous-review --base main'; then echo "warned: $(cat "$run_dir/state.json")" >&2; exit 1; fi
+}
 expect_warn
 # The warning says which evidence counts.
 hook PreToolUse "$ev" 'gh pr create --base main --head feat' | grep -F 'レビューを完了した証跡'
@@ -139,6 +158,9 @@ write_state "$run_dir"
 expect_quiet
 # The branch name does not matter: a renamed branch with the same commits is the same diff.
 write_state "$run_dir" head='"renamed"'
+expect_quiet
+# head_sha_after_fixes is optional: a run without it is read as "no fixes".
+write_state "$run_dir" -head_sha_after_fixes
 expect_quiet
 # Review done, human judgment needed (high risk, self-review): the review itself counts.
 write_state "$run_dir" status='"human_required"' final_decision='"human_required"' human_required_reason='"human_judgment"'
@@ -155,7 +177,8 @@ for override in \
   'status="auto_merge_eligible" final_decision="human_required"' \
   'schema_version=4' 'schema_version="5"' 'schema_version=true' 'schema_version=null' \
   'head_sha=123' 'base_sha=null' 'head_sha="feat"' 'head_sha_after_fixes=1' \
-  'status=1' 'human_required_reason="human_judgment"'; do
+  'status=1' 'human_required_reason="human_judgment"' -human_required_reason -status -base_sha -head_sha \
+  -schema_version '-status -final_decision'; do
   write_state "$run_dir" $override
   expect_warn
 done
@@ -190,6 +213,31 @@ expect_warn
 ev_head=$(git -C "$ev" rev-parse feat)
 write_state "$run_dir"
 expect_quiet
+# A file moved into .aidd/ is a deletion outside it, not a change inside .aidd/ only.
+git -C "$ev" mv c.sh .aidd/c.sh
+git -C "$ev" commit -qm 'chore: move into .aidd'
+expect_warn
+git -C "$ev" reset -q --hard "$ev_head"
+expect_quiet
+# If judging the evidence fails (here a worktree path with a NUL byte makes glob raise), the hook
+# says the evidence went unchecked, and still returns the other verdicts of the same command (the
+# denial of git reset --hard, the language nudge).
+nul_bin="$tmp_dir/nul-worktree-git"
+mkdir -p "$nul_bin"
+real_git=$(command -v git)
+cat > "$nul_bin/git" <<SH
+#!/bin/bash
+"$real_git" "\$@" || exit
+case " \$* " in *" worktree list "*) printf 'worktree /x\\0y\\n' ;; esac
+SH
+chmod +x "$nul_bin/git"
+rm "$run_dir/state.json"  # finished evidence in the first root would answer before the bad one
+out=$(PATH="$nul_bin:$PATH" hook PreToolUse "$ev" 'git reset --hard HEAD && gh pr create --base main --head feat')
+[ "$(printf '%s\n' "$out" | decision_of)" = deny ]
+printf '%s\n' "$out" | grep -F 'タイトルと本文は日本語'
+printf '%s\n' "$out" | grep -F '証跡を確認できなかった'
+printf '%s\n' "$out" | grep -F '/aidd:autonomous-review --base main --head feat'
+write_state "$run_dir"
 # The base moved on after the review: stale. A remote-tracking base that the local one lags
 # behind (or the other way round) still matches the side the review resolved.
 git -C "$ev" switch -q main
@@ -201,6 +249,19 @@ expect_warn
 git -C "$ev" update-ref refs/remotes/origin/main "$(git -C "$ev" rev-parse main)"
 git -C "$ev" branch -qf main "$ev_base"
 expect_quiet
+# A local base with commits not on origin (unpushed) is not the PR's base: only origin's tip counts.
+# Without an origin/<base> ref the local tip is the only base there is, and it counts (above).
+git -C "$ev" switch -q main
+echo unpushed > "$ev/local.sh"
+git -C "$ev" add local.sh
+git -C "$ev" commit -qm 'chore: not pushed'
+git -C "$ev" switch -q feat
+git -C "$ev" update-ref refs/remotes/origin/main "$ev_base"
+write_state "$run_dir" base_sha='"'"$(git -C "$ev" rev-parse main)"'"'
+expect_warn
+write_state "$run_dir"
+expect_quiet
+git -C "$ev" branch -qf main "$ev_base"
 git -C "$ev" update-ref -d refs/remotes/origin/main
 # Evidence written in any worktree counts, whichever worktree (or the main tree) opens the PR.
 rm -rf "$ev/.aidd/autonomous-review"
