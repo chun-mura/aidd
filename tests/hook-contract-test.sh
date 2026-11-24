@@ -1907,6 +1907,11 @@ s = specific(run(["bash", guard], write_event(project / f".env.{lone}"), direct)
 assert s["permissionDecision"] == "deny" and ".env.�" in s["permissionDecisionReason"], s
 # The file Node would write (U+FFFD) already exists, so it is an edit, not a new file.
 assert run(["bash", guard], write_event(project / f"a{lone}.draft"), direct, AIDD_UNREADABLE_NAME_PATTERNS="*.draft") == ""
+# A relative path is based on the cwd Node uses (U+FFFD), where the file already exists.
+(project / "d�").mkdir()
+(project / "d�/x.draft").write_text("x")
+event = dict(write_event("x.draft"), cwd=str(project / f"d{lone}"))
+assert run(["bash", guard], event, direct, AIDD_UNREADABLE_NAME_PATTERNS="*.draft") == ""
 s = specific(run(["bash", guard], write_event(project / f".claude/skills/new{lone}/SKILL.md"), direct,
                  AIDD_ASSET_OVERLAP_PLUGINS="/missing\udcff"))
 assert "Could not read" in s["additionalContext"] and "/missing\udcff" in s["additionalContext"], s
@@ -1920,6 +1925,15 @@ assert s["permissionDecision"] == "deny" and "git commit -a" in s["permissionDec
 s = specific(run(["bash", dispatcher], bash_event("gh issue create -R o/r --title t"), direct,
                  AIDD_REQUIRED_LABEL_PREFIX="p\udcff"))
 assert s["permissionDecision"] == "deny" and "p\udcff" in s["permissionDecisionReason"], s
+# Paths that exist only as U+FFFD: git checkout <path> discards only when the path exists on disk,
+# and the cwd (a repository named with U+FFFD) must be the one the checks run in.
+for name in ("crepo", "r�"):
+    subprocess.run(["git", "init", "-q", str(root / name)], check=True)
+(root / "crepo/f�").write_text("x")
+s = specific(run(["bash", dispatcher], bash_event(f"git checkout f{lone}", str(root / "crepo")), direct))
+assert s.get("permissionDecision") == "deny" and "git checkout <path>" in s["permissionDecisionReason"], s
+s = specific(run(["bash", dispatcher], bash_event("git commit -a -m x", str(root / f"r{lone}")), direct))
+assert s["permissionDecision"] == "deny" and "git commit -a" in s["permissionDecisionReason"], s
 
 # Through the adapter: Cursor Write / Shell and Codex apply_patch keep the deny and count nothing.
 def cursor(event, name):
