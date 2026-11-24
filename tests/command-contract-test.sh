@@ -67,8 +67,28 @@ grep -F -- '全ソースの最大番号 +1' "$adr_command"
 grep -F -- 'git symbolic-ref --quiet refs/remotes/origin/HEAD' "$adr_command"
 grep -F -- 'refs/remotes/origin/' "$adr_command"
 grep -F -- '検討した代替案' "$adr_command"
-grep -F -- '| 観点 (優先度) | テスト (ファイル:テスト名) | 前提を壊して落ちたか | 未実装の理由 |' "$issue_implement"
+grep -F -- '| 原要件 (出典) | 設計判断 | 観点 (優先度) | テスト (ファイル:テスト名) | 前提を壊して落ちたか | 実行結果 | 未実装の理由と人の判断 |' "$issue_implement"
 grep -F -- 'must の観点は全件' "$issue_implement"
+# The completion report traces each original requirement to its decision, test and run result,
+# or to the reason it was left out and who accepted that, without a new requirements ledger (#124).
+grep -F -- '原要件は全件を載せる' "$issue_implement"
+grep -F -- 'reqd の要件定義書 (`docs/requirements/`) があれば、そこにある既存の番号・見出し' "$issue_implement"
+grep -F -- '1 で推測と分類した要件は、一次情報で裏付けるまで原要件に数えない' "$issue_implement"
+grep -F -- '既存テストでカバー済みとした観点も、そのテストのファイルとテスト名と実行結果を書く' "$issue_implement"
+grep -F -- '失敗・未実行を pass と書かない' "$issue_implement"
+grep -F -- '人の判断がまだ無ければ「未判断」と書く' "$issue_implement"
+grep -F -- '「未判断」の行が残るあいだは、2 の手順で人に上げるか、6 の deferred として追跡先を決めるまで完了にしない' "$issue_implement"
+grep -F -- '完了報告で止める場合は、未完了であると明記する' "$issue_implement"
+grep -F -- '- 設計判断: 設計レーンでは設計書の該当する節、直行レーンでは 2 で自分で決めた点と人に上げて決まった点のうち、その原要件に関わるもの。無ければ「なし」' "$issue_implement"
+grep -F -- '番号が無ければ、ファイルパスと見出し (または行) で指す' "$issue_implement"
+grep -F -- '「設計判断」と「未実装の理由と人の判断」の列は、上の報告項目' "$issue_implement"
+grep -F -- 'E2E・移行・性能・ロールバックの検証は、原要件か変更の性質が求めるものだけを' "$issue_implement"
+grep -F -- '実施 (コマンドと結果)・不要と判断した理由・未実施 (理由) のどれかで書く' "$issue_implement"
+grep -F -- '原要件に無い非機能目標 (性能の数値など) を自分で設けず、そのための検証も足さない' "$issue_implement"
+if grep -F -- '| 観点 (優先度) | テスト (ファイル:テスト名) | 前提を壊して落ちたか | 未実装の理由 |' "$issue_implement"; then
+  echo "issue-implement must trace from the original requirement, not from the perspective alone" >&2
+  exit 1
+fi
 # issue-implement checks the diff against the placement that design-doc writes, so both
 # sides of that contract must stay.
 grep -F -- 'コンポーネントごとにコード上の配置 (ディレクトリ・ファイル) を書く' "$design_doc"
