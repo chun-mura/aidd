@@ -321,9 +321,10 @@ def changed_paths(directory, *revs):
     """The paths a diff changes, or None when git fails. --no-renames: a file moved elsewhere is
     also a deletion where it was. --ignore-submodules=none: ignore = all in .gitmodules would hide a
     submodule pointer. --no-relative: diff.relative from a subdirectory would hide changes outside
-    it. -z: paths with non-ASCII or control characters come unquoted (and nothing is stripped)."""
+    it. -z: paths with non-ASCII or control characters come unquoted (and nothing is stripped).
+    The trailing --: a file named like a revision (main...feat) must not make git fail."""
     out = git_bytes(directory, "diff", "--no-ext-diff", "--no-renames", "--ignore-submodules=none",
-                    "--no-relative", "--name-only", "-z", *revs)
+                    "--no-relative", "--name-only", "-z", *revs, "--")
     if out is None:
         return None
     return [path for path in out.decode("utf-8", "replace").split("\0") if path]
@@ -334,7 +335,7 @@ def remind_test_perspectives(directory):
     if staged and all(re.search(DOCS_ONLY, path) for path in staged):
         return
     perspectives = os.path.join(directory, "docs", "test-perspectives")
-    for path in glob.glob(os.path.join(perspectives, "**", "*.md"), recursive=True):
+    for path in glob.glob(os.path.join(glob.escape(perspectives), "**", "*.md"), recursive=True):
         try:
             if os.path.getmtime(path) > time.time() - 360 * 60:
                 return

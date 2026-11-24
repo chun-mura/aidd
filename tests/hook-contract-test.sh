@@ -328,6 +328,14 @@ write_state "$run_dir"
 for cwd in "$ev" "$tmp_dir/wt-[a]" "$tmp_dir/wt-b"; do
   expect_quiet feat "$cwd"
 done
+# A file named like the compared revisions does not make the diff ambiguous.
+touch "$ev/main...feat"
+expect_quiet feat "$ev"
+rm "$ev/main...feat"
+# Recent test perspectives in a worktree whose path has glob characters still silence the nudge.
+mkdir -p "$tmp_dir/wt-[a]/docs/test-perspectives"
+echo x > "$tmp_dir/wt-[a]/docs/test-perspectives/p.md"
+if hook PreToolUse "$tmp_dir/wt-[a]" 'git commit -m x' | grep -Fq '/aidd:test-perspectives'; then exit 1; fi
 git -C "$ev" worktree remove --force "$tmp_dir/wt-[a]"
 git -C "$ev" worktree remove --force "$tmp_dir/wt-b"
 # A branch moved into docs/ is not docs-only: the move deletes the code where it was.
