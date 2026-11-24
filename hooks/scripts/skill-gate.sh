@@ -58,6 +58,8 @@ elif event.get("tool_name") == "Read":
             if "/" in rest:
                 candidates.append(urllib.parse.unquote(re.split(r"[?#]", rest[rest.index("/"):], maxsplit=1)[0]))
         cwd = event.get("cwd")
+        if isinstance(cwd, str):
+            cwd = re.sub("[\ud800-\udfff]", "\ufffd", cwd)  # the adapter's cwd may carry one too
         def same(candidate):
             try:
                 return os.path.samefile(candidate, own)

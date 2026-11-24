@@ -2128,6 +2128,11 @@ ln -s "$repo_root/skills/autonomous-review/SKILL.md" "$alias_dir/alias"$'\xef\xb
 cursor_read "$alias_dir/alias<lone>.md"; adapter_gate | expect_cursor_deny
 cursor_read "$repo_root/skills/autonomous-review/SKILL.md<lone>"; expect_adapter_pass
 cursor_read "$alias_dir/other<lone>.md"; expect_adapter_pass
+# The root (the gate's cwd) may carry one too: Node opens it as U+FFFD, so the gate bases a relative path there.
+mkdir "$alias_dir/root"$'\xef\xbf\xbd'
+ln -s "$repo_root/skills/autonomous-review/SKILL.md" "$alias_dir/root"$'\xef\xbf\xbd'"/linked.md"
+cursor_read linked.md "$alias_dir/root<lone>"; adapter_gate | expect_cursor_deny
+cursor_read other.md "$alias_dir/root<lone>"; expect_adapter_pass
 # Cursor expands only ~ alone or before / (not ~user): ~root/.. stays relative and is judged from every base.
 cursor_read '~root/../autonomous-review/SKILL.md' "$repo_root/skills/design-review"; adapter_gate | expect_cursor_deny
 # No workspace root and no CURSOR_PROJECT_DIR: the gate still runs (from /), other scripts keep no_cwd.
