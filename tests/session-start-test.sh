@@ -4,7 +4,13 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
 output=$(AIDD_DISABLE_CLARIFY_NUDGE=1 bash "$repo_root/hooks/scripts/session-start.sh")
 
-printf '%s\n' "$output" | grep -F 'aidd: 設計案は design-review'
+# Same intent as the CLAUDE.md template (#127): design-doc then design-review only for the
+# design lane (named with its source, since consumers may not use issue-implement), and test
+# perspectives before implementation with an explicit target (the diff is still empty).
+printf '%s\n' "$output" | grep -F 'aidd: 設計レーン (issue-implement のレーン判定) の変更は design-doc → design-review、不明点は確認、実装前は設計書か変更内容を test-perspectives に渡す。'
+if printf '%s\n' "$output" | grep -Fq 'コミット前'; then
+  exit 1
+fi
 if printf '%s\n' "$output" | grep -Fq '/aidd:retro'; then
   exit 1
 fi

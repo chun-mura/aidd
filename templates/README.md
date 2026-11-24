@@ -6,7 +6,7 @@
 
 Claude Code を新しいリポジトリで使い始めるとき。
 
-- `CLAUDE.md.template` — プロジェクトの CLAUDE.md の出発点。コメントを埋めて `.template` を外す。「コードから読み取れないことだけ書く」が原則
+- `CLAUDE.md.template` — プロジェクトの CLAUDE.md の出発点。コメントを埋めて `.template` を外す。「コードから読み取れないことだけ書く」が原則。「AI運用」節は Issue の実装を `/aidd:issue-implement` に、Issue を使わない開発を既存 skill に案内するだけで、設計書・レビューの要否の条件は issue-implement の「レーン判定」を正として書き写さない
 - `settings.json.template` — `.claude/settings.json` の出発点。read-only git 操作を許可し、機密ファイルを deny する最小構成
 - `sandbox-settings.json.template` — aidd の skill をローカルで動かすとき、利用プロジェクトの `.claude/settings.json` (自分だけなら `.claude/settings.local.json`) にマージする。Bash を sandbox に入れ、通信先を GitHub と主要レジストリに、書き込みを作業ディレクトリに限り、認証情報ファイルの読み取りと危険な `gh` のサブコマンドを拒否し、`rm -rf`・`git push --force`・`git branch -D` に確認を出す。`gh` も sandbox の中で動き (macOS では `env` の `SSL_CERT_FILE` で TLS を通す。Go 1.27 以上でビルドした `gh` が要る)、対象リポジトリだけの fine-grained PAT を `GH_TOKEN` で渡す (手順は aidd の README「ローカルで権限を絞って使う」)
 - `team-settings.json.template` — チームで aidd を使うとき、利用プロジェクトの `.claude/settings.json` にマージしてコミットする。フォルダを trust したメンバーに aidd のインストールが自動提案される (`extraKnownMarketplaces` + `enabledPlugins`)
