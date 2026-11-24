@@ -1,0 +1,12 @@
+{
+  "session_id": "00000000-0000-0000-0000-000000000000",
+  "transcript_path": "/home/user/.claude/projects/-work-repo/00000000-0000-0000-0000-000000000000.jsonl",
+  "cwd": "/work/repo",
+  "permission_mode": "default",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Skill",
+  "tool_input": {
+    "skill": "aidd:autonomous-review"
+  },
+  "tool_use_id": "toolu_00000000000000000000000000"
+}
