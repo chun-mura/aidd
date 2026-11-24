@@ -42,6 +42,8 @@ elif event.get("tool_name") == "Read":
     # opens the same SKILL.md under another spelling.
     path = tool_input.get("file_path")
     own = os.path.join(plugin_root, "skills", "autonomous-review", "SKILL.md")
+    def expand_home(p):  # Cursor expands only a leading ~ alone or before / or \ (not ~user)
+        return re.sub(r"^~(?=$|/|\\)", lambda _: os.path.expanduser("~"), p)
     if isinstance(path, str) and path:
         # Node opens a lone surrogate (JSON.stringify sends it as \ud800) as U+FFFD, so read it the same way.
         path = re.sub("[\ud800-\udfff]", "\ufffd", path)
@@ -62,7 +64,7 @@ elif event.get("tool_name") == "Read":
             except (OSError, ValueError):
                 return False  # nothing there to read, or not a path (NUL)
         for candidate in candidates:
-            candidate = os.path.expanduser(candidate)
+            candidate = expand_home(candidate)
             if isinstance(cwd, str) and cwd:
                 candidate = os.path.join(cwd, candidate)  # a relative path is the reader's, not this hook's
             # The reader may resolve the path as text (a missing directory before .., or past PATH_MAX),
@@ -71,7 +73,7 @@ elif event.get("tool_name") == "Read":
                 reply("deny", deny_reason)
                 break
         else:
-            raw = os.path.expanduser(path)
+            raw = expand_home(path)
             if not os.path.isabs(raw):
                 # Cursor resolves a relative path (and a file URI it cannot convert) from its workspace when it
                 # has one root, the roots' common parent when they share one, and else its own process cwd (a GUI

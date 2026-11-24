@@ -1886,6 +1886,25 @@ ln -s "$repo_root/skills/autonomous-review/SKILL.md" "$alias_dir/alias"$'\xef\xb
 cursor_read "$alias_dir/alias<lone>.md"; adapter_gate | expect_cursor_deny
 cursor_read "$repo_root/skills/autonomous-review/SKILL.md<lone>"; expect_adapter_pass
 cursor_read "$alias_dir/other<lone>.md"; expect_adapter_pass
+# Cursor expands only ~ alone or before / (not ~user): ~root/.. stays relative and is judged from every base.
+cursor_read '~root/../autonomous-review/SKILL.md' "$repo_root/skills/design-review"; adapter_gate | expect_cursor_deny
+# No workspace root and no CURSOR_PROJECT_DIR: the gate still runs (from /), other scripts keep no_cwd.
+rootless_read() {  # FILE_PATH: a Cursor Read with workspace_roots []
+  python3 - "$fixtures/cursor/preToolUse.read-before-edit.json" "$adapter_in" "$1" <<'PY'
+import json, sys
+p = json.load(open(sys.argv[1]))
+p["workspace_roots"] = []
+p["tool_input"]["file_path"] = sys.argv[3]
+json.dump(p, open(sys.argv[2], "w"))
+PY
+}
+rootless_gate() { env -u CURSOR_PROJECT_DIR AIDD_TEST_STATE_DIR="$gate_dir" bash "$adapter" skill-gate.sh < "$adapter_in"; }
+rootless_read "$repo_root/skills/autonomous-review/SKILL.md"; rootless_gate | expect_cursor_deny
+rootless_read "${repo_root#/}/skills/autonomous-review/SKILL.md"; rootless_gate | expect_cursor_deny
+rootless_read /work/repo/new.txt
+before=$(cat "$gate_dir/adapter-skips.json" 2>/dev/null || true)
+[ -z "$(rootless_gate)" ]
+[ "$before" = "$(cat "$gate_dir/adapter-skips.json" 2>/dev/null || true)" ]
 cursor_read "$alias_dir/nonexist/../other.md"; expect_adapter_pass
 cursor_read "$alias_dir/nonexist.md"; expect_adapter_pass
 cursor_read "$repo_root/skills/design-review/../design-review/SKILL.md"; expect_adapter_pass
