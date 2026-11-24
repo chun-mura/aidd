@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.82.0 (2026-11-24)
+
+- `autonomous-review`: 中断した run (`started` / `reviewing` / `gating`) を検出し、安全にやり直す手順を定めた (#125)。中断した run は別のセッションで実行中の run と見分けられないので、再開・上書き・削除せず、新しい実行IDの run で最初からやり直す。ほかの run の `approved`・判定・観点別レビュー・品質ゲート・`local_diff` は、同じ SHA でも流用しない。検出は同じ worktree・同じ base/head の run か、head がこの run の対象の祖先である run に限り、ほかの run の state.json からは実行ID・status・base/head・SHA・一時資産のパスだけを形を確かめて読み (findings・判定・ゲート・レビュー担当の出力は読まない)、片付け方を `report.md` で案内する。作業ツリー差分の run で中断 run があれば、そのコミット済みの修正を見るため `--base` への切り替えか停止を選ばせる
+- 一時worktree・スナップショットは、作成前にパスを `state.json` に記録し、`mkdir` (`-p` なし) で新しく作れたときだけ `created: true` にする (既にあれば作成の失敗)。後片付けは、この run が `created: true` と記録し、`realpath` で正規化したパスと `git worktree list` で確かめられた資産だけに限り、確かめられない資産と実行IDディレクトリ・ほかの run の資産は削除せず報告する。`state.json` のスキーマと hook は変えていない
+
 ## 0.81.0 (2026-11-24)
 
 - `doctor`: `--hooks` を足し、hook の実動作とハーネスごとの保護範囲を確かめられるようにした (#123)。以前の doctor は hook スクリプトの実行ビットと状態 JSON しか見ず、hook が判定を返すか、ハーネスが hook を実際に呼ぶかを確かめる項目が無かった。項目10は同梱の fixture (codex・cursor は実測の記録、claude は文書に合わせた手書き) を、使い捨ての HOME・状態ディレクトリと最小の環境変数で hook スクリプトに流し、拒否・通過・確認・記録 (`usage.json`・`adapter-skips.json`) をハーネス別に判定する。fixture が無ければ WARN で OK にしない。項目11は各ハーネスの CLI を `--version` だけ実行して実測版と比べ、doctor を実行しているハーネスでだけ、リポジトリ外の一時ディレクトリへの `git add -A` と `.env.local` の作成が aidd の文言で止まるかで実配線を確かめる。fixture の再生が OK でも実配線は OK にせず、確かめていないハーネスや `AIDD_DISABLE_*` で無効にした確認は「未確認」とし、保護される操作と残る限界をハーネス別に出す。fixture の一部欠落は WARN、adapter が素通りした pass は FAIL、CLI の版は完全一致で照合する。claude の fixture は記録ではなく手書きで、実際の入力とは照合していない。設定の変更・token の読み出し・通信はしない
