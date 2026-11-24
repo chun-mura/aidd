@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.89.0 (2026-11-24)
+
+- `autonomous-review`: 実装監査 `/security-review` を、判定者のセッションの中で実行するのをやめ、新しい `claude -p` プロセスで実行するようにした (#171)。以前は差分の本文がスラッシュコマンドの展開として判定者の文脈に入り、結果ファイルも判定者が書き写していた。生の出力 (stream-json) はプロセスが実行IDディレクトリに直接書き、同じ呼び出しのうちに sha256 を表示して読み取り専用にする。判定者は生の出力を開かず、ブロックが nonce 付きの区切りの間に表示した結果の本文だけをデータとして読む。起動の前後で HEAD と作業ツリーの清潔さ (`.aidd/autonomous-review/` を除く) を確かめ、シンボリックリンクと、新しいセッションが読み込むファイル (`.claude/`・`.mcp.json`・`CLAUDE.md`。大文字小文字・引用符付きの名前を含む) を変える差分では起動しない。`Edit`・`Write`・`NotebookEdit` は `--disallowedTools` で止める。init・cwd・コマンドの有無・成功した result のどれかを確かめられない場合は未実行 (`review_incomplete`)
+- 実測 (2026-11-24、Claude Code 2.1.331、2回) では、`-p` でもコマンドは展開されて監査が走ったが、展開した FILES MODIFIED は stream-json にも replay (`--replay-user-messages`) にも出なかった。このため今の版では監査した範囲を確かめられず、ブロックは2で終わり、監査は `review_incomplete` になる (指摘は現物検証にかける)。会話の記録は、利用者の設定ディレクトリを読む設計を避けるため確かめていない
+
 ## 0.88.0 (2026-11-24)
 
 - `write-guard.sh`・`tool-reminder.sh`: 入力に孤立サロゲート (`\ud800` など) があると、計算済みの拒否が出力で失われていたのを直した (#181)。原因は `ensure_ascii=False` での出力が `UnicodeEncodeError` で落ちることで、子は exit 0 で終わるため adapter も `adapter-skips.json` に数えられなかった (直接の Claude Code の経路でも同じ)。`file_path`・`notebook_path`・`command`・`cwd` の孤立サロゲートを Node と同じく U+FFFD に置き換えてから判定し (`skill-gate.sh` と同じやり方)、出力が UTF-8 にできない場合だけエスケープした JSON で出す。adapter は変えておらず、#119 の方針 (異常終了時は有効な拒否 JSON だけを残す)・fail-open・python を起動する前の早期 exit も変えていない。正しく判定された入力を skip として数えることもない。既知の限界: UTF-8 でないロケールの stdout では、日本語の拒否文言の出力が落ちることがある (#181 の前からの挙動)
