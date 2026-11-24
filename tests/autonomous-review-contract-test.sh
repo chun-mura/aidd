@@ -254,3 +254,26 @@ grep -F -- '削除してよいのは、この run の `state.json` に作成を�
 grep -F -- '確かめられなければ削除せず `removed: false` のまま `residual_risks` と `report.md` に残す' "$command_file"
 grep -F -- '作成した記録をこの run が持たないので削除しない' "$command_file"
 grep -F -- '実行中の別セッションの資産かもしれない' "$command_file"
+# Review follow-ups (#125): read only the listed keys and check their shape, narrow detection so
+# an old run does not ask on every run, create temporary assets exclusively, and catch fixes an
+# interrupted working-tree run committed.
+grep -F -- 'ほかの run の `findings`・`rounds` の判定・`quality_gates`・レビュー担当の出力は読まない' "$command_file"
+grep -F -- 'SHA は16進の完全な値 (40 または 64 文字)、パスは4096文字以下の絶対パス、ブランチは `git check-ref-format --branch <branch>` が成功するもの' "$command_file"
+grep -F -- '形が外れる `state.json` はファイル名だけを列挙する。列挙する値は `report.md` に引用として書き' "$command_file"
+grep -F -- 'この run と同じ worktree にあり、`base` / `head` がこの run と同じ' "$command_file"
+grep -F -- '`git merge-base --is-ancestor <SHA> <対象のコミット>` が成功する' "$command_file"
+grep -F -- 'その実行IDディレクトリを手で削除してよいこと' "$command_file"
+grep -F -- '`mkdir` (`-p` なし) で新しく作り、作れたときだけ `created: true` にする。パスがすでにある場合は作成の失敗として扱い' "$command_file"
+grep -F -- '`path` と `created` は作成前に記録する。`created: false` は未作成または作成されたか不明' "$command_file"
+grep -F -- '中断した可能性がある run に `base` が `null` のものがあれば利用者に知らせ、AskUserQuestion で「`--base` を付けたブランチ比較に切り替える」' "$command_file"
+grep -F -- '止める場合と回答が無い場合は `human_required` (`human_required_reason` は `review_incomplete`) として終了する' "$command_file"
+grep -F -- '作業ディレクトリの HEAD がこの run の対象のコミット (head) を指し、作業ツリーに未コミット・ステージ済みの差分がある場合' "$command_file"
+grep -F -- '「この run を止める」かを選ばせる。回答が無ければ `human_required` (`human_required_reason` は `review_incomplete`) として終了する' "$command_file"
+grep -F -- '`git status --porcelain -- .aidd/learnings/` で列挙して `report.md` に書く' "$command_file"
+grep -F -- 'この run で利用者が改めて示した issue 番号だけ' "$command_file"
+grep -F -- '`git worktree list --porcelain` にそのパスが detached で載っていることを確かめる' "$command_file"
+grep -F -- '両方を `realpath` で正規化してから比べる' "$command_file"
+if grep -F -- '| 最終判定を書いたあと (台帳の手順の途中) |' "$command_file"; then
+  echo "a run stopped after its final decision is not detected at start; use the git status check" >&2
+  exit 1
+fi
