@@ -66,12 +66,12 @@ grep -F -- '`severity` は重大度を下げずに写し (High は `blocker`、M
 grep -F -- '`git diff --name-only origin/HEAD...` と `git diff origin/HEAD...` を取り' "$command_file"
 grep -F -- '作業ツリー差分だけが対象の run では、未コミットの差分を監査しないので実行せず未実行とする' "$command_file"
 grep -F -- '作業ディレクトリの `HEAD` がそのラウンドの対象コミット (head、2ラウンド目以降は修正後のコミット) を指している場合だけ実行する' "$command_file"
-grep -F -- '`git diff --no-ext-diff --name-only origin/HEAD...HEAD` を取り、確定した差分 (' "$command_file"
-grep -F -- '2ラウンド目以降は修正後のコミット) の `git diff --no-ext-diff --name-only` の出力と比べる' "$command_file"
+grep -F -- 'clone の `git diff --name-only origin/HEAD...HEAD` が確定した差分 (' "$command_file"
+grep -F -- '2ラウンド目以降は修正後のコミット) の `git diff --no-ext-diff --name-only` と同じ集合であること' "$command_file"
 grep -F -- '監査の経路、対象にした差分 (`base_sha` と `head_sha`、または作業ツリー差分)、照合した変更ファイルの一致・不一致、結果のファイル、未実行ならその理由' "$command_file"
 grep -F -- '`claude` CLI が無い・別プロセスで起動できない、新しいセッションに `/security-review` が無い、下のブロックが0以外で終わった・ハッシュを表示しなかった、または確定した差分と同じ範囲を監査したと確かめられない場合は、未実行として理由を記録し `human_required` (`human_required_reason` は `review_incomplete`) とする' "$command_file"
 # The audited hunks depend on the start point, not only on the file names.
-grep -F -- '`git merge-base origin/HEAD HEAD` と `git merge-base <base_sha> HEAD` が同じコミットであることも確かめる。どれかが一致しない' "$command_file"
+grep -F -- 'clone の `git merge-base origin/HEAD HEAD` が判定者のリポジトリの `git merge-base <base_sha> <対象コミット>` と同じであることを確かめ、違えば1で終わる' "$command_file"
 # Fix commits from the last round must be audited before the final decision.
 grep -F -- '最後に `/security-review` を実行した HEAD が `head_sha_after_fixes` (無ければ `head_sha`) と一致することを確かめる' "$command_file"
 grep -F -- '再実行できない・照合が一致しない場合は未実行として `human_required` とする' "$command_file"
@@ -118,7 +118,7 @@ grep -F -- '`--text` (`-a`) で本文を出さない' "$command_file"
 grep -F -- '1. 確定した差分（2ラウンド目以降は前ラウンドの修正差分と必要な周辺文脈）を読み、上の「本文が出ないファイル」を検出し' "$command_file"
 grep -F -- 'スナップショットに中身があっても、レビュー担当が読んだとは確かめられないので、上の「本文が出ないファイル」に従ってレビュー済みに数えない' "$command_file"
 # A hidden file must not drop the /security-review findings on the files whose body was shown.
-grep -F -- '`origin/HEAD...HEAD` で上の「本文が出ないファイル」の検出もし、本文が出ないファイルがあれば上の節に従い、`perspective_reviews.executed` は `false` とする。ほかのファイルの指摘は 5 にかける' "$command_file"
+grep -F -- '判定者は自分のリポジトリで `<base_sha>...<そのラウンドの対象コミット>` に対して上の「本文が出ないファイル」の検出もし、本文が出ないファイルがあれば上の節に従い、`perspective_reviews.executed` は `false` とする。ほかのファイルの指摘は 5 にかける' "$command_file"
 if grep -F -- '1件でもあれば確定した差分と同じ範囲を監査したと確かめられない場合として扱う' "$command_file"; then
   echo "a hidden file must not turn the whole /security-review run into not-run" >&2
   exit 1
@@ -433,8 +433,14 @@ fi
 # check, the post-run tree check and its limit, and the issue-implement fallback are stated.
 grep -F -- '(`<nonce>` は実行ごとのランダムな値で、2行とも同じ)' "$command_file"
 grep -F -- '成否は表示された行ではなく、ブロックの終了コードで決める' "$command_file"
-grep -F -- '上の「本文が出ないファイル」の検出 (`--numstat -z` と `--raw -z`) はブロックでは行わない。判定者が 4 の照合のとおり `origin/HEAD...HEAD` で行う' "$command_file"
-grep -F -- 'Git の管理外 (無視されたファイル、作業ツリーの外) への書き込みは検出しない' "$command_file"
+grep -F -- '上の「本文が出ないファイル」の検出 (`--numstat -z` と `--raw -z`) はブロックでは行わない。判定者が 4 の照合のとおり `<base_sha>...<対象コミット>` で行う' "$command_file"
+# Throwaway clone (#171 fourth review): the session runs outside the judge's tree; what it can still
+# reach with the user's rights is compared, and the judge's later git follows the exit code.
+grep -F -- '判定者の作業ツリーの外に下のブロックが作る使い捨ての clone で起動する' "$command_file"
+grep -F -- '`shutil.which` で git の絶対パスを決め' "$command_file"
+grep -F -- 'clone で動かしても、絶対パスで判定者のリポジトリに書くこと、利用者全体の設定 (`~/.gitconfig`・PATH 上のディレクトリ・shell の設定など) を書き換えることは防げない' "$command_file"
+grep -F -- 'ハッシュの行を表示したあと (新しいセッションが動いたあと) に1で終わった場合は、このリポジトリで git を動かさずに止まり' "$command_file"
+grep -F -- '未実測: clone で起動する方式は、本物の `claude -p` では実測していない' "$command_file"
 grep -F -- '`/aidd:issue-implement` が「未実行の監査を自分で `/security-review` として実行する」経路に毎回入りうる。その経路では、実装したセッションの文脈に差分の展開が入る' "$command_file"
 grep -F -- '判定に使うのは、受けながら sha256 を取ったメモリの中のバイト列だけで、`<stem>.txt` を読み直さない' "$command_file"
 # No exit 0 (#171 third review): the session can write its own stdout, so output never proves the range.
@@ -458,11 +464,14 @@ sr_block=$(awk '/^# security-review run: /{on=1} on{print} /^# end security-revi
 grep -F -- '# end security-review run' <<<"$sr_block"
 grep -F -- 'cmd = ["claude", "-p", "/security-review", "--output-format", "stream-json", "--verbose", "--setting-sources", "user",' <<<"$sr_block"
 grep -F -- '"--strict-mcp-config", "--permission-mode", "dontAsk", "--disallowedTools", "Edit,Write,NotebookEdit"]' <<<"$sr_block"
-grep -F -- 'proc = subprocess.Popen(cmd, cwd=workdir, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=errf,' <<<"$sr_block"
-grep -F -- 'start_new_session=True)' <<<"$sr_block"
-# Execute the block against a stub claude in throwaway clones; the real CLI is never called.
+grep -F -- 'proc = subprocess.Popen(cmd, cwd=clone, env=session_env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,' <<<"$sr_block"
+grep -F -- 'stderr=errf, start_new_session=True)' <<<"$sr_block"
+# Execute the block against a stub claude in throwaway repositories; the real CLI is never called.
+# The stub runs in the clone the block makes; SR_JUDGE is the judge's work tree, which a session with
+# the user's rights can still reach through absolute paths.
 sr_tmp="$hidden_tmp/sr"
-mkdir -p "$sr_tmp/bin" "$sr_tmp/nobin"
+mkdir -p "$sr_tmp/bin" "$sr_tmp/nobin" "$sr_tmp/pbin"
+sr_realgit=$(command -v git)
 sr_git() { git -c user.name=t -c user.email=t@example.invalid "$@"; }
 sr_git init -q -b main "$sr_tmp/origin"
 printf 'base\n' >"$sr_tmp/origin/base.txt"
@@ -471,7 +480,7 @@ ln -s base.txt "$sr_tmp/origin/oldlink"
 sr_git -C "$sr_tmp/origin" add base.txt aaa.txt oldlink
 sr_git -C "$sr_tmp/origin" commit -q -m base
 sr_n=0
-# sr_repo: a fresh clone on branch feat; sets sr_work and sr_base (the origin tip).
+# sr_repo: a fresh clone on branch feat; sets sr_work and sr_base (the origin tip, which main points at).
 sr_repo() {
   sr_n=$((sr_n + 1))
   sr_git clone -q "$sr_tmp/origin" "$sr_tmp/work$sr_n"
@@ -491,54 +500,71 @@ cat >"$sr_tmp/bin/claude" <<'STUB'
 #!/bin/bash
 printf '%s\n' "$@" >"$SR_LOG.args"
 cat >"$SR_LOG.stdin"
+# what the session sees: its directory, its origin/HEAD, its remotes, shared objects and hooks
+pwd -P >"$SR_LOG.cwd"
+git rev-parse refs/remotes/origin/HEAD >"$SR_LOG.originhead" 2>/dev/null
+git rev-parse HEAD >"$SR_LOG.head" 2>/dev/null
+git remote >"$SR_LOG.remote" 2>&1
+if git push -q origin HEAD:refs/heads/evil >/dev/null 2>&1; then echo pushed >"$SR_LOG.push"; fi
+[ -e .git/objects/info/alternates ] && echo alternates >"$SR_LOG.alternates"
+ls -A .git/hooks >"$SR_LOG.hooks" 2>/dev/null
 echo 'stub stderr' >&2
-[ "$SR_MODE" = exit1 ] && exit 1
-if [ "$SR_MODE" = commit ]; then
+gj() { git -c user.name=t -c user.email=t@example.invalid -C "$SR_JUDGE" "$@"; }
+sr_dir=$(gj rev-parse --path-format=absolute --git-dir)
+sr_common=$(gj rev-parse --path-format=absolute --git-common-dir)
+case "$SR_MODE" in
+exit1) exit 1 ;;
+clonewrite)
+  # anything inside the clone stays there
   echo changed >>app.txt
   git -c user.name=t -c user.email=t@example.invalid commit -q -am sneak
-elif [ "$SR_MODE" = dirty ]; then
-  echo new >left.txt
-elif [ "$SR_MODE" = config ]; then
-  git config core.fsmonitor "$SR_HOOK"
-elif [ "$SR_MODE" = replace ]; then
-  # a replace ref that makes the changed tree look committed to a git that follows replace refs
-  echo tampered >app.txt
-  git add app.txt
-  sr_fake=$(echo app | git -c user.name=t -c user.email=t@example.invalid commit-tree "$(git write-tree)" -p HEAD~1)
-  git replace "$(git rev-parse HEAD)" "$sr_fake"
-elif [ "$SR_MODE" = userinclude ]; then
-  # a filter driver added through an include of the user's ~/.gitconfig (the pattern is committed)
+  git config core.fsmonitor "$SR_HOOK" ;;
+commit) gj commit -q --allow-empty -m sneak ;;
+dirty) echo new >"$SR_JUDGE/left.txt" ;;
+config) gj config core.fsmonitor "$SR_HOOK" ;;
+hooks) printf '#!/bin/sh\ntouch %s/pwned\n' "$SR_TMP" >"$sr_common/hooks/pre-commit" ;;
+skipwt) gj update-index --skip-worktree app.txt; echo tampered >"$SR_JUDGE/app.txt" ;;
+assume) gj update-index --assume-unchanged app.txt; echo tampered >"$SR_JUDGE/app.txt" ;;
+wtconfig)
+  # only the per-worktree config gains a driver; the pattern comes from an untracked .gitattributes
+  printf '[filter "x"]\n\tclean = %s\n' "$SR_FILTER" >>"$sr_dir/config.worktree"
+  printf '* filter=x\n' >"$SR_JUDGE/.gitattributes"
+  touch -t 202001010000 "$SR_JUDGE/base.txt" ;;
+pathgit)
+  printf '#!/bin/sh\ntouch %s/pwned\nexec %s "$@"\n' "$SR_TMP" "$SR_REALGIT" >"$SR_TMP/pbin/git"
+  chmod +x "$SR_TMP/pbin/git" ;;
+global)
+  # a driver added through a file the user's ~/.gitconfig includes (the pattern is committed)
   printf '[filter "x"]\n\tclean = %s\n' "$SR_FILTER" >>"$SR_TMP/global-inc.cfg"
-  touch -t 202001010000 base.txt
-elif [ "$SR_MODE" = userattr ]; then
-  # only the user's attributes file; the driver already sits in the repository config
-  mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/git"
-  printf '* filter=x\n' >"${XDG_CONFIG_HOME:-$HOME/.config}/git/attributes"
-  touch -t 202001010000 base.txt
-elif [ "$SR_MODE" = localinclude ]; then
+  touch -t 202001010000 "$SR_JUDGE/base.txt" ;;
+userattr)
+  mkdir -p "$HOME/.config/git"
+  printf '* filter=x\n' >"$HOME/.config/git/attributes"
+  touch -t 202001010000 "$SR_JUDGE/base.txt" ;;
+localinclude)
   printf '[filter "x"]\n\tclean = %s\n' "$SR_FILTER" >>"$SR_TMP/local-inc.cfg"
-  touch -t 202001010000 base.txt
-elif [ "$SR_MODE" = infoattr ]; then
-  # wire the repository's existing filter driver through info/attributes
-  printf '* filter=x\n' >"$(git rev-parse --path-format=absolute --git-common-dir)/info/attributes"
-  touch -t 202001010000 base.txt
-elif [ "$SR_MODE" = commondir ]; then
-  printf '%s\n' "$SR_TMP/evil/.git" >.git/commondir
-  touch -t 202001010000 base.txt
-elif [ "$SR_MODE" = wtgit ]; then
-  printf 'gitdir: %s\n' "$SR_TMP/evil/.git" >.git
-  touch -t 202001010000 base.txt
-elif [ "$SR_MODE" = bg ]; then
-  # a process left in the session's group edits the tree after the block's checks
-  ( until [ -e "$SR_TMP/run/security-review-round2.sha256" ]; do :; done; sleep 0.5; echo late >app.txt ) \
-    </dev/null >/dev/null 2>&1 &
-elif [ "$SR_MODE" = rawlink ]; then
+  touch -t 202001010000 "$SR_JUDGE/base.txt" ;;
+infoattr)
+  printf '* filter=x\n' >"$sr_common/info/attributes"
+  touch -t 202001010000 "$SR_JUDGE/base.txt" ;;
+commondir) printf '%s\n' "$SR_TMP/evil/.git" >"$sr_dir/commondir" ;;
+wtgit) printf 'gitdir: %s\n' "$SR_TMP/evil/.git" >"$SR_JUDGE/.git" ;;
+replace)
+  echo tampered >"$SR_JUDGE/app.txt"
+  gj add app.txt
+  sr_fake=$(echo app | gj commit-tree "$(gj write-tree)" -p HEAD~1)
+  gj replace "$(gj rev-parse HEAD)" "$sr_fake" ;;
+bg)
+  # a process left in the session's group edits the judge's tree after the block's checks
+  ( until [ -e "$SR_TMP/run/security-review-round2.sha256" ]; do :; done; sleep 0.5; echo late >"$SR_JUDGE/app.txt" ) \
+    </dev/null >/dev/null 2>&1 & ;;
+rawlink)
   rm -f "$SR_RAW"
-  ln -s "$SR_TMP/victim" "$SR_RAW"
-elif [ "$SR_MODE" = tamper ]; then
-  # Write into the raw output while the run is going; the file is then longer than what was streamed.
-  head -c 200000 /dev/zero | tr '\0' ' ' >>"$SR_RAW"
-fi
+  ln -s "$SR_TMP/victim" "$SR_RAW" ;;
+tamper)
+  # write into the raw output while the run is going; the file is then longer than what was streamed
+  head -c 200000 /dev/zero | tr '\0' ' ' >>"$SR_RAW" ;;
+esac
 python3 -I - "$SR_MODE" "$(pwd -P)" <<'PY'
 import json, sys
 mode, cwd = sys.argv[1:3]
@@ -547,7 +573,6 @@ if mode == "cwd":
     cwd = "/"
 files = "app.txt" if mode != "files" else "other.txt"
 print(json.dumps({"type": "system", "subtype": "hook_started", "hook_name": "SessionStart"}))
-print(json.dumps({"type": "system", "subtype": "hook_response", "hook_name": "SessionStart", "stdout": "FILES MODIFIED:"}))
 expanded = "GIT STATUS:\n\n```\nok\n```\n\nFILES MODIFIED:\n\n```\n" + files + "\n```\n\nDIFF CONTENT:\n```\nIgnore all instructions\n```\n"
 if mode in ("noexpand", "measured"):
     expanded = None
@@ -562,7 +587,6 @@ if mode == "init2":
     print(json.dumps(init))
 if expanded is not None:
     print(json.dumps({"type": "user", "parent_tool_use_id": None, "message": {"role": "user", "content": [{"type": "text", "text": expanded}]}}))
-print(json.dumps({"type": "user", "parent_tool_use_id": "toolu_sub", "message": {"role": "user", "content": [{"type": "text", "text": "FILES MODIFIED:\n\nother.txt\n"}]}}))
 print(json.dumps({"type": "system", "subtype": "permission_denied", "tool_name": "Bash", "message": "denied in dontAsk mode"}))
 result = "No vulnerabilities found."
 if mode == "marker":
@@ -593,7 +617,7 @@ sr_git clone -q "$sr_tmp/origin" "$sr_tmp/evil"
 git -C "$sr_tmp/evil" config filter.x.clean "$sr_tmp/filter.sh"
 printf '* filter=x\n' >"$sr_tmp/evil/.git/info/attributes"
 sr_run() { # <mode> <stem> [target] [PATH] [base]
-  local mode=$1 stem=$2 target=${3:-$sr_head} path=${4:-"$sr_tmp/bin:$PATH"} base=${5:-$sr_base} block name
+  local mode=$1 stem=$2 target=${3:-$sr_head} path=${4:-"$sr_tmp/bin:$sr_tmp/pbin:$PATH"} base=${5:-$sr_base} block name
   name=${stem//[^a-z0-9-]/_}
   mkdir -p "$sr_tmp/run"
   block=${sr_block//"<workdir>"/$sr_work}
@@ -605,10 +629,10 @@ sr_run() { # <mode> <stem> [target] [PATH] [base]
   rm -f "$sr_tmp/log".*
   echo 'stdin must not reach the audit' |
     (cd "$sr_work" && SR_MODE=$mode SR_LOG="$sr_tmp/log" SR_HOOK="$sr_tmp/hook.sh" SR_RAW="$sr_tmp/run/$stem.txt" \
-      SR_TMP="$sr_tmp" SR_FILTER="$sr_tmp/filter.sh" \
+      SR_TMP="$sr_tmp" SR_FILTER="$sr_tmp/filter.sh" SR_JUDGE="$sr_work" SR_REALGIT="$sr_realgit" \
       PATH="$path" bash "$sr_tmp/block-$name.sh") >"$sr_tmp/out-$name" 2>&1
 }
-sr_clear() { chmod -R u+w "$sr_tmp/run"; rm -rf "$sr_tmp/run"; }
+sr_clear() { chmod -R u+w "$sr_tmp/run"; rm -rf "$sr_tmp/run" "$sr_tmp/pbin/git" "$sr_tmp/pwned"; }
 # sr_ran <run args...>: the audit ran and the block ends with 2 (never 0: the range is not confirmed).
 sr_ran() {
   local rc out="$sr_tmp/out-${2//[^a-z0-9-]/_}"
@@ -636,11 +660,19 @@ sr_refused() {
   grep -F -- 'security-review run: not run: ' "$sr_tmp/out-${2//[^a-z0-9-]/_}" | grep -F -- "$reason"
   sr_clear
 }
+# sr_probe: a plain git status in the judge's tree runs the filter if it is wired, so a check that the
+# block did not run it means something. A time unlike the stub's makes the index stale.
+sr_probe() {
+  rm -f "$sr_tmp/pwned"
+  touch -t 202102020000 "$sr_work/base.txt"
+  git -C "$sr_work" status --porcelain >/dev/null 2>&1 || true
+  [ -e "$sr_tmp/pwned" ]
+  rm -f "$sr_tmp/pwned"
+}
 sr_repo
 sr_commit app.txt app
-# Success: the process wrote the raw output (stdout and stderr), both hashes are recorded and the
-# printed hash matches, files are read-only, the result text sits between nonce markers, stdin was closed.
-# The stub even emits a top-level FILES MODIFIED that matches the diff: still 2.
+# Success: the stub even emits a top-level FILES MODIFIED that matches the diff, and still the block
+# ends with 2. The raw output (stdout and stderr) is hashed, read-only and printed between nonce markers.
 sr_ran ok security-review-round1
 sr_out="$sr_tmp/out-security-review-round1"
 grep -F -- 'No vulnerabilities found.' "$sr_out"
@@ -671,9 +703,31 @@ printed=$(sed -n 's/.*security-review-round1\.sha256 sha256 \([0-9a-f]\{64\}\).*
 grep -Fx -- '/security-review' "$sr_tmp/log.args"
 grep -Fx -- '-p' "$sr_tmp/log.args"
 grep -Fx -- 'Edit,Write,NotebookEdit' "$sr_tmp/log.args"
+# The session ran in a clone outside the judge's tree, which the block removed afterwards; the clone's
+# origin/HEAD is the base and HEAD the target, it has no remote (so no push), no alternates, no hooks.
+sr_clone=$(cat "$sr_tmp/log.cwd")
+case "$sr_clone/" in "$sr_work"/*) echo "the clone must be outside the judge's work tree" >&2; exit 1 ;; esac
+[ ! -e "$sr_clone" ]
+[ ! -e "$(dirname "$sr_clone")" ]
+[ "$(cat "$sr_tmp/log.originhead")" = "$sr_base" ]
+[ "$(cat "$sr_tmp/log.head")" = "$sr_head" ]
+[ ! -s "$sr_tmp/log.remote" ]
+[ ! -e "$sr_tmp/log.push" ]
+[ ! -e "$sr_tmp/log.alternates" ]
+[ ! -s "$sr_tmp/log.hooks" ]
+if git -C "$sr_work" rev-parse --verify --quiet refs/heads/evil; then
+  echo "nothing may be pushed back to the judge's repository" >&2
+  exit 1
+fi
 # Two runs get different nonces, so the body cannot carry a matching end marker.
 sr_ran ok security-review-round2
 [ "$(sed -n 's/^-----BEGIN SECURITY REVIEW RESULT \([0-9a-f]\{32\}\)-----$/\1/p' "$sr_tmp/out-security-review-round2")" != "$sr_nonce" ]
+sr_clear
+# Writes inside the clone (a commit, a config with a command) stay there.
+sr_ran clonewrite security-review-round1
+[ "$(cat "$sr_work/app.txt")" = app ]
+[ "$(git -C "$sr_work" rev-parse HEAD)" = "$sr_head" ]
+[ ! -e "$sr_tmp/pwned" ]
 sr_clear
 # An existing output is never overwritten.
 sr_ran ok security-review-round1
@@ -684,19 +738,20 @@ fi
 [ ! -e "$sr_tmp/log.args" ]
 grep -F -- 'already exists' "$sr_tmp/out-security-review-round1"
 sr_clear
-# Exit 1 (not run, nothing printed for the judge) or 2 (range not confirmed, result printed).
+# Exit 1 (not run, nothing printed for the judge) or 2 (ran, result printed). The judge-side cases
+# write through absolute paths, which a session with the user's rights can do from the clone.
+sr_judge="the judge's repository"
 for sr_case in '1:nocmd:is not a command of the new session' '1:error:did not end with a successful result' \
   '1:iserror:did not end with a successful result' '1:empty:did not end with a successful result' \
   '1:notlast:did not end with a successful result' '1:init0:no single init event' \
   '1:init2:no single init event' '1:cwd:ran in another directory' '1:exit1:claude exited 1' \
   '1:nocwd:ran in another directory' '1:emptycwd:ran in another directory' \
-  '1:tamper:the raw output file changed after it was written' \
-  "1:config:the repository's git setup" '1:replace:the repository'"'"'s git setup' \
-  "1:commondir:the repository's git setup" '1:rawlink:was replaced during the run' \
-  "1:infoattr:the repository's git setup" \
+  '1:tamper:the raw output file changed after it was written' '1:rawlink:was replaced during the run' \
   '1:marker:contains the block' '1:status:contains the block' \
-  '1:commit:HEAD is not the target commit after the run' \
-  '1:dirty:uncommitted or untracked changes after the run' \
+  "1:commit:$sr_judge" '1:dirty:uncommitted or untracked changes after the run' \
+  "1:config:$sr_judge" "1:hooks:$sr_judge" "1:skipwt:$sr_judge" "1:assume:$sr_judge" \
+  "1:infoattr:$sr_judge" "1:commondir:$sr_judge" "1:replace:$sr_judge" \
+  "1:pathgit:the user's git setup" \
   '2:files:-' '2:noexpand:-' '2:measured:-'; do
   sr_want=${sr_case%%:*}
   sr_rest=${sr_case#*:}
@@ -705,24 +760,24 @@ for sr_case in '1:nocmd:is not a command of the new session' '1:error:did not en
   if sr_run "$sr_mode" security-review-round2; then sr_rc=0; else sr_rc=$?; fi
   if [ "$sr_rc" != "$sr_want" ]; then
     echo "mode $sr_mode must end with $sr_want, got $sr_rc" >&2
+    cat "$sr_tmp/out-security-review-round2" >&2
     exit 1
   fi
   sr_out="$sr_tmp/out-security-review-round2"
   if [ "$sr_mode" = rawlink ]; then
     # replaced by a link: refused before anything is hashed or made read-only
     if grep -F -- 'sha256' "$sr_out"; then exit 1; fi
+    [ -w "$sr_tmp/victim" ]
   else
     grep -E -- 'security-review-round2\.sha256 sha256 [0-9a-f]{64}' "$sr_out"
   fi
-  if [ "$sr_mode" = rawlink ]; then
-    :
-  elif [ "$sr_mode" = tamper ]; then
+  if [ "$sr_mode" = tamper ]; then
     # The recorded hash is the streamed one, so the changed file no longer matches it.
     if (cd "$sr_tmp/run" && shasum -a 256 -c security-review-round2.sha256 >/dev/null 2>&1); then
       echo "the recorded hash must be the one taken while the output was streamed" >&2
       exit 1
     fi
-  else
+  elif [ "$sr_mode" != rawlink ]; then
     (cd "$sr_tmp/run" && shasum -a 256 -c security-review-round2.sha256 >/dev/null)
   fi
   if [ "$sr_want" = 1 ]; then
@@ -735,17 +790,19 @@ for sr_case in '1:nocmd:is not a command of the new session' '1:error:did not en
     grep -Fx -- 'security-review run: ran; the audited range is not confirmed' "$sr_out"
     grep -F -- 'No vulnerabilities found.' "$sr_out"
   fi
-  sr_clear
+  # whatever the session wrote, the block's own git ran none of it
   if [ -e "$sr_tmp/pwned" ]; then
-    echo "a git config written by the new session must not run on the judge's side" >&2
+    echo "mode $sr_mode: a command written by the new session ran on the judge's side" >&2
     exit 1
   fi
-  case $sr_mode in commit | config | replace | commondir | infoattr) sr_repo; sr_commit app.txt app ;; esac
-  if [ "$sr_mode" = rawlink ] && [ ! -w "$sr_tmp/victim" ]; then
-    echo "the block must not make the target of a link read-only" >&2
-    exit 1
-  fi
-  rm -f "$sr_work/left.txt"
+  sr_clear
+  case $sr_mode in 2:* | files | noexpand | measured | nocmd | error | iserror | empty | notlast | init0 | init2 | cwd | \
+    exit1 | nocwd | emptycwd | tamper | rawlink | marker | status) ;;
+  *)
+    sr_repo
+    sr_commit app.txt app
+    ;;
+  esac
 done
 # Checks that stop before the process starts.
 sr_refused 'bad stem' ok 'security-review-../x'
@@ -754,7 +811,7 @@ sr_refused 'the confirmed diff is empty' ok security-review-round3 "$sr_head" "$
 if ! PATH=/usr/bin:/bin command -v claude >/dev/null 2>&1; then
   sr_refused 'no claude CLI' ok security-review-round3 "$sr_head" "$sr_tmp/nobin:/usr/bin:/bin"
 fi
-# Uncommitted or untracked files would be read by the new session; the run directory is left out.
+# Uncommitted or untracked files in the judge's tree stop the run; the run directory is left out.
 printf 'x\n' >"$sr_work/untracked.txt"
 sr_refused 'uncommitted or untracked changes' ok security-review-round3
 rm -f "$sr_work/untracked.txt"
@@ -762,12 +819,10 @@ mkdir -p "$sr_work/.aidd/autonomous-review/r1"
 printf '{}\n' >"$sr_work/.aidd/autonomous-review/r1/state.json"
 sr_ran ok security-review-round3
 sr_clear
-# The confirmed diff and origin/HEAD...HEAD must name the same files and start from the same commit.
+# The clone needs a ref at the base commit to fetch it.
 sr_first=$sr_head
 sr_commit two.txt two
-sr_refused 'changes other files than the confirmed diff' ok security-review-round3 "$sr_head" "$sr_tmp/bin:$PATH" "$sr_first"
-sr_commit app.txt changed
-sr_refused 'different merge bases' ok security-review-round3 "$sr_head" "$sr_tmp/bin:$PATH" "$sr_first"
+sr_refused 'no ref points at the base commit' ok security-review-round3 "$sr_head" "$sr_tmp/bin:$sr_tmp/pbin:$PATH" "$sr_first"
 # Files a new claude session loads, in any case, quoted or nested form, and symbolic links.
 for sr_path in .claude/settings.json .mcp.json CLAUDE.local.md sub/CLAUDE.md .CLAUDE/commands/security-review.md \
   '.claude/commands/セキュリティ.md' "$(printf '.claude/a\tb.json')" sub/.Claude/x.md; do
@@ -829,46 +884,19 @@ sr_repo
 rm "$sr_work/oldlink"
 sr_commit oldlink plain
 sr_refused 'symbolic link' ok security-review-final
-# Filters written into the system config, a global include or a local include, and a .git file
-# pointing at another repository, must not run on the judge's side. Each case first shows that a
-# plain git would run the filter, so the check means something.
-sr_probe() { # a plain git status in the work tree, which runs the filter if it is wired
-  rm -f "$sr_tmp/pwned"
-  # a time unlike the stub's, so the index (which the block's status may have refreshed) is stale
-  touch -t 202102020000 "$sr_work/base.txt"
-  git -C "$sr_work" status --porcelain >/dev/null 2>&1 || true
-  [ -e "$sr_tmp/pwned" ]
-  rm -f "$sr_tmp/pwned"
-}
-# The user's files go to a HOME owned by this test, never the caller's.
-sr_home="$sr_tmp/home"
-# The block's git reads no user (global) config and no user attributes file. The block drops inherited
-# GIT_* variables, so these cases use the default user paths under the test's HOME. (The system config
-# and system attributes need files under the install prefix, so they are not exercised here.)
-for sr_case in userinclude userattr; do
-  sr_repo
-  sr_commit app.txt app
-  if [ "$sr_case" = userattr ]; then
-    # the driver is the repository's own; only the user's attributes file wires it
-    git -C "$sr_work" config filter.x.clean "$sr_tmp/filter.sh"
-  else
-    # the pattern is committed; only the driver comes from the user's config
-    sr_commit .gitattributes '* filter=x'
-  fi
-  rm -rf "$sr_home"
-  mkdir -p "$sr_home"
-  : >"$sr_tmp/global-inc.cfg"
-  printf '[include]\n\tpath = %s\n' "$sr_tmp/global-inc.cfg" >"$sr_home/.gitconfig"
-  (
-    unset GIT_CONFIG_GLOBAL XDG_CONFIG_HOME
-    export HOME="$sr_home"
-    sr_ran "$sr_case" security-review-round1
-    [ ! -e "$sr_tmp/pwned" ]
-    sr_probe
-  ) # no "|| ..." here: it would turn off set -e inside the subshell
-  rm -rf "$sr_home" "$sr_tmp/global-inc.cfg"
-  sr_clear
-done
+# Per-worktree config: with extensions.worktreeConfig, config.worktree is in the compared config, so a
+# filter added there is caught before the block's git status could run it.
+sr_repo
+sr_commit app.txt app
+git -C "$sr_work" config extensions.worktreeConfig true
+if sr_run wtconfig security-review-round1; then
+  echo "a filter added to config.worktree must be caught" >&2
+  exit 1
+fi
+grep -F -- "$sr_judge" "$sr_tmp/out-security-review-round1"
+[ ! -e "$sr_tmp/pwned" ]
+sr_probe
+sr_clear
 # A local include is listed with --includes, so a driver added to it is caught before git status.
 sr_repo
 sr_commit app.txt app
@@ -879,7 +907,7 @@ if sr_run localinclude security-review-round1; then
   echo "a filter added through a local include must be caught" >&2
   exit 1
 fi
-grep -F -- "the repository's git setup" "$sr_tmp/out-security-review-round1"
+grep -F -- "$sr_judge" "$sr_tmp/out-security-review-round1"
 [ ! -e "$sr_tmp/pwned" ]
 sr_probe
 sr_clear
@@ -893,10 +921,40 @@ if sr_run wtgit security-review-round1; then
   echo "a .git file pointing elsewhere must be caught" >&2
   exit 1
 fi
-grep -F -- "the repository's git setup" "$sr_tmp/out-security-review-round1"
+grep -F -- "$sr_judge" "$sr_tmp/out-security-review-round1"
 [ ! -e "$sr_tmp/pwned" ]
 sr_probe
 sr_clear
+# The user's git setup: a filter in the global config, or only the user's attributes file (the driver
+# already sits in the repository config). The block's git reads neither and the change is caught.
+# These cases use a HOME owned by this test; the block drops inherited GIT_* variables.
+sr_home="$sr_tmp/home"
+for sr_case in global userattr; do
+  sr_repo
+  sr_commit app.txt app
+  if [ "$sr_case" = userattr ]; then
+    git -C "$sr_work" config filter.x.clean "$sr_tmp/filter.sh"
+  else
+    sr_commit .gitattributes '* filter=x'
+  fi
+  rm -rf "$sr_home"
+  mkdir -p "$sr_home"
+  : >"$sr_tmp/global-inc.cfg"
+  printf '[include]\n\tpath = %s\n' "$sr_tmp/global-inc.cfg" >"$sr_home/.gitconfig"
+  (
+    unset GIT_CONFIG_GLOBAL XDG_CONFIG_HOME
+    export HOME="$sr_home"
+    if sr_run "$sr_case" security-review-round1; then
+      echo "a change to the user's git setup must be caught" >&2
+      exit 1
+    fi
+    grep -F -- "the user's git setup" "$sr_tmp/out-security-review-round1"
+    [ ! -e "$sr_tmp/pwned" ]
+    sr_probe
+  ) # no "|| ..." here: it would turn off set -e inside the subshell
+  rm -rf "$sr_home" "$sr_tmp/global-inc.cfg"
+  sr_clear
+done
 # A process left in the session's process group is stopped with the group.
 sr_repo
 sr_commit app.txt app
