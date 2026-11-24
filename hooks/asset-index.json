@@ -44,7 +44,7 @@
     {
       "kind": "skill",
       "name": "eval",
-      "description": "design-review パイプラインをゴールデンセットで評価し、検出率・誤棄却率を測定する"
+      "description": "design-review パイプラインをゴールデンセットで評価し、検出率・誤棄却率を測定する。impl を付けると、実装レビューを同種 (claude -p) と異種 (codex exec) で同じ欠陥セットに対して比べる"
     },
     {
       "kind": "skill",
