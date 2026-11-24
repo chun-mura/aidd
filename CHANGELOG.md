@@ -3,7 +3,7 @@
 ## 0.80.0 (2026-11-24)
 
 - `gh pr create` 前のレビュー証跡の確認が、同じブランチ名というだけで、古い SHA・未完了・失敗・型が不正な `state.json` でも警告を消していたのを直した (#122)。完了とみなすのは、`schema_version` 5 以上で最終判定を書き終え、`auto_merge_eligible` か、レビューとゲートを終えたうえで人の判断を求める `human_required` (`human_required_reason: human_judgment`) で、`base_sha` が今の基点ブランチの先端 (`origin/<base>`。ローカルは origin に含まれるときだけ) と一致し、レビューした最終コミットが PR の head と一致するか、その後のコミットが `.aidd/autonomous-review/` と `.aidd/learnings/` だけを変える (`--no-renames`・`--ignore-submodules=none`・`--no-relative` で判定し、mode だけの変更も数える) 証跡だけにした。別の worktree の証跡も数える。証跡の判定で例外が起きても、確認できなかったと警告し、同じコマンドのほかの拒否・通知を消さない。base...head の差分を取れない (merge base が無い・shallow) ときは黙らず確認できなかったと警告する。変更ファイルの一覧は共通の取り出し (`-z --no-renames --ignore-submodules=none --no-relative`) にし、コードを `docs/` へ移す変更を docs だけとみなさない (test-perspectives の docs だけの判定も同じ)。worktree のパスと glob をエスケープし、非 ASCII 名の証跡も読む。autonomous-review のブランチ差分にも `--no-relative`・`--ignore-submodules=none` を付けた
-- `autonomous-review`: `state.json` を `schema_version` 5 にし、`human_required_reason` (`review_incomplete` = レビュー・観点別レビュー・必須ゲートの未実施・未完了・失敗 / `human_judgment` = それらを終えたうえで高リスク・自己レビュー・未追跡の deferred のため人が判断) と、作業ツリー差分を識別する `local_diff` (HEAD と staged・unstaged の差分のハッシュ。最後のラウンドと最終判定の直前で一致しなければ `review_incomplete`) を足した。v4 以前の証跡は未確認として警告する (再実行が必要)。main が進むと再レビューが必要になる
+- `autonomous-review`: `state.json` を `schema_version` 5 にし、`human_required_reason` (`review_incomplete` = レビュー・観点別レビュー・必須ゲートの未実施・未完了・失敗 / `human_judgment` = それらを終えたうえで高リスク・自己レビュー・未追跡の deferred のため人が判断) と、作業ツリー差分を識別する `local_diff` (HEAD と staged・unstaged の差分のハッシュ。最後のラウンドと最終判定の直前で一致しなければ `review_incomplete`) を足した。#121 の「委譲先が除外する種類」で `human_required` になる run は、観点別レビューが成立していないので `review_incomplete` に分類する。v4 以前の証跡は未確認として警告する (再実行が必要)。main が進むと再レビューが必要になる
 
 ## 0.77.0 (2026-11-24)
 
