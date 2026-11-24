@@ -25,6 +25,12 @@ run_hook() {
 
 [ -z "$(run_hook PreToolUse 'git status')" ]
 run_hook PreToolUse 'git commit -m test' | grep -F '/aidd:test-perspectives'
+# #166: perspectives come before implementation, once. The commit nudge points at the remaining
+# implementation, never at the commit, and tells a session that already ran it not to run it again.
+nudge=$(run_hook PreToolUse 'git commit -m test')
+if printf '%s' "$nudge" | grep -Fqi 'before committing'; then exit 1; fi
+printf '%s' "$nudge" | grep -F 'before the remaining implementation'
+printf '%s' "$nudge" | grep -F 'do not run it again'
 run_hook PreToolUse 'gh issue create --title test' | grep -F 'タイトルと本文は日本語'
 run_hook PostToolUse 'git push origin main' | grep -F 'open PR'
 
@@ -336,6 +342,9 @@ rm "$ev/main...feat"
 mkdir -p "$tmp_dir/wt-[a]/docs/test-perspectives"
 echo x > "$tmp_dir/wt-[a]/docs/test-perspectives/p.md"
 if hook PreToolUse "$tmp_dir/wt-[a]" 'git commit -m x' | grep -Fq '/aidd:test-perspectives'; then exit 1; fi
+# Perspectives saved more than 6 hours ago do not (#166 keeps the window unchanged).
+touch -t 200001010000 "$tmp_dir/wt-[a]/docs/test-perspectives/p.md"
+hook PreToolUse "$tmp_dir/wt-[a]" 'git commit -m x' | grep -F '/aidd:test-perspectives'
 git -C "$ev" worktree remove --force "$tmp_dir/wt-[a]"
 git -C "$ev" worktree remove --force "$tmp_dir/wt-b"
 # A branch moved into docs/ is not docs-only: the move deletes the code where it was.
