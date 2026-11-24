@@ -339,7 +339,7 @@ def resolve_commit(directory, names):
     return None, None
 
 
-SHA = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
+SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 
 
 def review_finished(state):
@@ -357,25 +357,32 @@ def review_finished(state):
         return False
     reason = state["human_required_reason"]
     after = state.get("head_sha_after_fixes")  # optional in the schema
-    if not all(isinstance(state.get(key), str) and SHA.match(state[key]) for key in ("base_sha", "head_sha")):
+    if not all(isinstance(state.get(key), str) and SHA.fullmatch(state[key]) for key in ("base_sha", "head_sha")):
         return False
-    if after is not None and not (isinstance(after, str) and SHA.match(after)):
+    if after is not None and not (isinstance(after, str) and SHA.fullmatch(after)):
         return False
     # human_required splits into review_incomplete (no finished review) and human_judgment (the
     # review finished; a person makes the final call).
     return (status, reason) in (("auto_merge_eligible", None), ("human_required", "human_judgment"))
 
 
+# Commits after the reviewed one may add only these (committed evidence, the ledger commit).
+AFTER_REVIEW = (".aidd/autonomous-review/", ".aidd/learnings/")
+
+
 def covers_head(directory, reviewed, head_sha):
-    """True when head_sha is the reviewed commit, or adds on top of it only .aidd/ (the ledger
-    commit, committed evidence), so the code under review is unchanged."""
+    """True when head_sha is the reviewed commit, or adds on top of it only AFTER_REVIEW paths,
+    so the code under review is unchanged."""
     if reviewed == head_sha:
         return True
     if git(directory, "merge-base", reviewed, head_sha) != reviewed:
         return False
-    # --no-renames: a file moved into .aidd/ is also a deletion outside it.
-    changed = git(directory, "diff", "--no-ext-diff", "--no-renames", "--name-only", reviewed, head_sha)
-    return changed is not None and all(path.startswith(".aidd/") for path in changed.splitlines())
+    # --no-renames: a file moved into .aidd/ is also a deletion outside it. --ignore-submodules=none:
+    # ignore = all in .gitmodules would hide a submodule pointer. --no-relative: diff.relative from
+    # a subdirectory would hide changes outside it.
+    changed = git(directory, "diff", "--no-ext-diff", "--no-renames", "--ignore-submodules=none",
+                  "--no-relative", "--name-only", reviewed, head_sha)
+    return changed is not None and all(path.startswith(AFTER_REVIEW) for path in changed.splitlines())
 
 
 def has_review_evidence(directory, base_shas, head_sha):
@@ -428,17 +435,18 @@ def warn_review_before_pr(args, directory):
     head_ref, head_sha = resolve_commit(directory, [head, "origin/" + head])
     if not head_ref:
         return
-    changed = git(directory, "diff", "--name-only", base_ref + "..." + head_ref)
+    changed = git(directory, "diff", "--no-relative", "--name-only", base_ref + "..." + head_ref)
     if not changed:
         return
     files = changed.splitlines()
     skip = env_regex("AIDD_REVIEW_SKIP_PATHS", DOCS_ONLY)
     if all(skip.search(path) for path in files):
         return
-    # The review may have resolved the base to the local branch or to origin's; an older base does
-    # not count (the base moved on after the review). The local tip counts only when origin has
-    # all of it (no unpushed base commits that the PR would carry unreviewed), or when there is
-    # no origin/<base> to check against.
+    # The review may have resolved the base to the local branch or to origin's. origin's tip
+    # counts. The local tip counts too when origin/<base> contains it (a local base that lags
+    # behind origin still matches the review), but not when it has unpushed commits the PR would
+    # carry unreviewed; with no origin/<base> to check against, the local tip is the base. Any
+    # other base_sha does not count (the base moved on after the review).
     _, origin_sha = resolve_commit(directory, ["origin/" + base])
     _, local_sha = resolve_commit(directory, [base])
     base_shas = {origin_sha} if origin_sha else set()

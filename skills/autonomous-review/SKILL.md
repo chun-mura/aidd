@@ -87,6 +87,7 @@ argument-hint: "[対象] [--base <branch>] [--head <branch>] [--reviewer codex|c
 - 取り直した HEAD と2つのハッシュが、最後のラウンドで保存したもの (`git hash-object` で同じく求める) と1つでも違えば、レビューしていない差分が残っている (最後のラウンドの後の修正を含む) ので `human_required` (`human_required_reason` は `review_incomplete`) とする
 - どれか1つでも得られない場合は `local_diff` を `null` のままにし、差分を識別できないので `human_required` (`human_required_reason` は `review_incomplete`) とする
 - どちらの場合も `auto_merge_eligible` にはしない
+- 既知の非対称: ブランチ比較の run は `head_sha_after_fixes` まで (最後のラウンドの後の minor / nit の修正を含めて) 判定が覆うが、作業ツリー差分の run は最後のラウンドの差分と照合するため、最後のラウンドの後に修正すると `review_incomplete` になる
 
 ### PR 前の確認が数える証跡
 
@@ -94,8 +95,8 @@ argument-hint: "[対象] [--base <branch>] [--head <branch>] [--reviewer codex|c
 
 - `schema_version` が `5` 以上の整数。`4` 以下の証跡は、完了を表すキーを持たないので数えない (再実行する)
 - `status` と `final_decision` が同じ値で、`auto_merge_eligible`、または `human_required` かつ `human_required_reason` が `human_judgment`。`started` / `reviewing` / `gating`、`failed`、`review_incomplete`、`human_required_reason` のキーが無いものは数えない
-- `base_sha` が今の基点ブランチの先端と一致する。`origin/<base>` があればその先端、ローカルの `<base>` の先端は `origin/<base>` に含まれる (push していないコミットが無い) ときだけ数える。push していないローカルのコミットは PR に入るのにレビューの対象外になるため。`origin/<base>` が無ければ、ローカルの先端だけを数える
-- `head_sha_after_fixes` (無い・`null` なら `head_sha`) が PR の head と一致する。head が先に進んでいても、増えたコミットが `.aidd/` だけを変える (台帳や証跡のコミット。名前の変更は元の場所の削除として数える) なら一致とみなす
+- `base_sha` が今の基点ブランチの先端と一致する。`origin/<base>` があればその先端、ローカルの `<base>` の先端は `origin/<base>` に含まれる (push していないコミットが無い) ときだけ数える。push していないローカルのコミットは PR に入るのにレビューの対象外になるため。`origin/<base>` が無ければ、ローカルの先端だけを数える。hook はネットワークに出ないので、`origin/<base>` が fetch されずに古い場合は検出できない
+- `head_sha_after_fixes` (無い・`null` なら `head_sha`) が PR の head と一致する。head が先に進んでいても、増えたコミットが `.aidd/autonomous-review/` (証跡) と `.aidd/learnings/` (台帳) だけを変えるなら一致とみなす。それ以外の `.aidd/` 配下の変更、名前の変更の元の場所、mode だけの変更、submodule のポインタの変更 (`.gitmodules` の `ignore` に関係なく) はコードの変更として数える
 - 型が表のとおりである (SHA は16進の完全な値)。作業ツリー差分の run (`base_sha` が `null`) は PR の差分のレビューとは数えない
 - 証跡の判定そのものが失敗した場合は、確認できなかったと書いて警告する (同じコマンドのほかの確認の結果は残す)
 

@@ -87,6 +87,9 @@ grep -F -- '`origin/<base>` が無ければ、ローカルの先端だけを数�
 grep -F -- '`human_required_reason` のキーが無いものは数えない' "$command_file"
 grep -F -- '最後のラウンドで保存したもの (`git hash-object` で同じく求める) と1つでも違えば' "$command_file"
 grep -F -- 'local-round<N>-staged-diff.txt' "$command_file"
+grep -F -- '`.aidd/autonomous-review/` (証跡) と `.aidd/learnings/` (台帳) だけを変えるなら一致とみなす' "$command_file"
+grep -F -- 'fetch されずに古い場合は検出できない' "$command_file"
+grep -F -- '既知の非対称' "$command_file"
 grep -F -- '`status` / `final_decision` / `human_required_reason` の値域を検証し' "$command_file"
 # Findings ledger (#108): default off, checked writes only, abstract types, human approval.
 grep -F -- 'git config --get aidd.learnings' "$command_file"

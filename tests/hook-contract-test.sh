@@ -184,6 +184,9 @@ for override in \
 done
 printf '{"head":"feat","head_sha":"%s"}' "$ev_head" > "$run_dir/state.json"
 expect_warn
+# A value longer than a full SHA does not count.
+write_state "$run_dir" head_sha='"'"${ev_head}0"'"'
+expect_warn
 printf '[]' > "$run_dir/state.json"
 expect_warn
 # A run over the working tree's uncommitted diff (no base/head) is not a review of the branch.
@@ -218,6 +221,51 @@ git -C "$ev" mv c.sh .aidd/c.sh
 git -C "$ev" commit -qm 'chore: move into .aidd'
 expect_warn
 git -C "$ev" reset -q --hard "$ev_head"
+expect_quiet
+# Only the evidence and the ledger may follow the review; anything else under .aidd/ is a change.
+mkdir -p "$ev/.aidd/autonomous-review/run0"
+echo '{}' > "$ev/.aidd/autonomous-review/run0/report.md"
+git -C "$ev" add .aidd/autonomous-review/run0/report.md
+git -C "$ev" commit -qm 'chore: evidence'
+expect_quiet
+echo '{}' > "$ev/.aidd/design-perspectives.md"
+git -C "$ev" add .aidd/design-perspectives.md
+git -C "$ev" commit -qm 'chore: perspectives'
+expect_warn
+git -C "$ev" reset -q --hard "$ev_head"
+# A mode-only change is a change.
+chmod +x "$ev/c.sh"
+git -C "$ev" add c.sh
+git -C "$ev" commit -qm 'chore: executable'
+expect_warn
+git -C "$ev" reset -q --hard "$ev_head"
+# diff.relative from a subdirectory must not hide a change elsewhere, neither after the review
+# nor in the branch's changed files (which decide whether to warn at all).
+echo changed > "$ev/c.sh"
+git -C "$ev" commit -qam 'feat: change after review'
+git -C "$ev" config diff.relative true
+mkdir -p "$ev/subdir"
+expect_warn feat "$ev/subdir"
+git -C "$ev" config --unset diff.relative
+rmdir "$ev/subdir"
+git -C "$ev" reset -q --hard "$ev_head"
+# A submodule pointer that .gitmodules hides (ignore = all) is still a change.
+printf '[submodule "sub"]\n\tpath = sub\n\turl = ./sub\n\tignore = all\n' > "$ev/.gitmodules"
+git -C "$ev" add .gitmodules
+git -C "$ev" update-index --add --cacheinfo "160000,$ev_base,sub"
+git -C "$ev" commit -qm 'chore: submodule'
+ev_head=$(git -C "$ev" rev-parse feat)
+write_state "$run_dir"
+expect_quiet
+git -C "$ev" update-index --cacheinfo "160000,$(git -C "$ev" rev-parse feat~1),sub"
+git -C "$ev" commit -qm 'chore: bump submodule'
+expect_warn
+git -C "$ev" reset -q --hard "$ev_head"
+git -C "$ev" rm -q --cached sub .gitmodules
+rm -f "$ev/.gitmodules"
+git -C "$ev" commit -qm 'chore: drop submodule'
+ev_head=$(git -C "$ev" rev-parse feat)
+write_state "$run_dir"
 expect_quiet
 # If judging the evidence fails (here a worktree path with a NUL byte makes glob raise), the hook
 # says the evidence went unchecked, and still returns the other verdicts of the same command (the
