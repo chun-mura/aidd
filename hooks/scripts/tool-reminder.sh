@@ -30,6 +30,10 @@ if not isinstance(command, str) or not command:
     sys.exit(0)
 # CLAUDE_PROJECT_DIR stays on the main checkout inside a worktree; the input cwd follows it.
 base_dir = event.get("cwd") or os.getcwd()
+# Node runs a lone surrogate (JSON.stringify sends it as \ud800) as U+FFFD, so judge that command.
+command = re.sub("[\ud800-\udfff]", "\ufffd", command)
+if isinstance(base_dir, str):
+    base_dir = re.sub("[\ud800-\udfff]", "\ufffd", base_dir)
 env = os.environ
 LEARNINGS_SCRIPT = sys.argv[1] if len(sys.argv) > 1 else ""
 
@@ -1196,7 +1200,14 @@ if denials or contexts:
         output["permissionDecisionReason"] = "\n".join(denials)
     if contexts:
         output["additionalContext"] = "\n".join(contexts)
-    print(json.dumps({"hookSpecificOutput": output}, ensure_ascii=False))
+    text = json.dumps({"hookSpecificOutput": output}, ensure_ascii=False)
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        # A lone surrogate left in the text (an undecodable environment value) has no UTF-8 form:
+        # printing it fails or writes a stray byte, by locale. Escaped, the verdict survives.
+        text = json.dumps({"hookSpecificOutput": output})
+    print(text)
 PYEOF
 )
 
