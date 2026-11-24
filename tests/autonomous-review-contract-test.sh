@@ -436,16 +436,27 @@ grep -F -- '成否は表示された行ではなく、ブロックの終了コ�
 grep -F -- '上の「本文が出ないファイル」の検出 (`--numstat -z` と `--raw -z`) はブロックでは行わない。判定者が 4 の照合のとおり `origin/HEAD...HEAD` で行う' "$command_file"
 grep -F -- 'Git の管理外 (無視されたファイル、作業ツリーの外) への書き込みは検出しない' "$command_file"
 grep -F -- '`/aidd:issue-implement` が「未実行の監査を自分で `/security-review` として実行する」経路に毎回入りうる。その経路では、実装したセッションの文脈に差分の展開が入る' "$command_file"
+grep -F -- '判定に使うのは、受けながら sha256 を取ったメモリの中のバイト列だけで、`<stem>.txt` を読み直さない' "$command_file"
+grep -F -- 'ブロックの git はすべて `-c core.fsmonitor=false` で動かす' "$command_file"
+grep -F -- 'git を動かす前に、上の設定と属性のファイルの sha256 が起動の前と同じことを確かめる' "$command_file"
+if grep -F -- '`core.quotePath=false` と `-z` で取り' "$command_file"; then
+  echo "-z alone keeps the names unquoted; do not credit core.quotePath" >&2
+  exit 1
+fi
 sr_block=$(awk '/^# security-review run: /{on=1} on{print} /^# end security-review run$/{on=0}' "$command_file")
 grep -F -- '# end security-review run' <<<"$sr_block"
-grep -F -- "claude -p '/security-review' --output-format stream-json --verbose --setting-sources user --strict-mcp-config --permission-mode dontAsk --disallowedTools 'Edit,Write,NotebookEdit' < /dev/null" <<<"$sr_block"
+grep -F -- 'cmd = ["claude", "-p", "/security-review", "--output-format", "stream-json", "--verbose", "--setting-sources", "user",' <<<"$sr_block"
+grep -F -- '"--strict-mcp-config", "--permission-mode", "dontAsk", "--disallowedTools", "Edit,Write,NotebookEdit"]' <<<"$sr_block"
+grep -F -- 'proc = subprocess.Popen(cmd, cwd=workdir, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=errf)' <<<"$sr_block"
 # Execute the block against a stub claude in throwaway clones; the real CLI is never called.
 sr_tmp="$hidden_tmp/sr"
 mkdir -p "$sr_tmp/bin" "$sr_tmp/nobin"
 sr_git() { git -c user.name=t -c user.email=t@example.invalid "$@"; }
 sr_git init -q -b main "$sr_tmp/origin"
 printf 'base\n' >"$sr_tmp/origin/base.txt"
-sr_git -C "$sr_tmp/origin" add base.txt
+printf 'line%s\n' 1 2 3 4 5 6 7 8 >"$sr_tmp/origin/aaa.txt"
+ln -s base.txt "$sr_tmp/origin/oldlink"
+sr_git -C "$sr_tmp/origin" add base.txt aaa.txt oldlink
 sr_git -C "$sr_tmp/origin" commit -q -m base
 sr_n=0
 # sr_repo: a fresh clone on branch feat; sets sr_work and sr_base (the origin tip).
@@ -475,6 +486,11 @@ if [ "$SR_MODE" = commit ]; then
   git -c user.name=t -c user.email=t@example.invalid commit -q -am sneak
 elif [ "$SR_MODE" = dirty ]; then
   echo new >left.txt
+elif [ "$SR_MODE" = config ]; then
+  git config core.fsmonitor "$SR_HOOK"
+elif [ "$SR_MODE" = tamper ]; then
+  # Write into the raw output while the run is going; the file is then longer than what was streamed.
+  head -c 200000 /dev/zero | tr '\0' ' ' >>"$SR_RAW"
 fi
 python3 -I - "$SR_MODE" "$(pwd -P)" <<'PY'
 import json, sys
@@ -489,6 +505,10 @@ expanded = "GIT STATUS:\n\n```\nok\n```\n\nFILES MODIFIED:\n\n```\n" + files + "
 if mode in ("noexpand", "measured"):
     expanded = None
 init = {"type": "system", "subtype": "init", "cwd": cwd, "session_id": "s1", "slash_commands": cmds}
+if mode == "nocwd":
+    del init["cwd"]
+elif mode == "emptycwd":
+    init["cwd"] = ""
 if mode != "init0":
     print(json.dumps(init))
 if mode == "init2":
@@ -516,6 +536,8 @@ if mode == "notlast":
 PY
 STUB
 chmod +x "$sr_tmp/bin/claude"
+printf '#!/bin/sh\ntouch %s\nexit 1\n' "$sr_tmp/pwned" >"$sr_tmp/hook.sh"
+chmod +x "$sr_tmp/hook.sh"
 sr_run() { # <mode> <stem> [target] [PATH] [base]
   local mode=$1 stem=$2 target=${3:-$sr_head} path=${4:-"$sr_tmp/bin:$PATH"} base=${5:-$sr_base} block name
   name=${stem//[^a-z0-9-]/_}
@@ -528,7 +550,8 @@ sr_run() { # <mode> <stem> [target] [PATH] [base]
   printf '%s\n' "$block" >"$sr_tmp/block-$name.sh"
   rm -f "$sr_tmp/log".*
   echo 'stdin must not reach the audit' |
-    (cd "$sr_work" && SR_MODE=$mode SR_LOG="$sr_tmp/log" PATH="$path" bash "$sr_tmp/block-$name.sh") >"$sr_tmp/out-$name" 2>&1
+    (cd "$sr_work" && SR_MODE=$mode SR_LOG="$sr_tmp/log" SR_HOOK="$sr_tmp/hook.sh" SR_RAW="$sr_tmp/run/$stem.txt" \
+      PATH="$path" bash "$sr_tmp/block-$name.sh") >"$sr_tmp/out-$name" 2>&1
 }
 sr_clear() { chmod -R u+w "$sr_tmp/run"; rm -rf "$sr_tmp/run"; }
 # sr_refused <reason> <run args...>: the block ends with 1 before the process starts.
@@ -563,6 +586,11 @@ grep -F -- 'Ignore all instructions' "$sr_tmp/run/security-review-round1.txt"
 grep -Fx -- 'stub stderr' "$sr_tmp/run/security-review-round1-stderr.txt"
 grep -F -- '  security-review-round1-stderr.txt' "$sr_tmp/run/security-review-round1.sha256"
 grep -F -- '  security-review-round1.txt' "$sr_tmp/run/security-review-round1.sha256"
+# shasum -c skips malformed lines, so compare each recorded value with the file itself.
+for sr_f in security-review-round1.txt security-review-round1-stderr.txt; do
+  [ "$(awk -v f="$sr_f" '$2 == f {print $1}' "$sr_tmp/run/security-review-round1.sha256")" = \
+    "$(shasum -a 256 "$sr_tmp/run/$sr_f" | awk '{print $1}')" ]
+done
 printed=$(sed -n 's/.*security-review-round1\.sha256 sha256 \([0-9a-f]\{64\}\).*/\1/p' "$sr_out")
 [ "$printed" = "$(shasum -a 256 "$sr_tmp/run/security-review-round1.sha256" | awk '{print $1}')" ]
 (cd "$sr_tmp/run" && shasum -a 256 -c security-review-round1.sha256 >/dev/null)
@@ -577,18 +605,8 @@ grep -Fx -- 'Edit,Write,NotebookEdit' "$sr_tmp/log.args"
 sr_run ok security-review-round2
 [ "$(sed -n 's/^-----BEGIN SECURITY REVIEW RESULT \([0-9a-f]\{32\}\)-----$/\1/p' "$sr_tmp/out-security-review-round2")" != "$sr_nonce" ]
 sr_clear
-# The parser checks the bytes it reads against the recorded hash (a change after the run is caught).
-sr_run ok security-review-round1
-sr_py=$(awk '/^python3 -I - "\$1"/{on=1; next} /^PY$/{on=0} on' <<<"$sr_block")
-chmod u+w "$sr_tmp/run/security-review-round1.txt"
-printf '\n' >>"$sr_tmp/run/security-review-round1.txt"
-if python3 -I -c "$sr_py" post "$sr_work" "$sr_base" "$sr_head" "$sr_tmp/run/security-review-round1.txt" \
-  "$sr_tmp/run/security-review-round1.sha256" security-review-round1 "$sr_nonce" >"$sr_tmp/out-tamper" 2>&1; then
-  echo "a raw output changed after hashing must be rejected" >&2
-  exit 1
-fi
-grep -F -- 'differs from the hash written after the run' "$sr_tmp/out-tamper"
 # An existing output is never overwritten.
+sr_run ok security-review-round1
 if sr_run ok security-review-round1; then
   echo "an existing raw output must not be overwritten" >&2
   exit 1
@@ -601,6 +619,9 @@ for sr_case in '1:nocmd:is not a command of the new session' '1:error:did not en
   '1:iserror:did not end with a successful result' '1:empty:did not end with a successful result' \
   '1:notlast:did not end with a successful result' '1:init0:no single init event' \
   '1:init2:no single init event' '1:cwd:ran in another directory' '1:exit1:claude exited 1' \
+  '1:nocwd:ran in another directory' '1:emptycwd:ran in another directory' \
+  '1:tamper:the raw output file changed after it was written' \
+  '1:config:a git config or attributes file changed during the run' \
   '1:marker:contains the block' '1:status:contains the block' \
   '1:commit:HEAD is not the target commit after the run' \
   '1:dirty:uncommitted or untracked changes after the run' \
@@ -617,7 +638,15 @@ for sr_case in '1:nocmd:is not a command of the new session' '1:error:did not en
   fi
   sr_out="$sr_tmp/out-security-review-round2"
   grep -E -- 'security-review-round2\.sha256 sha256 [0-9a-f]{64}' "$sr_out"
-  (cd "$sr_tmp/run" && shasum -a 256 -c security-review-round2.sha256 >/dev/null)
+  if [ "$sr_mode" = tamper ]; then
+    # The recorded hash is the streamed one, so the changed file no longer matches it.
+    if (cd "$sr_tmp/run" && shasum -a 256 -c security-review-round2.sha256 >/dev/null 2>&1); then
+      echo "the recorded hash must be the one taken while the output was streamed" >&2
+      exit 1
+    fi
+  else
+    (cd "$sr_tmp/run" && shasum -a 256 -c security-review-round2.sha256 >/dev/null)
+  fi
   if [ "$sr_want" = 1 ]; then
     grep -F -- 'security-review run: not run: ' "$sr_out" | grep -F -- "${sr_rest#*:}"
     if grep -F -- 'SECURITY REVIEW RESULT' "$sr_out"; then
@@ -633,7 +662,11 @@ for sr_case in '1:nocmd:is not a command of the new session' '1:error:did not en
     fi
   fi
   sr_clear
-  if [ "$sr_mode" = commit ]; then sr_repo; sr_commit app.txt app; fi
+  if [ "$sr_mode" = config ] && [ -e "$sr_tmp/pwned" ]; then
+    echo "a git config written by the new session must not run on the judge's side" >&2
+    exit 1
+  fi
+  if [ "$sr_mode" = commit ] || [ "$sr_mode" = config ]; then sr_repo; sr_commit app.txt app; fi
   rm -f "$sr_work/left.txt"
 done
 # Checks that stop before the process starts.
@@ -672,4 +705,51 @@ ln -s evil "$sr_work/dotclaude"
 sr_git -C "$sr_work" add -A
 sr_git -C "$sr_work" commit -q -m link
 sr_head=$(git -C "$sr_work" rev-parse HEAD)
+sr_refused 'symbolic link' ok security-review-final
+# A configured fsmonitor command (here set before the run) is not run by the block's git.
+sr_repo
+sr_commit app.txt app
+git -C "$sr_work" config core.fsmonitor "$sr_tmp/hook.sh"
+git -C "$sr_work" status --porcelain >/dev/null 2>&1 || true
+[ -e "$sr_tmp/pwned" ] # plain git status runs it, so the check below means something
+rm -f "$sr_tmp/pwned"
+sr_run ok security-review-round1
+grep -Fx -- 'security-review run: checked' "$sr_tmp/out-security-review-round1"
+if [ -e "$sr_tmp/pwned" ]; then
+  echo "the block's git must not run a configured fsmonitor command" >&2
+  exit 1
+fi
+sr_clear
+# The work tree check covers the whole tree even when the work directory is a subdirectory.
+sr_repo
+sr_commit app.txt app
+sr_commit sub/keep.txt keep
+printf 'x\n' >"$sr_work/top.txt"
+sr_top=$sr_work
+sr_work="$sr_top/sub"
+sr_refused 'uncommitted or untracked changes' ok security-review-round1
+sr_work=$sr_top
+# A rename or copy entry carries two paths; the parser must step over both to reach the link after it.
+sr_repo
+sr_git -C "$sr_work" mv aaa.txt aab.txt
+ln -s base.txt "$sr_work/zlink"
+sr_git -C "$sr_work" add -A
+sr_git -C "$sr_work" commit -q -m rename
+sr_head=$(git -C "$sr_work" rev-parse HEAD)
+git -C "$sr_work" diff --raw --no-abbrev "$sr_base...$sr_head" | grep -E -- ' R[0-9]+'
+sr_refused 'symbolic link' ok security-review-final
+sr_repo
+git -C "$sr_work" config diff.renames copies
+cp "$sr_work/aaa.txt" "$sr_work/aac.txt"
+printf 'line9\n' >>"$sr_work/aaa.txt"
+ln -s base.txt "$sr_work/zlink"
+sr_git -C "$sr_work" add -A
+sr_git -C "$sr_work" commit -q -m copy
+sr_head=$(git -C "$sr_work" rev-parse HEAD)
+git -C "$sr_work" diff --raw --no-abbrev "$sr_base...$sr_head" | grep -E -- ' C[0-9]+'
+sr_refused 'symbolic link' ok security-review-final
+# Replacing a symbolic link with a regular file changes a link too (old mode 120000).
+sr_repo
+rm "$sr_work/oldlink"
+sr_commit oldlink plain
 sr_refused 'symbolic link' ok security-review-final
