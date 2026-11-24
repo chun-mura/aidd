@@ -317,12 +317,25 @@ def update_state(name, change):
 DOCS_ONLY = r"(^docs/|\.md$|\.txt$)"
 
 
+def changed_paths(directory, *revs):
+    """The paths a diff changes, or None when git fails. --no-renames: a file moved elsewhere is
+    also a deletion where it was. --ignore-submodules=none: ignore = all in .gitmodules would hide a
+    submodule pointer. --no-relative: diff.relative from a subdirectory would hide changes outside
+    it. -z: paths with non-ASCII or control characters come unquoted (and nothing is stripped).
+    The trailing --: a file named like a revision (main...feat) must not make git fail."""
+    out = git_bytes(directory, "diff", "--no-ext-diff", "--no-renames", "--ignore-submodules=none",
+                    "--no-relative", "--name-only", "-z", *revs, "--")
+    if out is None:
+        return None
+    return [path for path in out.decode("utf-8", "replace").split("\0") if path]
+
+
 def remind_test_perspectives(directory):
-    staged = git(directory, "diff", "--cached", "--name-only")
-    if staged and all(re.search(DOCS_ONLY, path) for path in staged.splitlines()):
+    staged = changed_paths(directory, "--cached")
+    if staged and all(re.search(DOCS_ONLY, path) for path in staged):
         return
     perspectives = os.path.join(directory, "docs", "test-perspectives")
-    for path in glob.glob(os.path.join(perspectives, "**", "*.md"), recursive=True):
+    for path in glob.glob(os.path.join(glob.escape(perspectives), "**", "*.md"), recursive=True):
         try:
             if os.path.getmtime(path) > time.time() - 360 * 60:
                 return
@@ -339,7 +352,51 @@ def resolve_commit(directory, names):
     return None, None
 
 
-def has_review_evidence(directory, head, head_sha):
+SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+
+
+def review_finished(state):
+    """A finished review in the current schema (5+). Older or malformed evidence is unconfirmed."""
+    if not isinstance(state, dict):
+        return False
+    version = state.get("schema_version")
+    if type(version) is not int or version < 5:
+        return False
+    status = state.get("status")
+    if not isinstance(status, str) or status != state.get("final_decision"):
+        return False
+    # The reason must be present even when null: a run without it predates the split below.
+    if "human_required_reason" not in state:
+        return False
+    reason = state["human_required_reason"]
+    after = state.get("head_sha_after_fixes")  # optional in the schema
+    if not all(isinstance(state.get(key), str) and SHA.fullmatch(state[key]) for key in ("base_sha", "head_sha")):
+        return False
+    if after is not None and not (isinstance(after, str) and SHA.fullmatch(after)):
+        return False
+    # human_required splits into review_incomplete (no finished review) and human_judgment (the
+    # review finished; a person makes the final call).
+    return (status, reason) in (("auto_merge_eligible", None), ("human_required", "human_judgment"))
+
+
+# Commits after the reviewed one may add only these (committed evidence, the ledger commit).
+AFTER_REVIEW = (".aidd/autonomous-review/", ".aidd/learnings/")
+
+
+def covers_head(directory, reviewed, head_sha):
+    """True when head_sha is the reviewed commit, or adds on top of it only AFTER_REVIEW paths,
+    so the code under review is unchanged."""
+    if reviewed == head_sha:
+        return True
+    if git(directory, "merge-base", reviewed, head_sha) != reviewed:
+        return False
+    # Both ends are compared, not each commit between them: a change undone later leaves the code
+    # the PR carries the same as the reviewed code.
+    changed = changed_paths(directory, reviewed, head_sha)
+    return changed is not None and all(path.startswith(AFTER_REVIEW) for path in changed)
+
+
+def has_review_evidence(directory, base_shas, head_sha):
     # autonomous-review writes under the worktree it ran in, which need not be this one.
     listing = git(directory, "worktree", "list", "--porcelain") or ""
     roots = [line[len("worktree "):] for line in listing.splitlines() if line.startswith("worktree ")]
@@ -347,13 +404,15 @@ def has_review_evidence(directory, head, head_sha):
     if top:
         roots.insert(0, top)
     for root in dict.fromkeys(roots):
-        for state_file in glob.glob(os.path.join(root, ".aidd", "autonomous-review", "*", "state.json")):
+        for state_file in glob.glob(os.path.join(glob.escape(root), ".aidd", "autonomous-review", "*", "state.json")):
             try:
                 with open(state_file) as f:
                     state = json.load(f)
             except Exception:
                 continue
-            if state.get("head") == head or head_sha in (state.get("head_sha"), state.get("head_sha_after_fixes")):
+            if not review_finished(state) or state["base_sha"] not in base_shas:
+                continue
+            if covers_head(directory, state.get("head_sha_after_fixes") or state["head_sha"], head_sha):
                 return True
     return False
 
@@ -387,21 +446,44 @@ def warn_review_before_pr(args, directory):
     head_ref, head_sha = resolve_commit(directory, [head, "origin/" + head])
     if not head_ref:
         return
-    changed = git(directory, "diff", "--name-only", base_ref + "..." + head_ref)
-    if not changed:
+    files = changed_paths(directory, base_ref + "..." + head_ref)
+    if files is None:  # no merge base (a shallow clone, unrelated histories), a git failure
+        add(contexts,
+            f"aidd: ブランチ {head} と {base} の差分を取得できないため、PR 前のレビュー証跡を確認していない。"
+            f"PR を出す前に /aidd:autonomous-review --base {base} --head {head} を実行したかを確かめること。")
         return
-    files = changed.splitlines()
+    if not files:
+        return
     skip = env_regex("AIDD_REVIEW_SKIP_PATHS", DOCS_ONLY)
     if all(skip.search(path) for path in files):
         return
-    if has_review_evidence(directory, head, head_sha):
+    # The review may have resolved the base to the local branch or to origin's. origin's tip
+    # counts. The local tip counts too when origin/<base> contains it (a local base that lags
+    # behind origin still matches the review), but not when it has unpushed commits the PR would
+    # carry unreviewed; with no origin/<base> to check against, the local tip is the base. Any
+    # other base_sha does not count (the base moved on after the review).
+    _, origin_sha = resolve_commit(directory, ["origin/" + base])
+    _, local_sha = resolve_commit(directory, [base])
+    base_shas = {origin_sha} if origin_sha else set()
+    if local_sha and (not origin_sha
+                      or git(directory, "merge-base", "--is-ancestor", local_sha, origin_sha) is not None):
+        base_shas.add(local_sha)
+    try:
+        found = has_review_evidence(directory, base_shas, head_sha)
+        unchecked = ""
+    except Exception:  # keep the other checks' verdicts; an unjudged evidence is not a review
+        found = False
+        unchecked = "レビュー証跡を確認できなかった (判定中に失敗した)。"
+    if found:
         return
     limit = env_int("AIDD_REVIEW_LIST_LIMIT", 20)
     listing = ", ".join(files[:limit])
     if len(files) > limit:
         listing += f" ほか {len(files) - limit} 件"
     add(contexts,
-        f"aidd: ブランチ {head} は {base} に対してコードを変更しているが、.aidd/autonomous-review/ にこのブランチの証跡が無い。"
+        f"aidd: {unchecked}ブランチ {head} は {base} に対してコードを変更しているが、.aidd/autonomous-review/ に現在の差分のレビューを完了した証跡が無い"
+        " (schema_version 5 以上で、記録した base_sha と最終の head が今の基点ブランチと head に一致するもの。"
+        "古い・未完了・失敗・型が不正な証跡と、human_required_reason が review_incomplete のものは数えない)。"
         f"PR を出す前に /aidd:autonomous-review --base {base} --head {head} を実行すること。"
         "ユーザーが実行を断った場合は、このブランチでは再び起動せず、PR 本文に autonomous-review は未実施と書くこと。"
         f"変更ファイル ({len(files)} 件): {listing}。"
