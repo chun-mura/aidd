@@ -437,8 +437,19 @@ grep -F -- '上の「本文が出ないファイル」の検出 (`--numstat -z` 
 grep -F -- 'Git の管理外 (無視されたファイル、作業ツリーの外) への書き込みは検出しない' "$command_file"
 grep -F -- '`/aidd:issue-implement` が「未実行の監査を自分で `/security-review` として実行する」経路に毎回入りうる。その経路では、実装したセッションの文脈に差分の展開が入る' "$command_file"
 grep -F -- '判定に使うのは、受けながら sha256 を取ったメモリの中のバイト列だけで、`<stem>.txt` を読み直さない' "$command_file"
-grep -F -- 'ブロックの git はすべて `-c core.fsmonitor=false` で動かす' "$command_file"
-grep -F -- 'git を動かす前に、上の設定と属性のファイルの sha256 が起動の前と同じことを確かめる' "$command_file"
+# No exit 0 (#171 third review): the session can write its own stdout, so output never proves the range.
+grep -F -- '新しいセッションは利用者と同じ権限で動き、自分の出力 (stdout へのイベントの差し込みを含む) を自由に作れるので、出力の中身で監査した範囲を証明できない' "$command_file"
+grep -F -- '将来の CLI で範囲を確かめられるようになったら、別の issue で扱う' "$command_file"
+grep -F -- '常に2で終わる (監査した範囲を確かめられないため。0で終わる経路は無い)' "$command_file"
+grep -F -- '偽のイベントで終了コードは変わらない' "$command_file"
+grep -F -- '`GIT_CONFIG_NOSYSTEM=1`・`GIT_CONFIG_GLOBAL=/dev/null`・`GIT_ATTR_NOSYSTEM=1`・`GIT_NO_REPLACE_OBJECTS=1`・`-c core.attributesFile=/dev/null`・`-c core.fsmonitor=false`' "$command_file"
+grep -F -- '`setsid` などでグループを抜けた子は止められない' "$command_file"
+grep -F -- '最終判定の直前に、判定者は作業ツリーと `HEAD` をもう一度確かめる' "$command_file"
+grep -F -- 'シンボリックリンクに置き換えられていないこと (`os.lstat`) を確かめ' "$command_file"
+if grep -F -- 'security-review run: checked' "$command_file"; then
+  echo "the block must have no confirmed (exit 0) path" >&2
+  exit 1
+fi
 if grep -F -- '`core.quotePath=false` と `-z` で取り' "$command_file"; then
   echo "-z alone keeps the names unquoted; do not credit core.quotePath" >&2
   exit 1
@@ -447,7 +458,8 @@ sr_block=$(awk '/^# security-review run: /{on=1} on{print} /^# end security-revi
 grep -F -- '# end security-review run' <<<"$sr_block"
 grep -F -- 'cmd = ["claude", "-p", "/security-review", "--output-format", "stream-json", "--verbose", "--setting-sources", "user",' <<<"$sr_block"
 grep -F -- '"--strict-mcp-config", "--permission-mode", "dontAsk", "--disallowedTools", "Edit,Write,NotebookEdit"]' <<<"$sr_block"
-grep -F -- 'proc = subprocess.Popen(cmd, cwd=workdir, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=errf)' <<<"$sr_block"
+grep -F -- 'proc = subprocess.Popen(cmd, cwd=workdir, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=errf,' <<<"$sr_block"
+grep -F -- 'start_new_session=True)' <<<"$sr_block"
 # Execute the block against a stub claude in throwaway clones; the real CLI is never called.
 sr_tmp="$hidden_tmp/sr"
 mkdir -p "$sr_tmp/bin" "$sr_tmp/nobin"
@@ -488,6 +500,41 @@ elif [ "$SR_MODE" = dirty ]; then
   echo new >left.txt
 elif [ "$SR_MODE" = config ]; then
   git config core.fsmonitor "$SR_HOOK"
+elif [ "$SR_MODE" = replace ]; then
+  # a replace ref that makes the changed tree look committed to a git that follows replace refs
+  echo tampered >app.txt
+  git add app.txt
+  sr_fake=$(echo app | git -c user.name=t -c user.email=t@example.invalid commit-tree "$(git write-tree)" -p HEAD~1)
+  git replace "$(git rev-parse HEAD)" "$sr_fake"
+elif [ "$SR_MODE" = userinclude ]; then
+  # a filter driver added through an include of the user's ~/.gitconfig (the pattern is committed)
+  printf '[filter "x"]\n\tclean = %s\n' "$SR_FILTER" >>"$SR_TMP/global-inc.cfg"
+  touch -t 202001010000 base.txt
+elif [ "$SR_MODE" = userattr ]; then
+  # only the user's attributes file; the driver already sits in the repository config
+  mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/git"
+  printf '* filter=x\n' >"${XDG_CONFIG_HOME:-$HOME/.config}/git/attributes"
+  touch -t 202001010000 base.txt
+elif [ "$SR_MODE" = localinclude ]; then
+  printf '[filter "x"]\n\tclean = %s\n' "$SR_FILTER" >>"$SR_TMP/local-inc.cfg"
+  touch -t 202001010000 base.txt
+elif [ "$SR_MODE" = infoattr ]; then
+  # wire the repository's existing filter driver through info/attributes
+  printf '* filter=x\n' >"$(git rev-parse --path-format=absolute --git-common-dir)/info/attributes"
+  touch -t 202001010000 base.txt
+elif [ "$SR_MODE" = commondir ]; then
+  printf '%s\n' "$SR_TMP/evil/.git" >.git/commondir
+  touch -t 202001010000 base.txt
+elif [ "$SR_MODE" = wtgit ]; then
+  printf 'gitdir: %s\n' "$SR_TMP/evil/.git" >.git
+  touch -t 202001010000 base.txt
+elif [ "$SR_MODE" = bg ]; then
+  # a process left in the session's group edits the tree after the block's checks
+  ( until [ -e "$SR_TMP/run/security-review-round2.sha256" ]; do :; done; sleep 0.5; echo late >app.txt ) \
+    </dev/null >/dev/null 2>&1 &
+elif [ "$SR_MODE" = rawlink ]; then
+  rm -f "$SR_RAW"
+  ln -s "$SR_TMP/victim" "$SR_RAW"
 elif [ "$SR_MODE" = tamper ]; then
   # Write into the raw output while the run is going; the file is then longer than what was streamed.
   head -c 200000 /dev/zero | tr '\0' ' ' >>"$SR_RAW"
@@ -538,6 +585,13 @@ STUB
 chmod +x "$sr_tmp/bin/claude"
 printf '#!/bin/sh\ntouch %s\nexit 1\n' "$sr_tmp/pwned" >"$sr_tmp/hook.sh"
 chmod +x "$sr_tmp/hook.sh"
+printf '#!/bin/sh\ntouch %s\ncat\n' "$sr_tmp/pwned" >"$sr_tmp/filter.sh"
+chmod +x "$sr_tmp/filter.sh"
+printf 'victim\n' >"$sr_tmp/victim"
+# A repository with a filter that runs a command, for .git / commondir redirection.
+sr_git clone -q "$sr_tmp/origin" "$sr_tmp/evil"
+git -C "$sr_tmp/evil" config filter.x.clean "$sr_tmp/filter.sh"
+printf '* filter=x\n' >"$sr_tmp/evil/.git/info/attributes"
 sr_run() { # <mode> <stem> [target] [PATH] [base]
   local mode=$1 stem=$2 target=${3:-$sr_head} path=${4:-"$sr_tmp/bin:$PATH"} base=${5:-$sr_base} block name
   name=${stem//[^a-z0-9-]/_}
@@ -551,9 +605,25 @@ sr_run() { # <mode> <stem> [target] [PATH] [base]
   rm -f "$sr_tmp/log".*
   echo 'stdin must not reach the audit' |
     (cd "$sr_work" && SR_MODE=$mode SR_LOG="$sr_tmp/log" SR_HOOK="$sr_tmp/hook.sh" SR_RAW="$sr_tmp/run/$stem.txt" \
+      SR_TMP="$sr_tmp" SR_FILTER="$sr_tmp/filter.sh" \
       PATH="$path" bash "$sr_tmp/block-$name.sh") >"$sr_tmp/out-$name" 2>&1
 }
 sr_clear() { chmod -R u+w "$sr_tmp/run"; rm -rf "$sr_tmp/run"; }
+# sr_ran <run args...>: the audit ran and the block ends with 2 (never 0: the range is not confirmed).
+sr_ran() {
+  local rc out="$sr_tmp/out-${2//[^a-z0-9-]/_}"
+  if sr_run "$@"; then rc=0; else rc=$?; fi
+  if [ "$rc" != 2 ]; then
+    echo "the block must end with 2 after an audit ran, got $rc" >&2
+    cat "$out" >&2
+    exit 1
+  fi
+  grep -Fx -- 'security-review run: ran; the audited range is not confirmed' "$out"
+  if grep -F -- 'checked' "$out"; then
+    echo "the block must not report a confirmed range" >&2
+    exit 1
+  fi
+}
 # sr_refused <reason> <run args...>: the block ends with 1 before the process starts.
 sr_refused() {
   local reason=$1
@@ -570,10 +640,10 @@ sr_repo
 sr_commit app.txt app
 # Success: the process wrote the raw output (stdout and stderr), both hashes are recorded and the
 # printed hash matches, files are read-only, the result text sits between nonce markers, stdin was closed.
-sr_run ok security-review-round1
+# The stub even emits a top-level FILES MODIFIED that matches the diff: still 2.
+sr_ran ok security-review-round1
 sr_out="$sr_tmp/out-security-review-round1"
 grep -F -- 'No vulnerabilities found.' "$sr_out"
-grep -Fx -- 'security-review run: checked' "$sr_out"
 grep -F -- "permission denials 1 ['Bash']" "$sr_out"
 sr_nonce=$(sed -n 's/^-----BEGIN SECURITY REVIEW RESULT \([0-9a-f]\{32\}\)-----$/\1/p' "$sr_out")
 [ -n "$sr_nonce" ]
@@ -602,11 +672,11 @@ grep -Fx -- '/security-review' "$sr_tmp/log.args"
 grep -Fx -- '-p' "$sr_tmp/log.args"
 grep -Fx -- 'Edit,Write,NotebookEdit' "$sr_tmp/log.args"
 # Two runs get different nonces, so the body cannot carry a matching end marker.
-sr_run ok security-review-round2
+sr_ran ok security-review-round2
 [ "$(sed -n 's/^-----BEGIN SECURITY REVIEW RESULT \([0-9a-f]\{32\}\)-----$/\1/p' "$sr_tmp/out-security-review-round2")" != "$sr_nonce" ]
 sr_clear
 # An existing output is never overwritten.
-sr_run ok security-review-round1
+sr_ran ok security-review-round1
 if sr_run ok security-review-round1; then
   echo "an existing raw output must not be overwritten" >&2
   exit 1
@@ -621,24 +691,32 @@ for sr_case in '1:nocmd:is not a command of the new session' '1:error:did not en
   '1:init2:no single init event' '1:cwd:ran in another directory' '1:exit1:claude exited 1' \
   '1:nocwd:ran in another directory' '1:emptycwd:ran in another directory' \
   '1:tamper:the raw output file changed after it was written' \
-  '1:config:a git config or attributes file changed during the run' \
+  "1:config:the repository's git setup" '1:replace:the repository'"'"'s git setup' \
+  "1:commondir:the repository's git setup" '1:rawlink:was replaced during the run' \
+  "1:infoattr:the repository's git setup" \
   '1:marker:contains the block' '1:status:contains the block' \
   '1:commit:HEAD is not the target commit after the run' \
   '1:dirty:uncommitted or untracked changes after the run' \
-  '2:files:FILES MODIFIED differs from the confirmed diff' \
-  '2:noexpand:the expanded FILES MODIFIED list is not in the raw output' \
-  '2:measured:the expanded FILES MODIFIED list is not in the raw output'; do
+  '2:files:-' '2:noexpand:-' '2:measured:-'; do
   sr_want=${sr_case%%:*}
   sr_rest=${sr_case#*:}
   sr_mode=${sr_rest%%:*}
+  if [ "$sr_mode" = infoattr ]; then git -C "$sr_work" config filter.x.clean "$sr_tmp/filter.sh"; fi
   if sr_run "$sr_mode" security-review-round2; then sr_rc=0; else sr_rc=$?; fi
   if [ "$sr_rc" != "$sr_want" ]; then
     echo "mode $sr_mode must end with $sr_want, got $sr_rc" >&2
     exit 1
   fi
   sr_out="$sr_tmp/out-security-review-round2"
-  grep -E -- 'security-review-round2\.sha256 sha256 [0-9a-f]{64}' "$sr_out"
-  if [ "$sr_mode" = tamper ]; then
+  if [ "$sr_mode" = rawlink ]; then
+    # replaced by a link: refused before anything is hashed or made read-only
+    if grep -F -- 'sha256' "$sr_out"; then exit 1; fi
+  else
+    grep -E -- 'security-review-round2\.sha256 sha256 [0-9a-f]{64}' "$sr_out"
+  fi
+  if [ "$sr_mode" = rawlink ]; then
+    :
+  elif [ "$sr_mode" = tamper ]; then
     # The recorded hash is the streamed one, so the changed file no longer matches it.
     if (cd "$sr_tmp/run" && shasum -a 256 -c security-review-round2.sha256 >/dev/null 2>&1); then
       echo "the recorded hash must be the one taken while the output was streamed" >&2
@@ -654,19 +732,19 @@ for sr_case in '1:nocmd:is not a command of the new session' '1:error:did not en
       exit 1
     fi
   else
-    grep -F -- "security-review run: range not confirmed: ${sr_rest#*:}" "$sr_out"
+    grep -Fx -- 'security-review run: ran; the audited range is not confirmed' "$sr_out"
     grep -F -- 'No vulnerabilities found.' "$sr_out"
-    if grep -F -- 'security-review run: checked' "$sr_out"; then
-      echo "an unconfirmed range must not be reported as checked" >&2
-      exit 1
-    fi
   fi
   sr_clear
-  if [ "$sr_mode" = config ] && [ -e "$sr_tmp/pwned" ]; then
+  if [ -e "$sr_tmp/pwned" ]; then
     echo "a git config written by the new session must not run on the judge's side" >&2
     exit 1
   fi
-  if [ "$sr_mode" = commit ] || [ "$sr_mode" = config ]; then sr_repo; sr_commit app.txt app; fi
+  case $sr_mode in commit | config | replace | commondir | infoattr) sr_repo; sr_commit app.txt app ;; esac
+  if [ "$sr_mode" = rawlink ] && [ ! -w "$sr_tmp/victim" ]; then
+    echo "the block must not make the target of a link read-only" >&2
+    exit 1
+  fi
   rm -f "$sr_work/left.txt"
 done
 # Checks that stop before the process starts.
@@ -682,8 +760,7 @@ sr_refused 'uncommitted or untracked changes' ok security-review-round3
 rm -f "$sr_work/untracked.txt"
 mkdir -p "$sr_work/.aidd/autonomous-review/r1"
 printf '{}\n' >"$sr_work/.aidd/autonomous-review/r1/state.json"
-sr_run ok security-review-round3
-grep -Fx -- 'security-review run: checked' "$sr_tmp/out-security-review-round3"
+sr_ran ok security-review-round3
 sr_clear
 # The confirmed diff and origin/HEAD...HEAD must name the same files and start from the same commit.
 sr_first=$sr_head
@@ -713,8 +790,7 @@ git -C "$sr_work" config core.fsmonitor "$sr_tmp/hook.sh"
 git -C "$sr_work" status --porcelain >/dev/null 2>&1 || true
 [ -e "$sr_tmp/pwned" ] # plain git status runs it, so the check below means something
 rm -f "$sr_tmp/pwned"
-sr_run ok security-review-round1
-grep -Fx -- 'security-review run: checked' "$sr_tmp/out-security-review-round1"
+sr_ran ok security-review-round1
 if [ -e "$sr_tmp/pwned" ]; then
   echo "the block's git must not run a configured fsmonitor command" >&2
   exit 1
@@ -753,3 +829,78 @@ sr_repo
 rm "$sr_work/oldlink"
 sr_commit oldlink plain
 sr_refused 'symbolic link' ok security-review-final
+# Filters written into the system config, a global include or a local include, and a .git file
+# pointing at another repository, must not run on the judge's side. Each case first shows that a
+# plain git would run the filter, so the check means something.
+sr_probe() { # a plain git status in the work tree, which runs the filter if it is wired
+  rm -f "$sr_tmp/pwned"
+  # a time unlike the stub's, so the index (which the block's status may have refreshed) is stale
+  touch -t 202102020000 "$sr_work/base.txt"
+  git -C "$sr_work" status --porcelain >/dev/null 2>&1 || true
+  [ -e "$sr_tmp/pwned" ]
+  rm -f "$sr_tmp/pwned"
+}
+# The user's files go to a HOME owned by this test, never the caller's.
+sr_home="$sr_tmp/home"
+# The block's git reads no user (global) config and no user attributes file. The block drops inherited
+# GIT_* variables, so these cases use the default user paths under the test's HOME. (The system config
+# and system attributes need files under the install prefix, so they are not exercised here.)
+for sr_case in userinclude userattr; do
+  sr_repo
+  sr_commit app.txt app
+  if [ "$sr_case" = userattr ]; then
+    # the driver is the repository's own; only the user's attributes file wires it
+    git -C "$sr_work" config filter.x.clean "$sr_tmp/filter.sh"
+  else
+    # the pattern is committed; only the driver comes from the user's config
+    sr_commit .gitattributes '* filter=x'
+  fi
+  rm -rf "$sr_home"
+  mkdir -p "$sr_home"
+  : >"$sr_tmp/global-inc.cfg"
+  printf '[include]\n\tpath = %s\n' "$sr_tmp/global-inc.cfg" >"$sr_home/.gitconfig"
+  (
+    unset GIT_CONFIG_GLOBAL XDG_CONFIG_HOME
+    export HOME="$sr_home"
+    sr_ran "$sr_case" security-review-round1
+    [ ! -e "$sr_tmp/pwned" ]
+    sr_probe
+  ) # no "|| ..." here: it would turn off set -e inside the subshell
+  rm -rf "$sr_home" "$sr_tmp/global-inc.cfg"
+  sr_clear
+done
+# A local include is listed with --includes, so a driver added to it is caught before git status.
+sr_repo
+sr_commit app.txt app
+: >"$sr_tmp/local-inc.cfg"
+git -C "$sr_work" config include.path "$sr_tmp/local-inc.cfg"
+printf '* filter=x\n' >"$(git -C "$sr_work" rev-parse --path-format=absolute --git-common-dir)/info/attributes"
+if sr_run localinclude security-review-round1; then
+  echo "a filter added through a local include must be caught" >&2
+  exit 1
+fi
+grep -F -- "the repository's git setup" "$sr_tmp/out-security-review-round1"
+[ ! -e "$sr_tmp/pwned" ]
+sr_probe
+sr_clear
+# A .git file in a linked worktree rewritten to point at another repository.
+sr_repo
+sr_commit app.txt app
+sr_git -C "$sr_work" switch -q --detach
+sr_git -C "$sr_work" worktree add -q "$sr_tmp/wt$sr_n" feat
+sr_work=$(cd "$sr_tmp/wt$sr_n" && pwd -P)
+if sr_run wtgit security-review-round1; then
+  echo "a .git file pointing elsewhere must be caught" >&2
+  exit 1
+fi
+grep -F -- "the repository's git setup" "$sr_tmp/out-security-review-round1"
+[ ! -e "$sr_tmp/pwned" ]
+sr_probe
+sr_clear
+# A process left in the session's process group is stopped with the group.
+sr_repo
+sr_commit app.txt app
+sr_ran bg security-review-round2
+sleep 2
+[ "$(cat "$sr_work/app.txt")" = app ]
+sr_clear
