@@ -329,6 +329,83 @@ if [ "$(uname -s)" = Darwin ]; then
   leak_check "$out"
 fi
 
+# doctor --hooks (#123): item 10 replays fixtures through the plugin's own hook scripts with a
+# throwaway HOME and state, and reports deny / pass / ask / record per harness. A fixture OK is
+# not a real-wiring OK: the wiring is probed only in the harness running doctor, others stay 未確認.
+grep -F -- 'argument-hint: "[--hooks]"' "$doctor"
+grep -F -- 'fixture の再生が OK でも、実配線を OK にしない' "$doctor"
+grep -F -- '実配線を確かめていないハーネスは「未確認」と書く' "$doctor"
+grep -F -- '利用者の実際の設定ファイルや認証情報は読まない' "$doctor"
+grep -F -- 'aidd の文言 (`aidd:` で始まる) で止められたときだけ OK' "$doctor"
+grep -F -- '削除するのは自分で作ったディレクトリだけ' "$doctor"
+sed -n '/^# Item 10:/,/^PY$/p' "$doctor" > "$doctor_tmp/item10.sh"
+[ -s "$doctor_tmp/item10.sh" ]
+run_item10() {  # run_item10 <plugin root>; the caller's state and a dummy token must not reach the hooks
+  rm -rf "$doctor_tmp/h10/home" "$doctor_tmp/h10/tmp"
+  mkdir -p "$doctor_tmp/h10/home" "$doctor_tmp/h10/tmp"
+  (cd "$doctor_tmp/h10" && env -u AIDD_TEST_STATE_DIR -u CLAUDE_PROJECT_DIR -u PLUGIN_ROOT \
+    HOME="$doctor_tmp/h10/home" TMPDIR="$doctor_tmp/h10/tmp" GH_TOKEN=DUMMY_TOKEN_SENTINEL \
+    AIDD_DISABLE_UNREADABLE_NAME_GUARD=1 CLAUDE_PLUGIN_ROOT="$1" bash "$doctor_tmp/item10.sh" 2>&1)
+}
+out=$(run_item10 "$repo_root")
+for want in 'claude PreToolUse Bash git add -A: OK deny' 'claude PreToolUse Bash git status: OK pass' \
+  'claude PreToolUse Write .env.local: OK deny' 'claude PreToolUse Skill aidd:autonomous-review: OK ask' \
+  'claude UserPromptSubmit /aidd:doctor: OK record usage.json' \
+  'codex PreToolUse Bash git add -A: OK deny' 'codex PreToolUse apply_patch Add .env.local: OK deny' \
+  'codex PreToolUse apply_patch Add notes.txt: OK pass' 'cursor preToolUse Shell git add -A: OK deny' \
+  'cursor preToolUse Write .env.local: OK deny' 'cursor preToolUse Read autonomous-review SKILL.md: OK deny' \
+  'cursor preToolUse Read notes.txt: OK pass' 'adapter missing child script: OK record adapter-skips.json' \
+  'hooks replay: 13/13 OK' 'not the real wiring'; do
+  grep -Fq -- "$want" <<<"$out" || { echo "doctor item 10 missing '$want': $out" >&2; exit 1; }
+done
+if grep -Eq -- 'FAIL|WARN|DUMMY_TOKEN_SENTINEL' <<<"$out"; then
+  echo "doctor item 10 failed or printed a token: $out" >&2
+  exit 1
+fi
+# The caller's HOME stays untouched, and only the replay's own directory is created and removed.
+[ ! -e "$doctor_tmp/h10/home/.claude" ] || { echo "doctor item 10 wrote under HOME" >&2; exit 1; }
+[ -z "$(ls -A "$doctor_tmp/h10/tmp")" ] || { echo "doctor item 10 left its directory behind" >&2; exit 1; }
+# A hook that stopped denying is a FAIL, not a quiet pass.
+fake_root="$doctor_tmp/h10/plugin"
+mkdir -p "$fake_root/hooks/scripts"
+for f in "$repo_root"/hooks/scripts/*.sh; do ln -s "$f" "$fake_root/hooks/scripts/"; done
+rm "$fake_root/hooks/scripts/tool-reminder.sh"
+printf '%s\n' '#!/bin/bash' 'cat >/dev/null' 'exit 0' > "$fake_root/hooks/scripts/tool-reminder.sh"
+chmod +x "$fake_root/hooks/scripts/tool-reminder.sh"
+ln -s "$repo_root/skills" "$fake_root/skills"
+ln -s "$repo_root/tests" "$fake_root/tests"
+out=$(run_item10 "$fake_root")
+for want in 'claude PreToolUse Bash git add -A: FAIL expected deny, got pass' \
+  'cursor preToolUse Shell git add -A: FAIL expected deny, got pass' 'hooks replay: FAIL 10/13 OK'; do
+  grep -Fq -- "$want" <<<"$out" || { echo "doctor item 10 missed a broken hook ('$want'): $out" >&2; exit 1; }
+done
+# Without the fixtures the replay is skipped with a WARN, never reported as OK.
+rm "$fake_root/tests"
+out=$(run_item10 "$fake_root")
+grep -Fq -- 'hooks replay: WARN fixtures not found' <<<"$out" || { echo "doctor item 10 without fixtures: $out" >&2; exit 1; }
+if grep -Fq -- ': OK' <<<"$out"; then echo "doctor item 10 reported OK without fixtures: $out" >&2; exit 1; fi
+
+# Item 11 runs only --version of each harness CLI; a missing CLI is a skip, and a version that
+# differs from the measured one is a WARN.
+sed -n '/^# Item 11:/,/^done$/p' "$doctor" > "$doctor_tmp/item11.sh"
+[ -s "$doctor_tmp/item11.sh" ]
+fake_bin="$doctor_tmp/h11-bin"
+mkdir -p "$fake_bin"
+printf '%s\n' '#!/bin/bash' '[ "$1" = --version ] && echo "codex-cli 0.163.0"' > "$fake_bin/codex"
+printf '%s\n' '#!/bin/bash' '[ "$1" = --version ] && echo "2026.11.01-0000000"' > "$fake_bin/cursor-agent"
+chmod +x "$fake_bin/codex" "$fake_bin/cursor-agent"
+for tool in bash head python3; do ln -s "$(command -v "$tool")" "$fake_bin/$tool"; done
+out=$(PATH="$fake_bin" "$fake_bin/bash" "$doctor_tmp/item11.sh" 2>&1)
+for want in 'claude: skip (CLI not found' 'codex: OK codex-cli 0.163.0' \
+  'cursor-agent: WARN 2026.11.01-0000000 differs from the measured 2026.10.22-27dcf5f'; do
+  grep -Fq -- "$want" <<<"$out" || { echo "doctor item 11 missing '$want': $out" >&2; exit 1; }
+done
+printf '%s\n' '#!/bin/bash' '[ "$1" = --version ] && echo "2.1.109 (Claude Code)"' > "$fake_bin/claude"
+chmod +x "$fake_bin/claude"
+out=$(PATH="$fake_bin" "$fake_bin/bash" "$doctor_tmp/item11.sh" 2>&1)
+grep -Fq -- 'claude: WARN 2.1.109 (Claude Code) is older than 2.1.110' <<<"$out" \
+  || { echo "doctor item 11 missed an old Claude Code: $out" >&2; exit 1; }
+
 # asset-audit must not silently continue when its state write fails (e.g. under the sandbox),
 # or the SessionStart nudge never stops.
 grep -F -- '書き込みに失敗したら黙って続けない' "$repo_root/skills/asset-audit/SKILL.md"
