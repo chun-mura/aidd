@@ -1,10 +1,24 @@
 # Changelog
 
-## 0.78.0 (2026-11-23)
+## 0.78.0 (2026-11-24)
 
 - `eval`: レビューの実行を、メインループ (採点者) と同じ文脈から、ケース・試行ごとに新しい実行担当セッション (`claude -p`、他のハーネスは手動起動で取れない値は「不明」) に分けた (#129)。前回の記録 (`results/2026-11-22-3.md`) でメインが過去結果を先に読んだと自己申告しており、分離が口頭の指示だけだったため。実行担当の作業ディレクトリは cases と plugin のコピーだけを置いた一時 `input/` で、keys・results・`.git`・planted のファイルが入っていないこと (名前は大小文字を区別せず、内容はハッシュで keys/results と照合) を staging で検証し、偽指摘は中立な M の ID で固定プロンプトの末尾に付ける (planted の行数と混ぜた行数が違えば止める)。メインはプロンプトに文言を足さない
 - 生出力 (最終回答と meta) と stream-json を凍結し、表示した SHA256SUMS の sha256 を採点前に記録して、照合 (raw・local・input・キーの一覧と内容) が通ってから keys と過去結果を読む。測定条件 (aidd の版・git SHA と未コミット変更・CLI・実測モデルと定義上のモデル・provider・読み込まれたプラグイン・入力/キー/プロンプトのハッシュ・試行ごとの session と時間) と、パイプライン・採点・合計のコスト (トークンと USD を分け、既知の合計と不明の項目を併記) を記録する。実測していない値は「不明」と書く。最終出力と SHA256SUMS は `tests/eval/results/<run-id>/` にコミットし、stream-json の全文はローカルに置く
 - これは入力・作業ディレクトリ・文脈の分離であり、権限による読み取り禁止ではない。作業ディレクトリ外の絶対パスや任意の Bash による読み取りは防げず、stream-json に残った参照 (作業ディレクトリ外・run の raw/local・`../`・`~`) を事後に「汚染の疑い」として記録するだけであること、凍結前は書き換えられることを明記した。`tests/command-contract-test.sh` で staging・extract・freeze・verify の各ブロックを、偽の `claude` と keys/results に目印を入れた偽リポジトリで実行し、混入・改ざんの各ケースが期待する理由で止まることを確かめる。この PR の中では eval を実行していない (最初の実地実行は #130)
+
+## 0.76.0 (2026-11-24)
+
+- `autonomous-review` のセキュリティ観点が、実装差分を設計書向けの `aidd:security-reviewer` (STRIDE) に渡していたのを改め、実装差分の監査を Claude Code 組み込みの `/security-review` に委ねた (#121)。設計レーンで受けた design-review のセキュリティ指摘も実装監査に数えない。対象差分・照合結果・結果ファイル・未実行の理由を `report.md` に残し、`/security-review` が無い (Codex・Cursor など)・起動に失敗した・結果を読めない・同じ範囲を監査したと確かめられない場合は未実行として `human_required` にする。`aidd:security-reviewer` や自前のレビューで代えない
+- `/security-review` (Claude Code 2.1.330 で確認) はセッションの作業ディレクトリの `origin/HEAD...HEAD` のコミット済み差分だけを監査するため、HEAD がそのラウンドの対象コミットのときだけ実行し、変更ファイルの集合と merge-base の一致で `<base_sha>...<対象コミット>` と照合する。作業ツリー差分だけの run と head がチェックアウトされていない run では未実行とする。結果はラウンドごとに `security-review-round<N>.txt` に残し、重大度は下げずに写し (High→blocker、Medium→major、Low→minor、不明は major 以上)、id は `S<N>-<n>` とする
+- 最後のラウンドの修正後の HEAD が監査済みでなければ再実行し、出力は `security-review-final.txt`、id は `SF-<n>` (`findings` にだけ入れる) とし、confirmed の blocker / major があれば手順8と同じく `failed` にする。`perspective_reviews.executed` は最終 HEAD を監査して照合が一致した実行があるときだけ true にする
+- `/security-review` (2.1.330) はディスク上の秘密情報・文書・非 PII のログを報告対象から除外するため、機微情報の保存の条件 (#110) に該当した差分は、信頼境界の条件にも該当する場合を含めて、除外を残存リスクに記録して `human_required` にする
+- `issue-implement`: 設計時の security-reviewer を実装監査の実行済みに数えない。autonomous-review が未実行とした監査は完了報告に書き、理由が対象の範囲なら、コミットして head をチェックアウトした状態で `/security-review` を自分で実行する。autonomous-review が実行済みと記録した場合は重ねない。機微情報の保存に当たる差分では、通常経路でも自分で実行する経路でも、除外される種類を残存リスクとして書く
+
+## 0.75.0 (2026-11-23)
+
+- `templates/CLAUDE.md.template` の「AI運用」節を書き直した (#127)。以前は、方針を出す前の `/aidd:design-review` とコミット前の `/aidd:test-perspectives` を一律に求めており、issue-implement の直行レーン (設計書を作らない) や実装前に観点を出す手順と食い違っていた。Issue の実装は `/aidd:issue-implement` に案内し、設計書・多段レビューの要否はその「レーン判定」(aidd プラグインの `skills/issue-implement/SKILL.md`) を参照するだけにして、条件は書き写さない。Issue を使わない開発には、次の2つの入口を書いた。設計レーンに当たる変更だけ `/aidd:design-doc` → `/aidd:design-review` にかけること。実装前に `/aidd:test-perspectives <設計書のパス、または変更内容の説明>` で観点を1回出すこと。引数を省くと git diff が対象になり、実装前は差分が空になるため。#2 の決定 (design-review をコミットの必須条件にしない) は維持した
+- `session-start.sh` が毎セッション入れるナッジを、テンプレートに合わせて「設計レーン (issue-implement のレーン判定) の変更は design-doc → design-review、不明点は確認、実装前は設計書か変更内容を test-perspectives に渡す」に改めた。git commit 時の `tool-reminder.sh` の催促文 (コミット前に test-perspectives) はこの PR では変えていない
+- `tests/redundancy-contract-test.sh` に検査を足した。テンプレート全体で、コミット前に `/aidd:*` を求める行と、レーンに触れない `/aidd:design-review` の行を拒否する。参照先の見出しと、テンプレートが名前を出す skill が実在することを確かめる。#2 の文があることを確かめる。`tests/session-start-test.sh` では、新しいナッジの文と「コミット前」が出ないことを確かめる
 
 ## 0.74.0 (2026-11-23)
 
