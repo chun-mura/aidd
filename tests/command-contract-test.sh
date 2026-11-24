@@ -368,6 +368,19 @@ if grep -F -- '更新日 (`ls -l`)' "$asset_audit"; then
   echo "asset-audit must not take memory dates with ls -l (it prints the owner)" >&2
   exit 1
 fi
+# #128: zero candidates with complete evidence is "no problem"; missing evidence is
+# "undetermined" with what to measure next, never a candidate made up to fill the list.
+grep -F -- '「問題なし」「判定不能」「改善候補あり」' "$asset_audit"
+grep -F -- '候補を埋めるために、根拠のない削除・改訂や基準の強化を提案しない' "$asset_audit"
+grep -F -- '次に何を計測すればよいか' "$asset_audit"
+for phrase in '候補が0件なら基準を疑う' '「問題なし」で終えない'; do
+  if grep -F -- "$phrase" "$asset_audit"; then
+    echo "asset-audit must allow zero candidates when the evidence is complete: $phrase" >&2
+    exit 1
+  fi
+done
+grep -F -- '承認されたものだけ変更する' "$asset_audit"
+grep -F -- '提示を終えたら (承認の有無に関わらず) 実施日を記録する' "$asset_audit"
 
 # Every eval case has planted false findings (high/mid only), and every planted ID has
 # its refutation evidence in the key, so the refuter's discrimination can be scored.
