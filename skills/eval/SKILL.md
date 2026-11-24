@@ -425,10 +425,10 @@ refuter について次の目安を付記する。偽指摘の棄却率が高く
 - **この評価は autonomous-review の適格条件を緩めない**。結果から作るのは `rubric.md` の規則による提案だけで、適格条件を変えるかは人が決める
 - 試行は、各ケース・各方式で3試行以上。試行数を減らさない。実測していないモデル名・provider・コストを断定しない
 
-**I1. ケースの確認と凍結 (ユーザー)** — 初めて実行する前と、`tests/eval/impl/` のケース・キー・`rubric.md` か下の固定プロンプトを変えたときに行う。本実行とは別のセッションで行う (凍結の後に本実行のセッションを始める)。
+**I1. ケースの確認と凍結 (ユーザー)** — 初めて実行する前と、`tests/eval/impl/` のケース・キー・`rubric.md`、下の固定プロンプトか I2 の準備のブロックを変えたときに行う。本実行とは別のセッションで行う (凍結の後に本実行のセッションを始める)。
 
 1. 各ケースの `brief.md`・`change.patch`・キーと `rubric.md` をユーザーに示し、確認を AskUserQuestion で求める。直す点があれば直してから示し直す
-2. 承認されたら、次のブロックの `<repo>` を置き換えて実行する。`tests/eval/impl/freeze.sha256` (ケース・キー・`rubric.md` のハッシュと固定プロンプトのハッシュ) を書き、その sha256 を表示する。既にあれば止まる。作り直すのは、ユーザーが新しい版を承認したときだけで、そのときはユーザーが古いファイルを消す
+2. 承認されたら、次のブロックの `<repo>` を置き換えて実行する。`tests/eval/impl/freeze.sha256` (ケース・キー・`rubric.md` のハッシュと、固定プロンプトと I2 の準備のブロック (プロンプトの組み立て方) のハッシュ) を書き、その sha256 を表示する。既にあれば止まる。作り直すのは、ユーザーが新しい版を承認したときだけで、そのときはユーザーが古いファイルを消す
 3. ユーザーが `freeze.sha256` をコミットする。準備 (I2) は、`freeze.sha256` がコミットされていない、今のファイルと一致しない、`tests/eval/impl/` か `skills/eval/SKILL.md` に未コミットの変更がある、のどれかなら止まる。凍結したコミットは結果に書く
 
 ```bash
@@ -446,8 +446,9 @@ for d in "$impl"/cases/*/; do
 done
 if [ -n "$(find "$impl/cases" "$impl/keys" ! -type f ! -type d)" ]; then fail "a symbolic link or a special file under cases/ or keys/"; fi
 prompt=$(sed -n '/^# eval impl prompt$/,/^# end eval impl prompt$/p' "$repo/skills/eval/SKILL.md" | shasum -a 256 | awk '{print $1}')
+staging=$(sed -n '/^# eval impl staging:/,/^# end eval impl staging$/p' "$repo/skills/eval/SKILL.md" | shasum -a 256 | awk '{print $1}')
 (cd "$impl" && { find cases keys rubric.md -type f | LC_ALL=C sort | while read -r f; do shasum -a 256 "$f"; done
-  printf '%s  %s\n' "$prompt" prompt; }) > "$impl/freeze.sha256.tmp"
+  printf '%s  %s\n' "$prompt" prompt "$staging" staging; }) > "$impl/freeze.sha256.tmp"
 mv "$impl/freeze.sha256.tmp" "$impl/freeze.sha256"
 echo "eval impl freeze-cases: freeze.sha256 sha256 $(shasum -a 256 "$impl/freeze.sha256" | awk '{print $1}')"
 # end eval impl freeze-cases
@@ -478,9 +479,10 @@ if [ -e "$in" ] || [ -e "$raw" ]; then fail "input/ or raw/ already exists in $r
 [ -d "$src/before" ] && [ -f "$src/change.patch" ] && [ -f "$src/brief.md" ] && [ -f "$impl/keys/$case.md" ] || fail "no case or key for $case"
 [ -f "$impl/freeze.sha256" ] || fail "the cases are not frozen (no tests/eval/impl/freeze.sha256)"
 prompt_sha=$(sed -n '/^# eval impl prompt$/,/^# end eval impl prompt$/p' "$repo/skills/eval/SKILL.md" | shasum -a 256 | awk '{print $1}')
+staging_sha=$(sed -n '/^# eval impl staging:/,/^# end eval impl staging$/p' "$repo/skills/eval/SKILL.md" | shasum -a 256 | awk '{print $1}')
 (cd "$impl" && { find cases keys rubric.md -type f | LC_ALL=C sort | while read -r f; do shasum -a 256 "$f"; done
-  printf '%s  %s\n' "$prompt_sha" prompt; }) > "$run/manifest"
-cmp -s "$run/manifest" "$impl/freeze.sha256" || fail "the cases, keys, rubric or prompt differ from freeze.sha256"
+  printf '%s  %s\n' "$prompt_sha" prompt "$staging_sha" staging; }) > "$run/manifest"
+cmp -s "$run/manifest" "$impl/freeze.sha256" || fail "the cases, keys, rubric, prompt or staging block differ from freeze.sha256"
 git -C "$repo" ls-files --error-unmatch tests/eval/impl/freeze.sha256 > /dev/null 2>&1 || fail "freeze.sha256 is not committed"
 [ -z "$(git -C "$repo" status --porcelain -- tests/eval/impl skills/eval/SKILL.md)" ] || fail "tests/eval/impl or skills/eval/SKILL.md has uncommitted changes"
 if [ -n "$(find "$src" ! -type f ! -type d)" ]; then fail "the case has a symbolic link or a special file"; fi
@@ -574,7 +576,7 @@ cd "<run>/input" && codex exec --sandbox read-only --skip-git-repo-check --ephem
 - 異種: autonomous-review の主レビューと同じく `--sandbox read-only --skip-git-repo-check -C <スナップショット>` で起動し、stdin を閉じ、`-o` の最終メッセージだけを最終回答とする。起動の確認と時間の上限 (Bash の `timeout` 600000ms) も autonomous-review のとおり。`--json` と `--ephemeral` は記録のために足したもので、レビューの中身には関わらない
 - どちらも利用者の設定をそのまま読み込む。そろえきれない条件 (異種は読み取り専用のコマンドを実行でき、読み取りは作業ディレクトリの外にも届く。同種はコマンドを実行できない) は `rubric.md` のとおり結果に書く
 
-実行のたびに記録を取り出す。同種は手順1b の `# eval extract:` のブロックを、`<case>` を `<case>-claude` に置き換えて使う (`input/plugin/` が無いので、aidd のプラグインの検査はせず、読み込まれたプラグインの一覧だけを記録する)。異種は次のブロックを使う。`raw/<case>-codex-t<trial>.md` に `-o` の最終メッセージを、`.meta.md` に thread_id・終了の状態・トークン・実行したコマンドとその判定を書く。codex の `--json` の形式 (`thread.started`・`turn.completed` の `usage`・`item.completed` の `command_execution`) は codex-cli 0.163.0 で実測していない。取れなかった値は「不明」になるので、成功扱いにも0扱いにもしない。モデル名は event に無ければ「不明」と書く。
+実行のたびに記録を取り出す。同種は手順1b の `# eval extract:` のブロックを、`<case>` を `<case>-claude` に置き換えて使う (`input/plugin/` が無いので、aidd のプラグインの検査はせず、読み込まれたプラグインの一覧だけを記録する)。異種は次のブロックを使う。`raw/<case>-codex-t<trial>.md` に `-o` の最終メッセージを、`.meta.md` に thread_id・終了の状態・トークン・実行したコマンドとその判定を書く。絶対パスは、存在するパスだけを作業ディレクトリの外として数える (`sed` のアドレス `/def f/` のような、パスに見える文字列を数えないため。存在しないパスの読み取りは何も読めていない)。codex の `--json` の形式 (`thread.started`・`turn.completed` の `usage`・`item.completed` の `command_execution`) は codex-cli 0.163.0 で実測していない。取れなかった値は「不明」になるので、成功扱いにも0扱いにもしない。モデル名は event に無ければ「不明」と書く。
 
 ```bash
 # eval codex extract: <run>/local/<case>-codex-t<trial>.{jsonl,last.txt} -> <run>/raw/<case>-codex-t<trial>.md and .meta.md
@@ -656,7 +658,8 @@ for m in events:
             reasons.append("作業ディレクトリの外 (相対・~)")
         for p in re.findall(r"(?:^|[\s'\"=<>])(/[^\s'\";|&<>]+)", text):
             real = os.path.realpath(p).casefold()
-            if not p.startswith(system_dirs) and real != staged.casefold() and not real.startswith(staged.casefold() + os.sep):
+            if os.path.exists(p) and not p.startswith(system_dirs) and real != staged.casefold() \
+                    and not real.startswith(staged.casefold() + os.sep):
                 reasons.append("作業ディレクトリの外 (絶対パス)")
         if reasons:
             refs.append(("・".join(dict.fromkeys(reasons)), text))

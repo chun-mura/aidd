@@ -1,8 +1,8 @@
 diff --git a/app/fetch.py b/app/fetch.py
-index c347fba..578ed0d 100644
+index c347fba..efec932 100644
 --- a/app/fetch.py
 +++ b/app/fetch.py
-@@ -1,5 +1,15 @@
+@@ -1,5 +1,16 @@
  """Read-only GET of a status page through an injected opener."""
 +import time
  
@@ -20,11 +20,12 @@ index c347fba..578ed0d 100644
 +            if attempt == attempts:
 +                raise
 +            sleep(2 ** (attempt - 1))
++    raise AssertionError("unreachable: the last attempt returns or raises")
 diff --git a/tests/test_fetch.py b/tests/test_fetch.py
-index 2d89f48..890e95a 100644
+index 2d89f48..128c72e 100644
 --- a/tests/test_fetch.py
 +++ b/tests/test_fetch.py
-@@ -3,3 +3,50 @@ from app.fetch import fetch
+@@ -3,3 +3,52 @@ from app.fetch import fetch
  
  def test_fetch_returns_the_body():
      assert fetch("http://status.example/", lambda url: b"ok") == b"ok"
@@ -74,4 +75,6 @@ index 2d89f48..890e95a 100644
 +        fetch("u", opener, sleep=lambda s: None)
 +    except ValueError:
 +        pass
++    else:
++        raise AssertionError("expected ValueError")
 +    assert len(calls) == 1

@@ -792,6 +792,7 @@ for case_dir in "$repo_root"/tests/eval/impl/cases/*/; do
   fi
   kind=$(sed -n 's/^種類: //p' "$key")
   danger=$(sed -n 's/^危険な変更: //p' "$key")
+  grep -qE '^変更の種類: [^ ]+$' "$key" || { echo "impl key $name has no change type" >&2; exit 1; }
   seeds=$(grep -cE '^\| [A-Z]+-S[0-9]+ \|' "$key" || true)
   case "$kind" in
     欠陥あり) [ "$seeds" -ge 1 ] ;;
@@ -881,6 +882,7 @@ frozen=$(sed -n 's/^eval impl freeze-cases: freeze.sha256 sha256 //p' "$impl_tmp
 grep -F ' keys/demo.md' "$fi2/freeze.sha256"
 grep -F ' rubric.md' "$fi2/freeze.sha256"
 grep -E '^[0-9a-f]{64}  prompt$' "$fi2/freeze.sha256"
+grep -E '^[0-9a-f]{64}  staging$' "$fi2/freeze.sha256"
 if impl_freeze_cases; then
   echo "eval impl freeze-cases overwrote freeze.sha256" >&2
   exit 1
@@ -933,6 +935,11 @@ sed -i.bak 's/^あなたはコードレビューの担当です。/あなたは�
 impl_stage_fails prompt "$impl_tmp/run-prompt" demo 'differ from freeze.sha256'
 cp "$eval_command" "$fake2/skills/eval/SKILL.md"
 rm -f "$fake2/skills/eval/SKILL.md.bak"
+# The staging block builds the prompt, so changing it also needs a new freeze.
+sed -i.bak 's/^# eval impl staging: copy one frozen case/# eval impl staging: copy one case/' "$fake2/skills/eval/SKILL.md"
+impl_stage_fails staging "$impl_tmp/run-staging" demo 'differ from freeze.sha256'
+cp "$eval_command" "$fake2/skills/eval/SKILL.md"
+rm -f "$fake2/skills/eval/SKILL.md.bak"
 printf '\n' >> "$fake2/skills/eval/SKILL.md"
 impl_stage_fails dirty "$impl_tmp/run-dirty" demo 'has uncommitted changes'
 cp "$eval_command" "$fake2/skills/eval/SKILL.md"
@@ -968,7 +975,8 @@ answer = {"verdict": "changes_requested", "findings": [
     {"id": "R2", "severity": "blocker", "file": "app.py", "line": 99, "title": "t", "claim": "c", "evidence": "e", "verification": "v"},
     {"id": "R3", "severity": "minor", "file": "../outside.py", "line": 1, "title": "t", "claim": "c", "evidence": "e", "verification": "v"}]}
 cmds = ["/bin/zsh -lc 'sed -n 1,5p app.py 2>/dev/null'", "/bin/zsh -lc 'cat " + run + "/input/app.py'",
-        "cat " + repo + "/tests/eval/impl/keys/demo.md", "cat ../raw/prompt-demo.md", "cat /etc/hosts"]
+        "cat " + repo + "/tests/eval/impl/keys/demo.md", "cat ../raw/prompt-demo.md", "cat /etc/hosts",
+        "/bin/zsh -lc \"sed -n '/def f/,/^$/p' app.py\""]
 events = [{"type": "thread.started", "thread_id": "T-1"}]
 events += [{"type": "item.completed", "item": {"type": "command_execution", "command": c}} for c in cmds]
 events += [{"type": "turn.completed", "usage": {"input_tokens": 10, "cached_input_tokens": 4, "output_tokens": 5}}]
@@ -988,8 +996,8 @@ grep -F '参照かファイルの変更 3 件' "$codex_meta"
 grep -F '/tests/eval/impl/keys/demo.md' "$codex_meta" | grep -F '元リポジトリのパス・keys・results'
 grep -F '../raw/prompt-demo.md' "$codex_meta" | grep -F '作業ディレクトリの外 (相対・~)'
 grep -F 'cat /etc/hosts' "$codex_meta" | grep -F '作業ディレクトリの外 (絶対パス)'
-if grep -F '[input]/app.py' "$codex_meta" | grep -qF '作業ディレクトリの外'; then
-  echo "eval codex extract flagged a read inside the snapshot" >&2
+if grep -F -e '[input]/app.py' -e '/def f/' "$codex_meta" | grep -qF '作業ディレクトリの外'; then
+  echo "eval codex extract flagged a read inside the snapshot or a sed address" >&2
   exit 1
 fi
 grep -F '"verdict": "changes_requested"' "$impl_run/raw/demo-codex-t1.md"
