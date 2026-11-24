@@ -79,7 +79,7 @@ grep -F -- '`executed` は、`head_sha_after_fixes` (無ければ `head_sha`) �
 # /security-review excludes what the #110 storage trigger is about, so that trigger alone is not audited.
 grep -F -- 'Claude Code 2.1.330 の `/security-review` は、プロンプトで「Secrets or credentials stored on disk if they are otherwise secured」' "$command_file"
 grep -F -- '(版によって変わりうる)' "$command_file"
-grep -F -- '委譲先がその種類を除外していることを `residual_risks` と `report.md` に記録し、`human_required` とする' "$command_file"
+grep -F -- '委譲先がその種類を除外していることを `residual_risks` と `report.md` に記録し、`human_required` (' "$command_file"
 # The exclusion applies whenever the storage trigger matches, also together with the trust-boundary one.
 grep -F -- '機微情報をファイル・ログ・キャッシュに保存する条件に該当した差分 (信頼境界の条件にも該当する場合を含む) は' "$command_file"
 if grep -F -- '信頼境界を跨ぐことでは該当しない差分' "$command_file"; then
