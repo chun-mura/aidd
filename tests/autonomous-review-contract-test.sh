@@ -236,3 +236,4 @@ if printf '%s\n' "$frontmatter" | grep -F -- 'disable-model-invocation'; then
 fi
 printf '%s\n' "$frontmatter" | grep -F -- "auto-merge eligibility"
 grep -F -- 'allow_implicit_invocation: false' "$repo_root/skills/autonomous-review/agents/openai.yaml"
+grep -F -- '該当する観点別レビューが成立していないので `human_required_reason` は `review_incomplete`) とする' "$command_file"
