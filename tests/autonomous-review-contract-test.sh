@@ -79,7 +79,7 @@ grep -F -- '`executed` は、`head_sha_after_fixes` (無ければ `head_sha`) �
 # /security-review excludes what the #110 storage trigger is about, so that trigger alone is not audited.
 grep -F -- 'Claude Code 2.1.330 の `/security-review` は、プロンプトで「Secrets or credentials stored on disk if they are otherwise secured」' "$command_file"
 grep -F -- '(版によって変わりうる)' "$command_file"
-grep -F -- '委譲先がその種類を除外していることを `residual_risks` と `report.md` に記録し、`human_required` とする' "$command_file"
+grep -F -- '委譲先がその種類を除外していることを `residual_risks` と `report.md` に記録し、`human_required` (' "$command_file"
 # The exclusion applies whenever the storage trigger matches, also together with the trust-boundary one.
 grep -F -- '機微情報をファイル・ログ・キャッシュに保存する条件に該当した差分 (信頼境界の条件にも該当する場合を含む) は' "$command_file"
 if grep -F -- '信頼境界を跨ぐことでは該当しない差分' "$command_file"; then
@@ -136,7 +136,27 @@ grep -F -- 'Bash ツールの `timeout` パラメータ' "$command_file"
 grep -F -- 'codex login status < /dev/null' "$command_file"
 grep -F -- '--output-last-message' "$command_file"
 grep -F -- '`proceeding` を含む警告は失敗ではない' "$command_file"
-grep -F -- '現行は `4`' "$command_file"
+grep -F -- '現行は `5`' "$command_file"
+# Evidence bound to the reviewed diff and to a finished review (#122); tool-reminder.sh reads it.
+grep -F -- '| `human_required_reason` | string / null | 必須 |' "$command_file"
+grep -F -- '`review_incomplete` はレビューが成立していない' "$command_file"
+grep -F -- '`human_judgment` はそれらをすべて終えたうえで人が最終判断する' "$command_file"
+grep -F -- '高リスクによる `human_required` でも、レビューが完了した事実は `human_judgment` で表せる' "$command_file"
+grep -F -- '| `local_diff` | object / null | 必須 |' "$command_file"
+grep -F -- '"staged_diff_hash": string, "unstaged_diff_hash": string' "$command_file"
+grep -F -- 'git hash-object <ファイル>' "$command_file"
+grep -F -- '差分を識別できないので `human_required` (`human_required_reason` は `review_incomplete`) とする' "$command_file"
+grep -F -- '### PR 前の確認が数える証跡' "$command_file"
+grep -F -- '`4` 以下の証跡は、完了を表すキーを持たないので数えない' "$command_file"
+grep -F -- 'ローカルの `<base>` の先端は `origin/<base>` に含まれる (push していないコミットが無い) ときだけ数える' "$command_file"
+grep -F -- '`origin/<base>` が無ければ、ローカルの先端だけを数える' "$command_file"
+grep -F -- '`human_required_reason` のキーが無いものは数えない' "$command_file"
+grep -F -- '最後のラウンドで保存したもの (`git hash-object` で同じく求める) と1つでも違えば' "$command_file"
+grep -F -- 'local-round<N>-staged-diff.txt' "$command_file"
+grep -F -- '`.aidd/autonomous-review/` (証跡) と `.aidd/learnings/` (台帳) だけを変えるなら一致とみなす' "$command_file"
+grep -F -- 'fetch されずに古い場合は検出できない' "$command_file"
+grep -F -- '既知の非対称' "$command_file"
+grep -F -- '`status` / `final_decision` / `human_required_reason` の値域を検証し' "$command_file"
 # Findings ledger (#108): default off, checked writes only, abstract types, human approval.
 grep -F -- 'git config --get aidd.learnings' "$command_file"
 grep -F -- '`../../scripts/learnings.py` を解決した**絶対パス**' "$command_file"
@@ -216,3 +236,44 @@ if printf '%s\n' "$frontmatter" | grep -F -- 'disable-model-invocation'; then
 fi
 printf '%s\n' "$frontmatter" | grep -F -- "auto-merge eligibility"
 grep -F -- 'allow_implicit_invocation: false' "$repo_root/skills/autonomous-review/agents/openai.yaml"
+grep -F -- '該当する観点別レビューが成立していないので `human_required_reason` は `review_incomplete`) とする' "$command_file"
+# Interrupted runs and re-runs (#125): never resume or reuse, record temporary assets before
+# creating them, and remove only what this run recorded creating.
+grep -F -- '### 中断と再実行' "$command_file"
+grep -F -- '**中断した run を再開・上書き・削除せず、新しい実行IDの run で最初からやり直す**' "$command_file"
+grep -F -- '作成する**前に**パスを `state.json`' "$command_file"
+grep -F -- '作成前の書き込みに失敗した場合は作成せず `failed` とする' "$command_file"
+grep -F -- '| `reviewing` |' "$command_file"
+grep -F -- '| `gating` |' "$command_file"
+grep -F -- '#### 修正後に記録されなかった変更' "$command_file"
+grep -F -- '中断した run の `head_sha` / `head_sha_after_fixes` を新しい run の `head_sha` に使わない' "$command_file"
+grep -F -- 'この skill はそれをコミット・破棄・退避しない' "$command_file"
+grep -F -- '同じ SHA を対象にしたものを含む) の `approved`・指摘の判定・`perspective_reviews`・`quality_gates`・`local_diff` を自分の結果として使わない' "$command_file"
+grep -F -- '中断した run の `state.json` は書き換えない' "$command_file"
+grep -F -- '削除してよいのは、この run の `state.json` に作成を記録した (`created: true`) 一時worktree・スナップショットだけ' "$command_file"
+grep -F -- '確かめられなければ削除せず `removed: false` のまま `residual_risks` と `report.md` に残す' "$command_file"
+grep -F -- '作成した記録をこの run が持たないので削除しない' "$command_file"
+grep -F -- '実行中の別セッションの資産かもしれない' "$command_file"
+# Review follow-ups (#125): read only the listed keys and check their shape, narrow detection so
+# an old run does not ask on every run, create temporary assets exclusively, and catch fixes an
+# interrupted working-tree run committed.
+grep -F -- 'ほかの run の `findings`・`rounds` の判定・`quality_gates`・レビュー担当の出力は読まない' "$command_file"
+grep -F -- 'SHA は16進の完全な値 (40 または 64 文字)、パスは4096文字以下の絶対パス、ブランチは `git check-ref-format --branch <branch>` が成功するもの' "$command_file"
+grep -F -- '形が外れる `state.json` はファイル名だけを列挙する。列挙する値は `report.md` に引用として書き' "$command_file"
+grep -F -- 'この run と同じ worktree にあり、`base` / `head` がこの run と同じ' "$command_file"
+grep -F -- '`git merge-base --is-ancestor <SHA> <対象のコミット>` が成功する' "$command_file"
+grep -F -- 'その実行IDディレクトリを手で削除してよいこと' "$command_file"
+grep -F -- '`mkdir` (`-p` なし) で新しく作り、作れたときだけ `created: true` にする。パスがすでにある場合は作成の失敗として扱い' "$command_file"
+grep -F -- '`path` と `created` は作成前に記録する。`created: false` は未作成または作成されたか不明' "$command_file"
+grep -F -- '中断した可能性がある run に `base` が `null` のものがあれば利用者に知らせ、AskUserQuestion で「`--base` を付けたブランチ比較に切り替える」' "$command_file"
+grep -F -- '止める場合と回答が無い場合は `human_required` (`human_required_reason` は `review_incomplete`) として終了する' "$command_file"
+grep -F -- '作業ディレクトリの HEAD がこの run の対象のコミット (head) を指し、作業ツリーに未コミット・ステージ済みの差分がある場合' "$command_file"
+grep -F -- '「この run を止める」かを選ばせる。回答が無ければ `human_required` (`human_required_reason` は `review_incomplete`) として終了する' "$command_file"
+grep -F -- '`git status --porcelain -- .aidd/learnings/` で列挙して `report.md` に書く' "$command_file"
+grep -F -- 'この run で利用者が改めて示した issue 番号だけ' "$command_file"
+grep -F -- '`git worktree list --porcelain` にそのパスが detached で載っていることを確かめる' "$command_file"
+grep -F -- '両方を `realpath` で正規化してから比べる' "$command_file"
+if grep -F -- '| 最終判定を書いたあと (台帳の手順の途中) |' "$command_file"; then
+  echo "a run stopped after its final decision is not detected at start; use the git status check" >&2
+  exit 1
+fi

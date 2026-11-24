@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.83.0 (2026-11-24)
+
+- `tool-reminder.sh`: `git commit` 時の test-perspectives の催促が「コミット前に実行」を求めていたのを、実装前に観点を出す方針 (#127 のテンプレート・session-start のナッジ) に合わせた (#166)。直近6時間に保存した観点が無ければ「この変更の観点を出していなければ、残りの実装の前に `/aidd:test-perspectives <設計書か変更内容>` で出し、must を先にテストにする。この変更のために出し済み、docs だけ・軽微な変更なら再実行しない。実装が済んでいれば後追いで作らない」と伝える。発火条件 (6時間以内の観点ファイルの有無、docs だけのスキップ) は、状態ファイルを増やさないため変えていない。6時間を超える実装では同じ文が続けて出るが、再実行は求めない。`retro` の skill の該当する言い回しも合わせた
+
+## 0.82.0 (2026-11-24)
+
+- `autonomous-review`: 中断した run (`started` / `reviewing` / `gating`) を検出し、安全にやり直す手順を定めた (#125)。中断した run は別のセッションで実行中の run と見分けられないので、再開・上書き・削除せず、新しい実行IDの run で最初からやり直す。ほかの run の `approved`・判定・観点別レビュー・品質ゲート・`local_diff` は、同じ SHA でも流用しない。検出は同じ worktree・同じ base/head の run か、head がこの run の対象の祖先である run に限り、ほかの run の state.json からは実行ID・status・base/head・SHA・一時資産のパスだけを形を確かめて読み (findings・判定・ゲート・レビュー担当の出力は読まない)、片付け方を `report.md` で案内する。作業ツリー差分の run で中断 run があれば、そのコミット済みの修正を見るため `--base` への切り替えか停止を選ばせる
+- 一時worktree・スナップショットは、作成前にパスを `state.json` に記録し、`mkdir` (`-p` なし) で新しく作れたときだけ `created: true` にする (既にあれば作成の失敗)。後片付けは、この run が `created: true` と記録し、`realpath` で正規化したパスと `git worktree list` で確かめられた資産だけに限り、確かめられない資産と実行IDディレクトリ・ほかの run の資産は削除せず報告する。`state.json` のスキーマと hook は変えていない
+
+## 0.81.0 (2026-11-24)
+
+- `doctor`: `--hooks` を足し、hook の実動作とハーネスごとの保護範囲を確かめられるようにした (#123)。以前の doctor は hook スクリプトの実行ビットと状態 JSON しか見ず、hook が判定を返すか、ハーネスが hook を実際に呼ぶかを確かめる項目が無かった。項目10は同梱の fixture (codex・cursor は実測の記録、claude は文書に合わせた手書き) を、使い捨ての HOME・状態ディレクトリと最小の環境変数で hook スクリプトに流し、拒否・通過・確認・記録 (`usage.json`・`adapter-skips.json`) をハーネス別に判定する。fixture が無ければ WARN で OK にしない。項目11は各ハーネスの CLI を `--version` だけ実行して実測版と比べ、doctor を実行しているハーネスでだけ、リポジトリ外の一時ディレクトリへの `git add -A` と `.env.local` の作成が aidd の文言で止まるかで実配線を確かめる。fixture の再生が OK でも実配線は OK にせず、確かめていないハーネスや `AIDD_DISABLE_*` で無効にした確認は「未確認」とし、保護される操作と残る限界をハーネス別に出す。fixture の一部欠落は WARN、adapter が素通りした pass は FAIL、CLI の版は完全一致で照合する。claude の fixture は記録ではなく手書きで、実際の入力とは照合していない。設定の変更・token の読み出し・通信はしない
+
+## 0.80.0 (2026-11-24)
+
+- `gh pr create` 前のレビュー証跡の確認が、同じブランチ名というだけで、古い SHA・未完了・失敗・型が不正な `state.json` でも警告を消していたのを直した (#122)。完了とみなすのは、`schema_version` 5 以上で最終判定を書き終え、`auto_merge_eligible` か、レビューとゲートを終えたうえで人の判断を求める `human_required` (`human_required_reason: human_judgment`) で、`base_sha` が今の基点ブランチの先端 (`origin/<base>`。ローカルは origin に含まれるときだけ) と一致し、レビューした最終コミットが PR の head と一致するか、その後のコミットが `.aidd/autonomous-review/` と `.aidd/learnings/` だけを変える (`--no-renames`・`--ignore-submodules=none`・`--no-relative` で判定し、mode だけの変更も数える) 証跡だけにした。別の worktree の証跡も数える。証跡の判定で例外が起きても、確認できなかったと警告し、同じコマンドのほかの拒否・通知を消さない。base...head の差分を取れない (merge base が無い・shallow) ときは黙らず確認できなかったと警告する。変更ファイルの一覧は共通の取り出し (`-z --no-renames --ignore-submodules=none --no-relative`) にし、コードを `docs/` へ移す変更を docs だけとみなさない (test-perspectives の docs だけの判定も同じ)。worktree のパスと glob をエスケープし、非 ASCII 名の証跡も読む。autonomous-review のブランチ差分にも `--no-relative`・`--ignore-submodules=none` を付けた
+- `autonomous-review`: `state.json` を `schema_version` 5 にし、`human_required_reason` (`review_incomplete` = レビュー・観点別レビュー・必須ゲートの未実施・未完了・失敗 / `human_judgment` = それらを終えたうえで高リスク・自己レビュー・未追跡の deferred のため人が判断) と、作業ツリー差分を識別する `local_diff` (HEAD と staged・unstaged の差分のハッシュ。最後のラウンドと最終判定の直前で一致しなければ `review_incomplete`) を足した。#121 の「委譲先が除外する種類」で `human_required` になる run は、観点別レビューが成立していないので `review_incomplete` に分類する。v4 以前の証跡は未確認として警告する (再実行が必要)。main が進むと再レビューが必要になる
+
 ## 0.79.0 (2026-11-24)
 
 - `asset-audit`: 結論を基準ごとに「問題なし」「判定不能」「改善候補あり」に分けた (#128)。以前は「候補が0件なら基準を疑う、問題なしで終えない」としていたため、正常な資産にも問題を探す圧力になり、根拠のある候補ゼロと観測不足を区別できなかった。確かめた範囲 (対象の件数、読んだ記録やコマンドの範囲) を示せて候補が0件なら問題なしで終え、範囲を示せない基準は判定不能とする。根拠のない削除・改訂の候補や基準の強化を作らず、判定不能の対象には観測できなかったことと次に計測すべきこと (ラッパーで包む、記録開始を置いて期間を待つ、履歴を取得する、台帳を有効にする) だけを示す。候補がある基準でも判定不能の対象があれば併記する。全体の結論は候補が1件でもあれば改善候補あり、無く判定不能があれば判定不能、どちらも無ければ問題なしとし、候補が0件なら手順4の確認を飛ばして手順5へ進む。承認前に変更しないこと、承認の有無に関わらず実施日を記録すること、auto memory の棚卸し (#106・#145) は変えていない
