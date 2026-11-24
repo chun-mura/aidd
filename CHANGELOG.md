@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.75.0 (2026-11-23)
+
+- `templates/CLAUDE.md.template` の「AI運用」節を書き直した (#127)。以前は、方針を出す前の `/aidd:design-review` とコミット前の `/aidd:test-perspectives` を一律に求めており、issue-implement の直行レーン (設計書を作らない) や実装前に観点を出す手順と食い違っていた。Issue の実装は `/aidd:issue-implement` に案内し、設計書・多段レビューの要否はその「レーン判定」(aidd プラグインの `skills/issue-implement/SKILL.md`) を参照するだけにして、条件は書き写さない。Issue を使わない開発には、次の2つの入口を書いた。設計レーンに当たる変更だけ `/aidd:design-doc` → `/aidd:design-review` にかけること。実装前に `/aidd:test-perspectives <設計書のパス、または変更内容の説明>` で観点を1回出すこと。引数を省くと git diff が対象になり、実装前は差分が空になるため。#2 の決定 (design-review をコミットの必須条件にしない) は維持した
+- `session-start.sh` が毎セッション入れるナッジを、テンプレートに合わせて「設計レーン (issue-implement のレーン判定) の変更は design-doc → design-review、不明点は確認、実装前は設計書か変更内容を test-perspectives に渡す」に改めた。git commit 時の `tool-reminder.sh` の催促文 (コミット前に test-perspectives) はこの PR では変えていない
+- `tests/redundancy-contract-test.sh` に検査を足した。テンプレート全体で、コミット前に `/aidd:*` を求める行と、レーンに触れない `/aidd:design-review` の行を拒否する。参照先の見出しと、テンプレートが名前を出す skill が実在することを確かめる。#2 の文があることを確かめる。`tests/session-start-test.sh` では、新しいナッジの文と「コミット前」が出ないことを確かめる
+
 ## 0.74.0 (2026-11-23)
 
 - `harness-adapter.sh` が子の非0終了とシグナル終了を区別して記録するようにした。起動失敗も含め `/aidd:doctor` で理由と件数を確認でき、標準エラー・コマンド本文・機密情報は記録しない (#119)。
