@@ -190,10 +190,14 @@ This is the most structurally complex asset — read the file itself before modi
 
 `/aidd:eval` measures the design-review pipeline's own precision by running it (always at `--depth=deep`, no
 shortcuts) against seeded-defect design docs in `tests/eval/cases/*.md` and grading against
-`tests/eval/keys/*.md`. Contamination guard: **keys must not be read until every case's review has completed** —
-reading them early would let the scoring pass (the main loop) leak into how it dispatches/reviews. The metrics
+`tests/eval/keys/*.md`. Contamination guard: each case and trial runs in a new executor session (`claude -p`)
+whose working directory is a staged temp `input/` holding only the case and a plugin copy — no keys, results, git
+history or planted file (planted rows are appended to the fixed prompt under neutral M IDs). The main loop freezes
+the raw output and the stream-json, records the printed hash of SHA256SUMS, and reads `tests/eval/keys/` only after
+verifying it. This separates input and context, not read permissions: absolute-path reads outside the working
+directory and arbitrary Bash commands are not blocked, and the files can be changed before the freeze. The metrics
 are defined in the table in `skills/eval/SKILL.md` (step 3); results are written to
-`tests/eval/results/YYYY-MM-DD.md` and compared against the most recent prior result. **Operating rule 6**: any release that changes `skills/design-review/SKILL.md`, `agents/refuter.md`,
+`tests/eval/results/YYYY-MM-DD.md`, with the raw output under `tests/eval/results/<run-id>/`, and compared against the most recent prior result. **Operating rule 6**: any release that changes `skills/design-review/SKILL.md`, `agents/refuter.md`,
 `agents/design-arbiter.md`, `agents/security-reviewer.md`, or `agents/reviewer.md` must run `/aidd:eval` before
 release and keep the result file — this is
 the only regression signal for pipeline prompt changes, since there's no automated scoring in CI.
