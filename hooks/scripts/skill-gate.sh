@@ -13,7 +13,7 @@ ASK_REASON="autonomous-review の実行にはユーザーの許可が必要で�
 DENY_REASON="autonomous-review はモデルからは起動できません。ユーザーに /autonomous-review を手で実行するよう依頼してください。"
 
 PY_CODE=$(cat <<'PYEOF'
-import json, os, sys, urllib.parse
+import json, os, re, sys, urllib.parse
 
 plugin_root, ask_reason, deny_reason = sys.argv[1:4]
 
@@ -44,10 +44,13 @@ elif event.get("tool_name") == "Read":
     own = os.path.join(plugin_root, "skills", "autonomous-review", "SKILL.md")
     if isinstance(path, str) and path:
         if path.startswith("file://"):
-            # Cursor opens a file URI as the percent-decoded path it names, before ~ and cwd.
-            parts = urllib.parse.urlsplit(path)
-            if parts.netloc.lower() in ("", "localhost"):
-                path = urllib.parse.unquote(parts.path)
+            # Cursor opens a file URI as the path it names (Node fileURLToPath, WHATWG URL rules), before ~
+            # and cwd. Follow those rules erring toward the SKILL.md: drop tabs and newlines and trailing
+            # controls and spaces, read "\\" as "/", ignore the host, query and fragment, and percent-decode.
+            rest = re.sub(r"[\t\n\r]", "", path).rstrip("".join(map(chr, range(0x21))))
+            rest = rest[len("file://"):].replace("\\", "/")
+            if "/" in rest:
+                path = urllib.parse.unquote(re.split(r"[?#]", rest[rest.index("/"):], maxsplit=1)[0])
         path = os.path.expanduser(path)
         cwd = event.get("cwd")
         if isinstance(cwd, str) and cwd:
