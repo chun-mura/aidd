@@ -30,7 +30,8 @@ run_hook PreToolUse 'git commit -m test' | grep -F '/aidd:test-perspectives'
 nudge=$(run_hook PreToolUse 'git commit -m test')
 if printf '%s' "$nudge" | grep -Fqi 'before committing'; then exit 1; fi
 printf '%s' "$nudge" | grep -F 'before the remaining implementation'
-printf '%s' "$nudge" | grep -F 'do not run it again'
+printf '%s' "$nudge" | grep -F 'already produced for this change'
+printf '%s' "$nudge" | grep -F 'do not create them retroactively'
 run_hook PreToolUse 'gh issue create --title test' | grep -F 'タイトルと本文は日本語'
 run_hook PostToolUse 'git push origin main' | grep -F 'open PR'
 

@@ -19,7 +19,7 @@ aidd プラグインの運用を振り返り、資産の追加・削除・見直
 
 ユーザーに以下を尋ねる:
 - session-start の AskUserQuestion 確認指示が質問過多になっていないか
-- `tool-reminder` (コミット前の test-perspectives 催促など) が誤爆・スルーされていないか
+- `tool-reminder` (コミット時に、実装前に出した test-perspectives の観点が無ければ出すよう促す通知など) が誤爆・スルーされていないか
 - `model-selection` と `review-loop` が期待した場面で発火しているか、逆に無関係な場面で出てきていないか
 
 摩擦が報告されたら、hook 文言の調整案 or 廃止案を提示する。
