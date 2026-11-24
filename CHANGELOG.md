@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.81.0 (2026-11-24)
+
+- `doctor`: `--hooks` を足し、hook の実動作とハーネスごとの保護範囲を確かめられるようにした (#123)。以前の doctor は hook スクリプトの実行ビットと状態 JSON しか見ず、hook が判定を返すか、ハーネスが hook を実際に呼ぶかを確かめる項目が無かった。項目10は同梱の fixture (codex・cursor は実測の記録、claude は文書に合わせた手書き) を、使い捨ての HOME・状態ディレクトリと最小の環境変数で hook スクリプトに流し、拒否・通過・確認・記録 (`usage.json`・`adapter-skips.json`) をハーネス別に判定する。fixture が無ければ WARN で OK にしない。項目11は各ハーネスの CLI を `--version` だけ実行して実測版と比べ、doctor を実行しているハーネスでだけ、リポジトリ外の一時ディレクトリへの `git add -A` と `.env.local` の作成が aidd の文言で止まるかで実配線を確かめる。fixture の再生が OK でも実配線は OK にせず、確かめていないハーネスや `AIDD_DISABLE_*` で無効にした確認は「未確認」とし、保護される操作と残る限界をハーネス別に出す。fixture の一部欠落は WARN、adapter が素通りした pass は FAIL、CLI の版は完全一致で照合する。claude の fixture は記録ではなく手書きで、実際の入力とは照合していない。設定の変更・token の読み出し・通信はしない
+
 ## 0.80.0 (2026-11-24)
 
 - `gh pr create` 前のレビュー証跡の確認が、同じブランチ名というだけで、古い SHA・未完了・失敗・型が不正な `state.json` でも警告を消していたのを直した (#122)。完了とみなすのは、`schema_version` 5 以上で最終判定を書き終え、`auto_merge_eligible` か、レビューとゲートを終えたうえで人の判断を求める `human_required` (`human_required_reason: human_judgment`) で、`base_sha` が今の基点ブランチの先端 (`origin/<base>`。ローカルは origin に含まれるときだけ) と一致し、レビューした最終コミットが PR の head と一致するか、その後のコミットが `.aidd/autonomous-review/` と `.aidd/learnings/` だけを変える (`--no-renames`・`--ignore-submodules=none`・`--no-relative` で判定し、mode だけの変更も数える) 証跡だけにした。別の worktree の証跡も数える。証跡の判定で例外が起きても、確認できなかったと警告し、同じコマンドのほかの拒否・通知を消さない。base...head の差分を取れない (merge base が無い・shallow) ときは黙らず確認できなかったと警告する。変更ファイルの一覧は共通の取り出し (`-z --no-renames --ignore-submodules=none --no-relative`) にし、コードを `docs/` へ移す変更を docs だけとみなさない (test-perspectives の docs だけの判定も同じ)。worktree のパスと glob をエスケープし、非 ASCII 名の証跡も読む。autonomous-review のブランチ差分にも `--no-relative`・`--ignore-submodules=none` を付けた
