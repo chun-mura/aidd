@@ -4,7 +4,7 @@
 
 - Cursor の skill gate の残課題を直した (#173)。Cursor 3.31.11 / cursor-agent 2026.10.22 のバンドルで、Read の相対パスは workspace (root が1つならその root、複数で親が同じならその親、無ければプロセスの cwd) を基点に `path.resolve` されることを確かめた。gate は `file://` の変換前の文字列だけでなく相対パス全般を、`/` と cwd のすべての祖先を基点に照合し、基点に依存せず SKILL.md を指せば拒否する (誤って拒否するのは SKILL.md を名指しするパスに限る)。`~` は Cursor と同じく `~`・`~/`・`~\` のときだけ展開し、`~user` は展開しない。workspace の root が無い Read でも gate を動かす (cwd を `/` にする。ほかの子の `no_cwd` の扱いは変えない)
 - `file_path` に孤立サロゲートがあると、adapter が子に渡す入力を UTF-8 にできず (`bad_output`)、gate を呼ばずに Read を通していたのを直した。UTF-8 にできないときだけエスケープした JSON で渡し、gate は U+FFFD として判定する。これは skill-gate 以外の子にも効き、たとえば tool-reminder の拒否も失わなくなる。#119 の「異常終了時は有効な拒否 JSON だけを保持する」と一般的な fail-open は変えていない
-- 末尾が `/`・`/.` のパスを adapter の早期判定で python に回し、macOS の stat の揺れで契約テストがまれに失敗していたのを直した。既知の限界: 複数の root の親が異なり、プロセスの cwd が `/` でも cwd の祖先でもないときは通る。Windows では未計測
+- 末尾が `/`・`/.` のパスを adapter の早期判定で python に回し、macOS の stat の揺れで契約テストがまれに失敗していたのを直した。autonomous-review (Codex) の指摘で、cwd の孤立サロゲートも U+FFFD として扱うようにした。既知の限界: 複数の root の親が異なるときと root も `CURSOR_PROJECT_DIR` も無いときに、プロセスの cwd が `/` でも cwd の祖先でもなければ通る。Windows では未計測。孤立サロゲートの入力で子スクリプトが出力に失敗したときに `adapter-skips.json` に数えられない件は #181
 
 ## 0.83.0 (2026-11-24)
 
