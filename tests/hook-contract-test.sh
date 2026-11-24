@@ -1354,7 +1354,8 @@ for reverse in (False, True):
         paths.reverse()
     out, counts, _ = invoke(f"batch-unencodable-{reverse}", paths=paths)
     assert_deny(out)
-    assert counts == {"bad_output": 1, "script_nonzero_exit": 1}, counts
+    # A lone surrogate (#173) reaches the child escaped instead of failing the call.
+    assert counts == {"script_nonzero_exit": 1}, counts
 out, counts, _ = invoke("batch-empty-path", paths=["ok:deny", "", "exit42:empty"])
 assert_deny(out)
 assert counts == {"unparsed_patch": 1, "script_nonzero_exit": 1}, counts
@@ -1787,7 +1788,7 @@ text = json.dumps(p, indent=2 if mode == "indent" else None)
 if mode == "escape":
     text = text.replace("/", "\\/").replace("autonomous-review", "\\u0061utonomous\\u002dreview")
     text = text.replace("alias", "\\u0061lias")
-open(sys.argv[2], "w").write(text)
+open(sys.argv[2], "w").write(text.replace("<lone>", "\\ud800"))  # a lone surrogate, as JSON.stringify writes it
 PY
 }
 adapter_gate() { AIDD_TEST_STATE_DIR="$gate_dir" bash "$adapter" skill-gate.sh < "$adapter_in"; }
@@ -1871,6 +1872,20 @@ cursor_read "file:///%2f?/../..$repo_root/skills/autonomous-review/SKILL.md" /wo
 cursor_read "file://evil/?/../../..$repo_root/skills/autonomous-review/SKILL.md" /work; adapter_gate | expect_cursor_deny
 cursor_read "file:///%2f?/../../../autonomous-review/SKILL.md" "$repo_root/skills/design-review"; adapter_gate | expect_cursor_deny
 cursor_read "file:///%2f?/../..$alias_dir/other.md" /work; expect_adapter_pass
+# Issue #173 S2: Cursor resolves a relative Read from its workspace (one root: the hook's cwd), the roots'
+# common parent (several roots), or its own process cwd (no root, a GUI app's is usually /). The Read
+# event carries no cwd, so a relative path naming the SKILL.md from / or any ancestor of cwd is denied.
+cursor_read autonomous-review/SKILL.md "$repo_root/skills/design-review"; adapter_gate | expect_cursor_deny
+cursor_read "${repo_root#/}/skills/autonomous-review/SKILL.md" /work; adapter_gate | expect_cursor_deny
+cursor_read "../../..$repo_root/skills/autonomous-review/SKILL.md" /work; adapter_gate | expect_cursor_deny
+cursor_read design-review/SKILL.md "$repo_root/skills/design-review"; expect_adapter_pass
+cursor_read "${repo_root#/}/skills/design-review/SKILL.md" /work; expect_adapter_pass
+# S2-2: a lone surrogate reaches the gate, which reads it as Node does (U+FFFD); unrelated Reads still pass.
+cursor_read "$repo_root/skills/x<lone>/../autonomous-review/SKILL.md"; adapter_gate | expect_cursor_deny
+ln -s "$repo_root/skills/autonomous-review/SKILL.md" "$alias_dir/alias"$'\xef\xbf\xbd'".md"
+cursor_read "$alias_dir/alias<lone>.md"; adapter_gate | expect_cursor_deny
+cursor_read "$repo_root/skills/autonomous-review/SKILL.md<lone>"; expect_adapter_pass
+cursor_read "$alias_dir/other<lone>.md"; expect_adapter_pass
 cursor_read "$alias_dir/nonexist/../other.md"; expect_adapter_pass
 cursor_read "$alias_dir/nonexist.md"; expect_adapter_pass
 cursor_read "$repo_root/skills/design-review/../design-review/SKILL.md"; expect_adapter_pass

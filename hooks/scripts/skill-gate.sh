@@ -43,6 +43,8 @@ elif event.get("tool_name") == "Read":
     path = tool_input.get("file_path")
     own = os.path.join(plugin_root, "skills", "autonomous-review", "SKILL.md")
     if isinstance(path, str) and path:
+        # Node opens a lone surrogate (JSON.stringify sends it as \ud800) as U+FFFD, so read it the same way.
+        path = re.sub("[\ud800-\udfff]", "\ufffd", path)
         candidates = [path]
         if path.startswith("file://"):
             # Cursor opens a file URI as the path it names (Node fileURLToPath, WHATWG URL rules), and the
@@ -69,11 +71,14 @@ elif event.get("tool_name") == "Read":
                 reply("deny", deny_reason)
                 break
         else:
-            if path.startswith("file://"):
-                # Cursor resolves the raw text from a base we cannot see (a GUI app's cwd is usually /),
-                # so try every base it could climb to: / and each ancestor of cwd. Drop the leading ..
-                # (they only pick the base) and refuse when the rest names the SKILL.md from any of them.
-                rest = os.path.normpath(path).split("/")
+            raw = os.path.expanduser(path)
+            if not os.path.isabs(raw):
+                # Cursor resolves a relative path (and a file URI it cannot convert) from its workspace when it
+                # has one root, the roots' common parent when they share one, and else its own process cwd (a GUI
+                # app's is usually /). The Read event has no cwd; the adapter fills in the first root. So try every
+                # base Cursor could use: / and each ancestor of cwd. Drop the leading .. (they only pick the base)
+                # and refuse when the rest names the SKILL.md from any of them.
+                rest = os.path.normpath(raw).split("/")
                 while rest and rest[0] == "..":
                     rest.pop(0)
                 rest = "/".join(rest)
