@@ -1843,6 +1843,12 @@ up=$(printf '/..%.0s' $(seq 40))
 for bad in '/%2f?' 'evil/?' '/%ff#'; do
   cursor_read "file://$bad$up$repo_root/skills/autonomous-review/SKILL.md" /work; adapter_gate | expect_cursor_deny
 done
+# Cursor's base for that raw text is unknown (a GUI app's cwd is usually /): just enough .. to reach /, or
+# an ancestor of the event cwd, from the raw text's own components still names the SKILL.md.
+cursor_read "file:///%2f?/../..$repo_root/skills/autonomous-review/SKILL.md" /work; adapter_gate | expect_cursor_deny
+cursor_read "file://evil/?/../../..$repo_root/skills/autonomous-review/SKILL.md" /work; adapter_gate | expect_cursor_deny
+cursor_read "file:///%2f?/../../../autonomous-review/SKILL.md" "$repo_root/skills/design-review"; adapter_gate | expect_cursor_deny
+cursor_read "file:///%2f?/../..$alias_dir/other.md" /work; expect_adapter_pass
 cursor_read "$alias_dir/nonexist/../other.md"; expect_adapter_pass
 cursor_read "$alias_dir/nonexist.md"; expect_adapter_pass
 cursor_read "$repo_root/skills/design-review/../design-review/SKILL.md"; expect_adapter_pass

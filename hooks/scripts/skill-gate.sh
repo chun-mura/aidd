@@ -68,6 +68,23 @@ elif event.get("tool_name") == "Read":
             if same(candidate) or same(os.path.normpath(candidate)):
                 reply("deny", deny_reason)
                 break
+        else:
+            if path.startswith("file://"):
+                # Cursor resolves the raw text from a base we cannot see (a GUI app's cwd is usually /),
+                # so try every base it could climb to: / and each ancestor of cwd. Drop the leading ..
+                # (they only pick the base) and refuse when the rest names the SKILL.md from any of them.
+                rest = os.path.normpath(path).split("/")
+                while rest and rest[0] == "..":
+                    rest.pop(0)
+                rest = "/".join(rest)
+                bases = ["/"]
+                if isinstance(cwd, str) and os.path.isabs(cwd):
+                    base = os.path.normpath(cwd)
+                    while base not in bases:
+                        bases.append(base)
+                        base = os.path.dirname(base)
+                if any(same(os.path.join(base, rest)) for base in bases):
+                    reply("deny", deny_reason)
 PYEOF
 )
 
