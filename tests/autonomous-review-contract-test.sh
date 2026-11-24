@@ -79,7 +79,7 @@ grep -F -- '`executed` は、`head_sha_after_fixes` (無ければ `head_sha`) �
 # /security-review excludes what the #110 storage trigger is about, so that trigger alone is not audited.
 grep -F -- 'Claude Code 2.1.330 の `/security-review` は、プロンプトで「Secrets or credentials stored on disk if they are otherwise secured」' "$command_file"
 grep -F -- '(版によって変わりうる)' "$command_file"
-grep -F -- '委譲先がその種類を除外していることを `residual_risks` と `report.md` に記録し、`human_required` とする' "$command_file"
+grep -F -- '委譲先がその種類を除外していることを `residual_risks` と `report.md` に記録し、`human_required` (' "$command_file"
 # The exclusion applies whenever the storage trigger matches, also together with the trust-boundary one.
 grep -F -- '機微情報をファイル・ログ・キャッシュに保存する条件に該当した差分 (信頼境界の条件にも該当する場合を含む) は' "$command_file"
 if grep -F -- '信頼境界を跨ぐことでは該当しない差分' "$command_file"; then
@@ -136,7 +136,27 @@ grep -F -- 'Bash ツールの `timeout` パラメータ' "$command_file"
 grep -F -- 'codex login status < /dev/null' "$command_file"
 grep -F -- '--output-last-message' "$command_file"
 grep -F -- '`proceeding` を含む警告は失敗ではない' "$command_file"
-grep -F -- '現行は `4`' "$command_file"
+grep -F -- '現行は `5`' "$command_file"
+# Evidence bound to the reviewed diff and to a finished review (#122); tool-reminder.sh reads it.
+grep -F -- '| `human_required_reason` | string / null | 必須 |' "$command_file"
+grep -F -- '`review_incomplete` はレビューが成立していない' "$command_file"
+grep -F -- '`human_judgment` はそれらをすべて終えたうえで人が最終判断する' "$command_file"
+grep -F -- '高リスクによる `human_required` でも、レビューが完了した事実は `human_judgment` で表せる' "$command_file"
+grep -F -- '| `local_diff` | object / null | 必須 |' "$command_file"
+grep -F -- '"staged_diff_hash": string, "unstaged_diff_hash": string' "$command_file"
+grep -F -- 'git hash-object <ファイル>' "$command_file"
+grep -F -- '差分を識別できないので `human_required` (`human_required_reason` は `review_incomplete`) とする' "$command_file"
+grep -F -- '### PR 前の確認が数える証跡' "$command_file"
+grep -F -- '`4` 以下の証跡は、完了を表すキーを持たないので数えない' "$command_file"
+grep -F -- 'ローカルの `<base>` の先端は `origin/<base>` に含まれる (push していないコミットが無い) ときだけ数える' "$command_file"
+grep -F -- '`origin/<base>` が無ければ、ローカルの先端だけを数える' "$command_file"
+grep -F -- '`human_required_reason` のキーが無いものは数えない' "$command_file"
+grep -F -- '最後のラウンドで保存したもの (`git hash-object` で同じく求める) と1つでも違えば' "$command_file"
+grep -F -- 'local-round<N>-staged-diff.txt' "$command_file"
+grep -F -- '`.aidd/autonomous-review/` (証跡) と `.aidd/learnings/` (台帳) だけを変えるなら一致とみなす' "$command_file"
+grep -F -- 'fetch されずに古い場合は検出できない' "$command_file"
+grep -F -- '既知の非対称' "$command_file"
+grep -F -- '`status` / `final_decision` / `human_required_reason` の値域を検証し' "$command_file"
 # Findings ledger (#108): default off, checked writes only, abstract types, human approval.
 grep -F -- 'git config --get aidd.learnings' "$command_file"
 grep -F -- '`../../scripts/learnings.py` を解決した**絶対パス**' "$command_file"
@@ -216,3 +236,4 @@ if printf '%s\n' "$frontmatter" | grep -F -- 'disable-model-invocation'; then
 fi
 printf '%s\n' "$frontmatter" | grep -F -- "auto-merge eligibility"
 grep -F -- 'allow_implicit_invocation: false' "$repo_root/skills/autonomous-review/agents/openai.yaml"
+grep -F -- '該当する観点別レビューが成立していないので `human_required_reason` は `review_incomplete`) とする' "$command_file"

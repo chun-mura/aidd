@@ -511,6 +511,25 @@ if grep -F -- '更新日 (`ls -l`)' "$asset_audit"; then
   echo "asset-audit must not take memory dates with ls -l (it prints the owner)" >&2
   exit 1
 fi
+# #128: zero candidates with complete evidence is "no problem"; missing evidence is
+# "undetermined" with what to measure next, never a candidate made up to fill the list.
+grep -F -- '「問題なし」「判定不能」「改善候補あり」' "$asset_audit"
+grep -F -- '候補を埋めるために、根拠のない削除・改訂や基準の強化を提案しない' "$asset_audit"
+grep -F -- '次に何を計測すればよいか' "$asset_audit"
+grep -F -- '全体の結論は、候補が1件でもあれば「改善候補あり」、候補が無く判定不能の基準があれば「判定不能」、どちらも無ければ「問題なし」' "$asset_audit"
+grep -F -- '先頭に全体の結論 (問題なし・判定不能・改善候補あり) を示し' "$asset_audit"
+grep -F -- '候補が0件なら確認するものは無いので、結論 (判定不能ならその基準と次の計測) を示して手順5へ進む' "$asset_audit"
+grep -F -- '候補がある基準でも、判定不能の対象があれば、その対象と次の計測を併記する' "$asset_audit"
+grep -F -- '「問題なし」とした基準にも、確かめた範囲を1行添える' "$asset_audit"
+grep -F -- '範囲を示せない基準は「判定不能」にする' "$asset_audit"
+for phrase in '候補が0件なら基準を疑う' '「問題なし」で終えない' '基準を疑う'; do
+  if grep -F -- "$phrase" "$asset_audit"; then
+    echo "asset-audit must allow zero candidates when the evidence is complete: $phrase" >&2
+    exit 1
+  fi
+done
+grep -F -- '承認されたものだけ変更する' "$asset_audit"
+grep -F -- '提示を終えたら (承認の有無に関わらず) 実施日を記録する' "$asset_audit"
 
 # Every eval case has planted false findings (high/mid only), and every planted ID has
 # its refutation evidence in the key, so the refuter's discrimination can be scored.
@@ -529,6 +548,350 @@ for case_file in "$repo_root"/tests/eval/cases/*.md; do
   grep -F -- '## 偽指摘 (refuter の弁別力測定)' "$key"
   for id in $ids; do grep -qE "^\| $id \|" "$key"; done
 done
+
+# eval separates the run from the scoring (#129): a new executor session gets only the staged
+# input and a fixed prompt, the raw output is frozen before the keys are read, and the record
+# keeps the measured conditions and the costs apart. The limits of the separation are stated.
+grep -F -- '入力・作業ディレクトリ・文脈の分離であり、OS やハーネスの権限による読み取りの禁止ではない' "$eval_command"
+grep -F -- '作業ディレクトリの外の絶対パスによる読み取りは防げない' "$eval_command"
+grep -F -- 'Bash のコマンドは任意の書き方ができるので、検出しきれない' "$eval_command"
+grep -F -- '実行担当は「混ぜる指摘」が偽指摘だと分かる立場にある' "$eval_command"
+grep -F -- '抽出から凍結までの間は、raw/ と local/ を書き換えられる' "$eval_command"
+grep -F -- 'メインはプロンプトに文言を足さない' "$eval_command"
+grep -F -- '採点は凍結した生出力だけを根拠にし、レビュー結果を書き換えない' "$eval_command"
+grep -F -- '表示された SHA256SUMS の sha256 を、採点を始める前に' "$eval_command"
+grep -F -- '取れない値は「不明」と書き、実測していないモデル名・provider・試行数・コストを断定しない' "$eval_command"
+grep -F -- 'パイプラインと採点のコストを分け、評価全体の合計も示す' "$eval_command"
+grep -F -- '既知の分の合計と、不明の項目名' "$eval_command"
+grep -F -- '検出率・深刻度一致・デコイ誤検出は、偽指摘を含めずに算出する' "$eval_command"
+grep -F -- 'stream-json の全文はコミットしない' "$eval_command"
+grep -F -- '~/.claude/projects/' "$eval_command"
+grep -F -- '汚染の疑い' "$eval_command"
+grep -F -- 'claude -p --output-format stream-json --verbose --plugin-dir ./plugin' "$eval_command"
+# Run the staging, extract, freeze and verify blocks on a fake repository whose keys and results
+# hold sentinels: none of them may reach the input or the prompt, and each guard must stop for
+# its own reason (checked by the stderr message). A fake claude on PATH keeps the real CLI out.
+eval_tmp="$doctor_tmp/eval"
+mkdir -p "$eval_tmp/bin" "$eval_tmp/orig"
+printf '%s\n' '#!/bin/sh' 'echo "fake-cli 0.0.0"' > "$eval_tmp/bin/claude"
+chmod +x "$eval_tmp/bin/claude"
+eval_block() {  # eval_block <first-line pattern> <last-line pattern> <out>
+  sed -n "/^$1/,/^$2\$/p" "$eval_command" > "$3"
+  [ -s "$3" ]
+}
+eval_block '# eval staging:' '# end eval staging' "$eval_tmp/stage.tpl"
+eval_block '# eval extract:' 'PY' "$eval_tmp/extract.tpl"
+eval_block '# eval freeze:' '# end eval freeze' "$eval_tmp/freeze.tpl"
+eval_block '# eval verify:' '# end eval verify' "$eval_tmp/verify.tpl"
+fake="$eval_tmp/repo"
+mkdir -p "$fake/tests/eval/cases" "$fake/tests/eval/planted" "$fake/tests/eval/keys" \
+  "$fake/tests/eval/results/old" "$fake/.claude-plugin" "$fake/agents" \
+  "$fake/skills/design-review/agents" "$fake/skills/eval"
+fake_case() {  # fake_case <name> <case text> <planted rows...>
+  local name=$1 text=$2
+  shift 2
+  printf '%s\n' '# case' "$text" > "$fake/tests/eval/cases/$name.md"
+  printf '%s\n' '# 偽指摘: PLANTED_HEADER' '' '| ID | 深刻度 | 引用箇所 | 指摘 | 代案 |' '|---|---|---|---|---|' "$@" \
+    > "$fake/tests/eval/planted/$name.md"
+  printf '%s\n' "KEY_SENTINEL $name" > "$fake/tests/eval/keys/$name.md"
+}
+fake_case demo CASE_TEXT '| PL-D1 | mid | cases/demo.md:2 | x | y |' '| PL-D2 | high | cases/demo.md:1 | z | w |'
+fake_case pathcase "see $(printf '%s' "$fake" | tr '[:lower:]' '[:upper:]')/elsewhere" '| PL-P1 | mid | cases/pathcase.md:2 | x | y |'
+fake_case linkcase "see $eval_tmp/alias/elsewhere" '| PL-L1 | mid | cases/linkcase.md:2 | x | y |'
+fake_case norows CASE_TEXT
+fake_case badrows CASE_TEXT '| PL-B1 | mid | cases/badrows.md:2 | x | y |' '| PL-bad | mid | cases/badrows.md:2 | x | y |'
+ln -s "$fake" "$eval_tmp/alias"
+printf '%s\n' 'RESULT_SENTINEL' > "$fake/tests/eval/results/old.md"
+printf '%s\n' 'RESULT_SENTINEL 2' > "$fake/tests/eval/results/old/demo-t1.md"
+printf '%s\n' '{"name": "aidd", "version": "9.9.9"}' > "$fake/.claude-plugin/plugin.json"
+printf '%s\n' 'reviewer' > "$fake/agents/reviewer.md"
+printf '%s\n' 'design-review' > "$fake/skills/design-review/SKILL.md"
+printf '%s\n' 'policy' > "$fake/skills/design-review/agents/openai.yaml"
+cp "$eval_command" "$fake/skills/eval/SKILL.md"
+git -C "$fake" init -q
+git -C "$fake" add -A
+git -C "$fake" -c user.name=t -c user.email=t@example.com commit -qm init
+fake_sha=$(git -C "$fake" rev-parse HEAD)
+eval_fill() {  # eval_fill <template> <out> <run> [cases] [sums]
+  sed -e "s|<repo>|${EVAL_REPO:-$fake}|g" -e "s|<run>|$3|g" -e "s|<cases>|${4-demo}|g" -e "s|<sums>|${5-}|g" "$1" > "$2"
+}
+eval_stage() {  # eval_stage <name> <run> <cases>
+  mkdir -p "$2"
+  eval_fill "$eval_tmp/stage.tpl" "$eval_tmp/stage-$1.sh" "$2" "$3"
+  PATH="$eval_tmp/bin:$PATH" bash "$eval_tmp/stage-$1.sh" 2> "$eval_tmp/stage-$1.err"
+}
+eval_stage_fails() {  # eval_stage_fails <name> <run> <cases> <expected stderr>
+  if eval_stage "$1" "$2" "$3"; then
+    echo "eval staging did not stop: $1" >&2
+    exit 1
+  fi
+  if ! grep -qF -- "$4" "$eval_tmp/stage-$1.err"; then
+    echo "eval staging $1 stopped for another reason: $(cat "$eval_tmp/stage-$1.err")" >&2
+    exit 1
+  fi
+}
+run_ok="$eval_tmp/run-ok"
+eval_stage ok "$run_ok" demo
+[ "$(cd "$run_ok/input" && find . ! -type d | LC_ALL=C sort | tr '\n' ' ')" = \
+  "./cases/demo.md ./plugin/.claude-plugin/plugin.json ./plugin/agents/reviewer.md ./plugin/skills/design-review/SKILL.md ./plugin/skills/design-review/agents/openai.yaml " ]
+if grep -rqF -e KEY_SENTINEL -e RESULT_SENTINEL -e PLANTED_HEADER -e "$fake" "$run_ok/input" "$run_ok/raw"; then
+  echo "eval staging leaked a key, a result, the planted header or the repository path" >&2
+  exit 1
+fi
+prompt="$run_ok/raw/prompt-demo.md"
+grep -F 'cases/demo.md' "$prompt"
+grep -Fx '| M1 | mid | cases/demo.md:2 | x | y |' "$prompt"
+grep -Fx '| M2 | high | cases/demo.md:1 | z | w |' "$prompt"
+if grep -qF -e '<case>' -e 'tests/eval/' -e 'PL-' -e 'planted' "$prompt"; then
+  echo "eval executor prompt kept a placeholder, names tests/eval/ or shows a planted ID" >&2
+  exit 1
+fi
+grep -Fx "$(printf 'M1\tPL-D1')" "$run_ok/raw/mix-demo.tsv"
+grep -Fx "$(printf 'M2\tPL-D2')" "$run_ok/raw/mix-demo.tsv"
+grep -F ' keys/demo.md' "$run_ok/raw/keys.sha256"
+grep -F ' planted/demo.md' "$run_ok/raw/planted.sha256"
+grep -F ' ./cases/demo.md' "$run_ok/raw/input.sha256"
+grep -F '| aidd version | 9.9.9 |' "$run_ok/raw/conditions.md"
+grep -F "| git SHA | $fake_sha |" "$run_ok/raw/conditions.md"
+grep -F '| 未コミット変更 | no |' "$run_ok/raw/conditions.md"
+grep -F '| CLI (準備時) | fake-cli 0.0.0 |' "$run_ok/raw/conditions.md"
+eval_stage_fails inside "$fake/run-inside" demo 'the run directory is inside the repository'
+eval_stage_fails again "$run_ok" demo 'input/ or raw/ already exists'
+eval_stage_fails missing "$eval_tmp/run-missing" 'demo nosuchcase' 'no case, planted or key for nosuchcase'
+eval_stage_fails upper "$eval_tmp/run-upper" 'Demo' 'bad case name: Demo'
+eval_stage_fails traversal "$eval_tmp/run-traversal" '../keys/demo' 'bad case name: ../keys/demo'
+eval_stage_fails empty "$eval_tmp/run-empty" '' 'no cases'
+eval_stage_fails norows "$eval_tmp/run-norows" norows 'no planted rows for norows'
+eval_stage_fails pathcase "$eval_tmp/run-pathcase" pathcase 'the repository path appears in the input or a prompt'
+EVAL_REPO="$eval_tmp/alias" eval_stage_fails linkcase "$eval_tmp/run-linkcase" linkcase 'the repository path appears in the input or a prompt'
+eval_stage_fails badrows "$eval_tmp/run-badrows" badrows 'planted rows and mixed rows differ for badrows'
+mkdir -p "$eval_tmp/worktree"
+git -C "$eval_tmp/worktree" init -q
+eval_stage_fails worktree "$eval_tmp/worktree/run" demo 'input is inside a git work tree'
+dr="$fake/skills/design-review"
+mkdir -p "$dr/.GIT"
+printf '%s\n' 'ref' > "$dr/.GIT/HEAD"
+eval_stage_fails dotgit "$eval_tmp/run-dotgit" demo 'input has a .git, keys or results entry'
+rm -rf "$dr/.GIT"
+mkdir -p "$dr/Keys"
+printf '%s\n' 'note' > "$dr/Keys/note.md"
+eval_stage_fails keysname "$eval_tmp/run-keysname" demo 'input has a .git, keys or results entry'
+rm -rf "$dr/Keys"
+mkdir -p "$dr/Results"
+printf '%s\n' 'note' > "$dr/Results/note.md"
+eval_stage_fails resultsname "$eval_tmp/run-resultsname" demo 'input has a .git, keys or results entry'
+rm -rf "$dr/Results"
+ln -s ../../tests/eval/keys "$dr/link"
+eval_stage_fails link "$eval_tmp/run-link" demo 'input holds files outside the allowed list'
+rm "$dr/link"
+ln "$fake/tests/eval/keys/demo.md" "$dr/notes.md"
+eval_stage_fails hardlink "$eval_tmp/run-hardlink" demo 'input has the same content as a file under tests/eval/keys or results'
+rm "$dr/notes.md"
+cp "$fake/tests/eval/results/old/demo-t1.md" "$dr/notes.md"
+eval_stage_fails resultcopy "$eval_tmp/run-resultcopy" demo 'input has the same content as a file under tests/eval/keys or results'
+rm "$dr/notes.md"
+sed -i.bak '/^# eval executor prompt/a\
+see tests/eval/keys first' "$fake/skills/eval/SKILL.md"
+eval_stage_fails promptpath "$eval_tmp/run-promptpath" demo 'a prompt names tests/eval/'
+cp "$eval_command" "$fake/skills/eval/SKILL.md"
+rm -f "$fake/skills/eval/SKILL.md.bak"
+# extract: the final text and the measured conditions come from the stream, absolute paths are
+# replaced, and a second aidd plugin or a read outside the input (also a Glob pattern, also in
+# another letter case) is kept as 汚染の疑い. Bad case/trial names never write outside raw/.
+run_real=$(cd "$run_ok" && pwd -P)
+python3 - "$eval_tmp/stream.jsonl" "$run_real" "$fake" <<'PYEOF'
+import json, sys
+out, run, repo = sys.argv[1:4]
+lines = [
+    {"type": "system", "subtype": "init", "session_id": "S-1", "model": "model-main",
+     "claude_code_version": "1.2.3", "cwd": run + "/input", "permissionMode": "default",
+     "plugins": [{"name": "aidd", "path": run + "/input/plugin", "source": "aidd@inline", "version": "9.9.9"},
+                 {"name": "aidd", "path": "/elsewhere/aidd", "source": "aidd@aidd", "version": "0.1.0"}]},
+    {"type": "assistant", "parent_tool_use_id": None, "message": {"content": [
+        {"type": "tool_use", "id": "tu1", "name": "Agent", "input": {"subagent_type": "aidd:reviewer"}}]}},
+    {"type": "assistant", "parent_tool_use_id": "tu1", "message": {"content": [
+        {"type": "tool_use", "id": "tu2", "name": "Read", "input": {"file_path": run + "/input/cases/demo.md"}},
+        {"type": "tool_use", "id": "tu3", "name": "Read", "input": {"file_path": repo + "/tests/eval/keys/demo.md"}},
+        {"type": "tool_use", "id": "tu4", "name": "Glob", "input": {"pattern": repo.upper() + "/TESTS/EVAL/KEYS/*.md"}},
+        {"type": "tool_use", "id": "tu5", "name": "Read", "input": {"file_path": run + "/raw/mix-demo.tsv"}},
+        {"type": "tool_use", "id": "tu6", "name": "Read", "input": {"file_path": "../raw/x"}},
+        {"type": "tool_use", "id": "tu7", "name": "Read", "input": {"file_path": "~/notes.md"}}]}},
+    {"type": "system", "subtype": "task_notification", "tool_use_id": "tu1", "status": "completed",
+     "usage": {"total_tokens": 1234}},
+    {"type": "result", "subtype": "success", "is_error": False, "session_id": "S-1",
+     "result": "## arbiter の最終報告\nFINAL_TEXT at " + run + "/input/cases/demo.md:2",
+     "total_cost_usd": 0.5, "duration_ms": 900, "num_turns": 3,
+     "modelUsage": {"model-main": {"inputTokens": 1, "outputTokens": 2, "cacheReadInputTokens": 3,
+                                   "cacheCreationInputTokens": 4, "costUSD": 0.5, "provider": "firstParty",
+                                   "costBasis": "list"}}},
+]
+with open(out, "w") as f:
+    for m in lines:
+        f.write(json.dumps(m) + "\n")
+PYEOF
+eval_extract() {  # eval_extract <run> <case> <trial>; stdout and stderr go to <run>.out / <run>.err
+  eval_fill "$eval_tmp/extract.tpl" "$eval_tmp/extract.sh" "$1"
+  sed -i.bak -e "s|<case>|$2|g" -e "s|<trial>|$3|g" "$eval_tmp/extract.sh"
+  bash "$eval_tmp/extract.sh" > "$1.out" 2> "$1.err"
+}
+eval_run_dir() {  # eval_run_dir <run>: an empty run with input/, local/ and raw/
+  mkdir -p "$1/input" "$1/local" "$1/raw"
+}
+cp "$eval_tmp/stream.jsonl" "$run_ok/local/demo-t1.jsonl"
+eval_extract "$run_ok" demo 1
+grep -F 'FINAL_TEXT at [input]/cases/demo.md:2' "$run_ok/raw/demo-t1.md"
+meta="$run_ok/raw/demo-t1.meta.md"
+grep -F '| session_id | S-1 |' "$meta"
+grep -F '| Claude Code (init) | 1.2.3 |' "$meta"
+grep -F '| total_cost_usd | 0.5 |' "$meta"
+grep -F '| プラグイン (init) | aidd 9.9.9; aidd 0.1.0 |' "$meta"
+grep -F '| model-main | firstParty | list | 1 | 2 | 3 | 4 | 0.5 |' "$meta"
+grep -F '| tu1 | aidd:reviewer | completed | 1234 |' "$meta"
+grep -F '汚染の疑い: aidd が input/plugin の1つだけではない' "$meta"
+grep -F '[repo]/tests/eval/keys/demo.md' "$meta"
+grep -F '| Glob | aidd:reviewer | 元リポジトリのパス' "$meta"
+# A read of the run's raw/ (outside the repository and outside input/) is a read outside the
+# working directory; ../ and ~ are caught as relative reads; a read inside input/ is not listed.
+grep -F 'mix-demo.tsv' "$meta" | grep -F '| run の raw・local・作業ディレクトリの外 |'
+grep -F '../raw/x' "$meta" | grep -F '作業ディレクトリの外 (相対・~)'
+grep -F '~/notes.md' "$meta" | grep -F '作業ディレクトリの外 (相対・~)'
+grep -F '参照 5 件' "$meta"
+if grep -qF -e '[input]/cases/demo.md' -e 'cwd が input/ ではない' "$meta"; then
+  echo "eval extract listed a read inside input/ or a wrong cwd" >&2
+  exit 1
+fi
+grep -F '汚染の疑い' "$run_ok.out"
+if grep -qiF -e "$fake" -e "$run_real" "$run_ok/raw/demo-t1.md" "$meta"; then
+  echo "eval extract kept an absolute path" >&2
+  exit 1
+fi
+if eval_extract "$run_ok" demo 1; then
+  echo "eval extract overwrote an existing trial" >&2
+  exit 1
+fi
+# A stream without a result is a failed run: it exits nonzero and says 不明, never success.
+run_nr="$eval_tmp/run-noresult"
+eval_run_dir "$run_nr"
+head -n 1 "$eval_tmp/stream.jsonl" > "$run_nr/local/demo-t1.jsonl"
+if eval_extract "$run_nr" demo 1; then
+  echo "eval extract accepted a stream without a result" >&2
+  exit 1
+fi
+grep -F 'the run has no final answer or ended with an error' "$run_nr.err"
+grep -F '| total_cost_usd | 不明 |' "$run_nr/raw/demo-t1.meta.md"
+# An init whose cwd is not input/ is kept as 汚染の疑い.
+run_cwd="$eval_tmp/run-cwd"
+eval_run_dir "$run_cwd"
+python3 - "$eval_tmp/stream.jsonl" "$run_cwd/local/demo-t1.jsonl" <<'PYEOF'
+import json, sys
+lines = [json.loads(l) for l in open(sys.argv[1])]
+init = dict(lines[0], cwd="/elsewhere/input")
+init["plugins"] = [{"name": "aidd", "path": "/elsewhere/input/plugin", "version": "9.9.9"}]
+with open(sys.argv[2], "w") as f:
+    for m in (init, lines[-1]):
+        f.write(json.dumps(m) + "\n")
+PYEOF
+eval_extract "$run_cwd" demo 1
+grep -F 'cwd が input/ ではない' "$run_cwd/raw/demo-t1.meta.md"
+# Without init, the plugin and cwd checks are reported as unknown, not as passed.
+run_ni="$eval_tmp/run-noinit"
+eval_run_dir "$run_ni"
+tail -n 1 "$eval_tmp/stream.jsonl" > "$run_ni/local/demo-t1.jsonl"
+eval_extract "$run_ni" demo 1
+grep -F 'プラグイン・cwd の検査は不明' "$run_ni/raw/demo-t1.meta.md"
+grep -F '| プラグイン (init) | 不明 |' "$run_ni/raw/demo-t1.meta.md"
+# A case or trial that is not a plain name/number stops before writing anything.
+run_bad="$eval_tmp/run-bad"
+eval_run_dir "$run_bad"
+cp "$eval_tmp/stream.jsonl" "$run_bad/local/demo-t1.jsonl"
+for bad in '../x 1' 'demo 1a' 'Demo 1'; do
+  read -r bad_case bad_trial <<<"$bad"
+  if eval_extract "$run_bad" "$bad_case" "$bad_trial"; then
+    echo "eval extract accepted case/trial: $bad" >&2
+    exit 1
+  fi
+  grep -F 'bad case or trial' "$run_bad.err"
+done
+[ ! -e "$run_bad/x-t1.md" ]
+[ ! -e "$run_bad/x-t1.meta.md" ]
+[ -z "$(find "$run_bad/raw" -type f)" ]
+# freeze, then verify with the hash the freeze printed: an untouched run passes; a changed raw
+# file (also with SHA256SUMS rebuilt), a removed or added raw file, a changed stream, a changed or
+# added input file and a changed key each stop the scoring with their own message.
+eval_fill "$eval_tmp/freeze.tpl" "$eval_tmp/freeze.sh" "$run_ok"
+# freeze stops when a stream has no extracted record.
+run_nrec="$eval_tmp/run-norecord"
+eval_run_dir "$run_nrec"
+cp "$eval_tmp/stream.jsonl" "$run_nrec/local/demo-t1.jsonl"
+eval_fill "$eval_tmp/freeze.tpl" "$eval_tmp/freeze-nrec.sh" "$run_nrec"
+if bash "$eval_tmp/freeze-nrec.sh" 2> "$eval_tmp/freeze-nrec.err"; then
+  echo "eval freeze accepted a stream without its extracted record" >&2
+  exit 1
+fi
+grep -F 'no extracted record for local/demo-t1.jsonl' "$eval_tmp/freeze-nrec.err"
+bash "$eval_tmp/freeze.sh" > "$eval_tmp/freeze.out"
+sums=$(sed -n 's/^eval freeze: SHA256SUMS sha256 //p' "$eval_tmp/freeze.out")
+[ "${#sums}" -eq 64 ]
+grep -F ' demo-t1.md' "$run_ok/raw/SHA256SUMS"
+grep -F ' local.sha256' "$run_ok/raw/SHA256SUMS"
+grep -F ' local/demo-t1.jsonl' "$run_ok/raw/local.sha256"
+[ ! -w "$run_ok/raw/demo-t1.md" ]
+[ ! -w "$run_ok/local/demo-t1.jsonl" ]
+if bash "$eval_tmp/freeze.sh" 2> "$eval_tmp/freeze.err"; then
+  echo "eval freeze ran twice on the same run" >&2
+  exit 1
+fi
+grep -F 'is already frozen' "$eval_tmp/freeze.err"
+eval_verify() {  # eval_verify [sums]
+  eval_fill "$eval_tmp/verify.tpl" "$eval_tmp/verify.sh" "$run_ok" demo "${1-$sums}"
+  bash "$eval_tmp/verify.sh" > /dev/null 2> "$eval_tmp/verify.err"
+}
+eval_verify_fails() {  # eval_verify_fails <name> <expected stderr> [sums]
+  if eval_verify "${3-$sums}"; then
+    echo "eval verify did not stop: $1" >&2
+    exit 1
+  fi
+  if ! grep -qF -- "$2" "$eval_tmp/verify.err"; then
+    echo "eval verify $1 stopped for another reason: $(cat "$eval_tmp/verify.err")" >&2
+    exit 1
+  fi
+}
+eval_verify
+eval_verify_fails nosums 'SHA256SUMS differs from the hash printed at the freeze' ''
+cp "$run_ok/raw/demo-t1.md" "$run_ok/raw/SHA256SUMS" "$eval_tmp/orig/"
+chmod u+w "$run_ok/raw/demo-t1.md" "$run_ok/raw/SHA256SUMS"
+printf '%s\n' 'rewritten' >> "$run_ok/raw/demo-t1.md"
+eval_verify_fails changed-raw 'a file in raw/ changed after the freeze'
+(cd "$run_ok/raw" && find . -type f ! -name SHA256SUMS | sed 's|^\./||' | LC_ALL=C sort \
+  | while read -r f; do shasum -a 256 "$f"; done > SHA256SUMS)
+eval_verify_fails rebuilt-sums 'SHA256SUMS differs from the hash printed at the freeze'
+cp "$eval_tmp/orig/demo-t1.md" "$eval_tmp/orig/SHA256SUMS" "$run_ok/raw/"
+eval_verify
+mv "$run_ok/raw/demo-t1.meta.md" "$eval_tmp/orig/"
+eval_verify_fails removed-raw 'files were added to or removed from raw/ after the freeze'
+mv "$eval_tmp/orig/demo-t1.meta.md" "$run_ok/raw/"
+printf '%s\n' 'late' > "$run_ok/raw/late.md"
+eval_verify_fails added-raw 'files were added to or removed from raw/ after the freeze'
+rm -f "$run_ok/raw/late.md"
+cp "$run_ok/local/demo-t1.jsonl" "$eval_tmp/orig/"
+chmod u+w "$run_ok/local/demo-t1.jsonl"
+printf '%s\n' '{}' >> "$run_ok/local/demo-t1.jsonl"
+eval_verify_fails changed-local 'local/ changed after the freeze'
+cp "$eval_tmp/orig/demo-t1.jsonl" "$run_ok/local/"
+printf '%s\n' '{}' > "$run_ok/local/late.jsonl"
+eval_verify_fails added-local 'files were added to or removed from local/ after the freeze'
+rm -f "$run_ok/local/late.jsonl"
+cp "$run_ok/input/cases/demo.md" "$eval_tmp/orig/"
+printf '%s\n' 'edited' >> "$run_ok/input/cases/demo.md"
+eval_verify_fails changed-input 'input/ changed after staging'
+cp "$eval_tmp/orig/demo.md" "$run_ok/input/cases/"
+printf '%s\n' 'new' > "$run_ok/input/extra.md"
+eval_verify_fails added-input 'files were added to or removed from input/ after staging'
+rm -f "$run_ok/input/extra.md"
+eval_verify
+printf '%s\n' 'promoted' >> "$fake/tests/eval/keys/demo.md"
+eval_verify_fails changed-key 'the keys changed after staging'
+chmod -R u+w "$eval_tmp"
 
 # retro's reflux listing snippet (#107, D2): run it on fake gh output. It prints the number,
 # updatedAt, the signature line (checked by the ledger's rule) and the title, never the body, and
