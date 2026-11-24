@@ -13,7 +13,7 @@ ASK_REASON="autonomous-review の実行にはユーザーの許可が必要で�
 DENY_REASON="autonomous-review はモデルからは起動できません。ユーザーに /autonomous-review を手で実行するよう依頼してください。"
 
 PY_CODE=$(cat <<'PYEOF'
-import json, os, sys
+import json, os, re, sys, urllib.parse
 
 plugin_root, ask_reason, deny_reason = sys.argv[1:4]
 
@@ -43,12 +43,48 @@ elif event.get("tool_name") == "Read":
     path = tool_input.get("file_path")
     own = os.path.join(plugin_root, "skills", "autonomous-review", "SKILL.md")
     if isinstance(path, str) and path:
-        try:
-            same = os.path.samefile(path, own)
-        except OSError:
-            same = False  # nothing there to read
-        if same:
-            reply("deny", deny_reason)
+        candidates = [path]
+        if path.startswith("file://"):
+            # Cursor opens a file URI as the path it names (Node fileURLToPath, WHATWG URL rules), and the
+            # raw text itself when that conversion throws, before ~ and cwd. Check both. For the URI, follow
+            # those rules erring toward the SKILL.md: drop tabs and newlines and trailing controls and spaces,
+            # read "\\" as "/", ignore the host, query and fragment, and percent-decode.
+            rest = re.sub(r"[\t\n\r]", "", path).rstrip("".join(map(chr, range(0x21))))
+            rest = rest[len("file://"):].replace("\\", "/")
+            if "/" in rest:
+                candidates.append(urllib.parse.unquote(re.split(r"[?#]", rest[rest.index("/"):], maxsplit=1)[0]))
+        cwd = event.get("cwd")
+        def same(candidate):
+            try:
+                return os.path.samefile(candidate, own)
+            except (OSError, ValueError):
+                return False  # nothing there to read, or not a path (NUL)
+        for candidate in candidates:
+            candidate = os.path.expanduser(candidate)
+            if isinstance(cwd, str) and cwd:
+                candidate = os.path.join(cwd, candidate)  # a relative path is the reader's, not this hook's
+            # The reader may resolve the path as text (a missing directory before .., or past PATH_MAX),
+            # so a path that names the SKILL.md only once normalized is refused too.
+            if same(candidate) or same(os.path.normpath(candidate)):
+                reply("deny", deny_reason)
+                break
+        else:
+            if path.startswith("file://"):
+                # Cursor resolves the raw text from a base we cannot see (a GUI app's cwd is usually /),
+                # so try every base it could climb to: / and each ancestor of cwd. Drop the leading ..
+                # (they only pick the base) and refuse when the rest names the SKILL.md from any of them.
+                rest = os.path.normpath(path).split("/")
+                while rest and rest[0] == "..":
+                    rest.pop(0)
+                rest = "/".join(rest)
+                bases = ["/"]
+                if isinstance(cwd, str) and os.path.isabs(cwd):
+                    base = os.path.normpath(cwd)
+                    while base not in bases:
+                        bases.append(base)
+                        base = os.path.dirname(base)
+                if any(same(os.path.join(base, rest)) for base in bases):
+                    reply("deny", deny_reason)
 PYEOF
 )
 
