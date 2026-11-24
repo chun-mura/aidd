@@ -328,8 +328,27 @@ if grep -F -- 'git worktree remove --force' "$command_file"; then
   exit 1
 fi
 grep -F -- '拡張子は `.txt`' "$command_file"
-grep -F -- '| 観点 (優先度) | テスト (ファイル:テスト名) | 前提を壊して落ちたか | 未実装の理由 |' "$command_file"
+grep -F -- '| 原要件 (出典) | 設計判断 | 観点 (優先度) | テスト (ファイル:テスト名) | 前提を壊して落ちたか | 実行結果 | 未実装の理由と人の判断 |' "$command_file"
 grep -F -- 'must の観点は全件' "$command_file"
+# report.md traces each original requirement the same way as issue-implement, using the
+# existing reqd IDs or spec locations, and records the run result from the quality gates (#124).
+grep -F -- '原要件は全件を載せる' "$command_file"
+grep -F -- 'reqd の要件定義書 (`docs/requirements/`) があれば、そこにある既存の番号・見出し' "$command_file"
+grep -F -- 'どれも無ければ、利用者が `[対象]` で明示した変更目的を出典にし、そう書く。それも無ければ「原要件の出典なし」と書く' "$command_file"
+grep -F -- '差分から推測した変更目的を出典にしない' "$command_file"
+grep -F -- '既存テストでカバー済みとした観点も、そのテストのファイルとテスト名と実行結果を書く' "$command_file"
+grep -F -- 'そのテストを実行した品質ゲートの名前と `result`' "$command_file"
+grep -F -- '人の判断がまだ無ければ「未判断」と書き、`residual_risks` にも挙げる' "$command_file"
+grep -F -- '「未判断」が残れば、人の判断が必要なので `human_required` (`human_required_reason` は `human_judgment`) とする' "$command_file"
+grep -F -- '- 設計判断: 関連仕様・設計書の該当する節。無ければ「なし」' "$command_file"
+grep -F -- '番号が無ければ、ファイルパスと見出し (または行) で指す' "$command_file"
+grep -F -- '「設計判断」と「未実装の理由と人の判断」の列は、`report.md` の該当する項目' "$command_file"
+grep -F -- 'E2E・移行・性能・ロールバックの検証は、原要件か変更の性質が求めるものだけを' "$command_file"
+grep -F -- '原要件に無い非機能目標 (性能の数値など) を自分で設けず、そのための検証も足さない' "$command_file"
+if grep -F -- '| 観点 (優先度) | テスト (ファイル:テスト名) | 前提を壊して落ちたか | 未実装の理由 |' "$command_file"; then
+  echo "report.md must trace from the original requirement, not from the perspective alone" >&2
+  exit 1
+fi
 # The model may start this skill; skill-gate.sh asks the user first. Codex still cannot.
 frontmatter=$(sed -n '2,/^---$/p' "$command_file")
 if printf '%s\n' "$frontmatter" | grep -F -- 'disable-model-invocation'; then
