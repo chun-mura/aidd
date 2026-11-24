@@ -54,10 +54,10 @@ if grep -F -- '`aidd:security-reviewer` を実行する' "$command_file"; then
 fi
 grep -F -- '`aidd:security-reviewer` は設計書に対する STRIDE レビューであり、実装差分の監査に使わない' "$command_file"
 grep -F -- '`/aidd:design-review` のセキュリティ指摘も、実装差分の監査に数えない' "$command_file"
-# One audit output per round, like reviewer-round<N>.txt, so a later round does not overwrite it.
-grep -F -- '`security-review-round<N>.txt`' "$command_file"
-if grep -F -- '`security-review.txt`' "$command_file"; then
-  echo "the /security-review output must be saved per round" >&2
+# One audit, at the end, after every fix (#171 fifth review).
+grep -F -- '`security-review-final.txt`' "$command_file"
+if grep -F -- '`security-review-round<N>.txt`' "$command_file"; then
+  echo "the audit runs once at the end, not per round" >&2
   exit 1
 fi
 # Mapped severity decides fixing and eligibility, so it must never be lowered.
@@ -67,15 +67,14 @@ grep -F -- '`git diff --name-only origin/HEAD...` と `git diff origin/HEAD...` 
 grep -F -- '作業ツリー差分だけが対象の run では、未コミットの差分を監査しないので実行せず未実行とする' "$command_file"
 grep -F -- '作業ディレクトリの `HEAD` がそのラウンドの対象コミット (head、2ラウンド目以降は修正後のコミット) を指している場合だけ実行する' "$command_file"
 grep -F -- 'clone の `git diff --name-only origin/HEAD...HEAD` が確定した差分 (' "$command_file"
-grep -F -- '2ラウンド目以降は修正後のコミット) の `git diff --no-ext-diff --name-only` と同じ集合であること' "$command_file"
+grep -F -- '対象コミットは `head_sha_after_fixes`、無ければ `head_sha`) の `git diff --no-ext-diff --name-only` と同じ集合であること' "$command_file"
 grep -F -- '監査の経路、対象にした差分 (`base_sha` と `head_sha`、または作業ツリー差分)、照合した変更ファイルの一致・不一致、結果のファイル、未実行ならその理由' "$command_file"
 grep -F -- '`claude` CLI が無い・別プロセスで起動できない、新しいセッションに `/security-review` が無い、下のブロックが0以外で終わった・ハッシュを表示しなかった、または確定した差分と同じ範囲を監査したと確かめられない場合は、未実行として理由を記録し `human_required` (`human_required_reason` は `review_incomplete`) とする' "$command_file"
 # The audited hunks depend on the start point, not only on the file names.
 grep -F -- 'clone の `git merge-base origin/HEAD HEAD` が判定者のリポジトリの `git merge-base <base_sha> <対象コミット>` と同じであることを確かめ、違えば1で終わる' "$command_file"
-# Fix commits from the last round must be audited before the final decision.
-grep -F -- '最後に `/security-review` を実行した HEAD が `head_sha_after_fixes` (無ければ `head_sha`) と一致することを確かめる' "$command_file"
-grep -F -- '再実行できない・照合が一致しない場合は未実行として `human_required` とする' "$command_file"
-grep -F -- '`executed` は、`head_sha_after_fixes` (無ければ `head_sha`) を監査し照合が一致した実行があるときだけ `true` とする' "$command_file"
+# The audit covers every fix: it runs after them, on head_sha_after_fixes (or head_sha).
+grep -F -- '- 実行する時点: 各ラウンドでは実行しない。' "$command_file"
+grep -F -- '監査はすべての修正のあとに1回だけ行うので、`head_sha_after_fixes` (無ければ `head_sha`) を監査する' "$command_file"
 # /security-review excludes what the #110 storage trigger is about, so that trigger alone is not audited.
 grep -F -- 'Claude Code 2.1.330 の `/security-review` は、プロンプトで「Secrets or credentials stored on disk if they are otherwise secured」' "$command_file"
 grep -F -- '(版によって変わりうる)' "$command_file"
@@ -86,18 +85,13 @@ if grep -F -- '信頼境界を跨ぐことでは該当しない差分' "$command
   echo "the exclusion risk must not be limited to diffs that match only the storage trigger" >&2
   exit 1
 fi
-# The final re-run keeps its own output and ids, and its confirmed blocker/major is not fixed past the round limit.
-grep -F -- '再実行の出力はラウンドのファイルを上書きせず `security-review-final.txt` に保存し、指摘の `id` は各ラウンドの `S<N>-<n>` と重ならない `SF-<n>` として、同じ写し方で 5 の現物検証にかける' "$command_file"
-# Same outcome as step 8: a confirmed blocker/major left unfixed is failed, not human_required.
-grep -F -- '最終判定の直前で、修正すると再び監査が必要になるので、confirmed の blocker / major があれば修正せず、8 と同じく `failed` とする' "$command_file"
-if grep -F -- 'confirmed の blocker / major があれば修正せず `human_required` とする' "$command_file"; then
-  echo "the final audit's confirmed blocker/major must end in failed like step 8" >&2
+# After the launch nothing is fixed: findings are checked by reading only and handed to a person.
+grep -F -- '修正・コミット・テスト・品質ゲートの再実行はしない。confirmed の blocker / major があっても `failed` にせず、`report.md` に載せて人に渡す' "$command_file"
+if grep -F -- '8 と同じく `failed` とする' "$command_file"; then
+  echo "a finding of the final audit is not fixed and does not turn the run into failed" >&2
   exit 1
 fi
-grep -F -- '`S<N>-<n>` はそのラウンドの `rounds[].finding_ids` に入れ、`SF-<n>` は `findings` にだけ入れる' "$command_file"
-# Later rounds compare against the diff up to that round's target commit.
-grep -F -- '確定した差分 (`<base_sha>...<そのラウンドの対象コミット>`。1ラウンド目は head、2ラウンド目以降は修正後のコミット)' "$command_file"
-grep -F -- '`id` は主レビューの `R<n>` と重ならないよう `S<N>-<n>` (`<N>` はラウンド) とし' "$command_file"
+grep -F -- '`id` は主レビューの `R<n>` と重ならないよう `SF-<n>` とし、`findings` にだけ入れる' "$command_file"
 # Files whose body git diff hides (-diff, binary) still pass the file-set and merge-base checks,
 # so the diff output itself must reveal them, and they never count as reviewed (#170).
 grep -F -- '### 本文が出ないファイル' "$command_file"
@@ -118,7 +112,7 @@ grep -F -- '`--text` (`-a`) で本文を出さない' "$command_file"
 grep -F -- '1. 確定した差分（2ラウンド目以降は前ラウンドの修正差分と必要な周辺文脈）を読み、上の「本文が出ないファイル」を検出し' "$command_file"
 grep -F -- 'スナップショットに中身があっても、レビュー担当が読んだとは確かめられないので、上の「本文が出ないファイル」に従ってレビュー済みに数えない' "$command_file"
 # A hidden file must not drop the /security-review findings on the files whose body was shown.
-grep -F -- '判定者は自分のリポジトリで `<base_sha>...<そのラウンドの対象コミット>` に対して上の「本文が出ないファイル」の検出もし、本文が出ないファイルがあれば上の節に従い、`perspective_reviews.executed` は `false` とする。ほかのファイルの指摘は 5 にかける' "$command_file"
+grep -F -- '判定者はブロックを起動する前に、自分のリポジトリで `<base_sha>...<対象コミット>` に対して上の「本文が出ないファイル」の検出もし' "$command_file"
 if grep -F -- '1件でもあれば確定した差分と同じ範囲を監査したと確かめられない場合として扱う' "$command_file"; then
   echo "a hidden file must not turn the whole /security-review run into not-run" >&2
   exit 1
@@ -411,7 +405,7 @@ grep -F -- '未実測' "$command_file"
 # cannot be confirmed and the block ends with 2; the findings still go to the step-5 verification.
 grep -F -- '実測 (2026-11-24、Claude Code 2.1.331' "$command_file"
 grep -F -- '展開したプロンプト (FILES MODIFIED を含む) は stream-json に出なかった' "$command_file"
-grep -F -- '2で終わった場合は、監査は走ったが確定した差分と同じ範囲を監査したと確かめられないので、`perspective_reviews.executed` は `false`、`human_required` (`human_required_reason` は `review_incomplete`) とする' "$command_file"
+grep -F -- 'ブロックが1で終わっても2で終わっても、表示しなかった場合も、`perspective_reviews` の `security` は `executed: false` とし、最終判定は `human_required` (`human_required_reason` は `review_incomplete`) にする。`auto_merge_eligible` にはしない' "$command_file"
 # Replay was measured too: it carries only the command tags; the transcript was deliberately not read.
 grep -F -- 'replay の user イベントは `<command-message>` と `<command-name>` のタグだけで、展開した本文を含まなかった' "$command_file"
 grep -F -- 'ディスク上の会話の記録は確かめていない (利用者の設定ディレクトリを読む設計を避けるため、確かめないと判断した)' "$command_file"
@@ -424,7 +418,7 @@ if grep -F -- 'stream-json に展開した FILES MODIFIED が出るか' "$comman
   echo "the measured points must not stay listed as unmeasured" >&2
   exit 1
 fi
-grep -F -- '表示された `<stem>.sha256` の sha256' "$command_file"
+grep -F -- '表示された `<stem>.txt` の sha256' "$command_file"
 if grep -E -- '^[[:space:]]*-?[[:space:]]*実行する場所: .*作業ディレクトリは引数で変えられないため' "$command_file"; then
   echo "the audit now runs in a new process; the in-session wording must go" >&2
   exit 1
@@ -432,16 +426,25 @@ fi
 # Review follow-ups (#171): nonce markers and exit codes decide, the judge does the hidden-file
 # check, the post-run tree check and its limit, and the issue-implement fallback are stated.
 grep -F -- '(`<nonce>` は実行ごとのランダムな値で、2行とも同じ)' "$command_file"
-grep -F -- '成否は表示された行ではなく、ブロックの終了コードで決める' "$command_file"
-grep -F -- '上の「本文が出ないファイル」の検出 (`--numstat -z` と `--raw -z`) はブロックでは行わない。判定者が 4 の照合のとおり `<base_sha>...<対象コミット>` で行う' "$command_file"
+grep -F -- '上の「本文が出ないファイル」の検出 (`--numstat -z` と `--raw -z`) はブロックでは行わない。判定者がブロックを起動する前に、4 の照合のとおり `<base_sha>...<対象コミット>` で行う' "$command_file"
+# After the launch the judge runs nothing in the repository (#171 fifth review).
+grep -F -- 'このリポジトリでも作業ツリーでも、git・品質ゲート・テスト・ほかのコマンドを一切動かさない' "$command_file"
+grep -F -- '許すのは、ブロックが表示した結果の本文をデータとして読むこと、指摘の現物をファイルを読むこと (Read) だけで確かめること、`report.md` と `state.json` を書くこと、実行IDディレクトリのファイルに対する下の `shasum` だけである' "$command_file"
+grep -F -- 'このあと git やテストを動かす前に、`.git` の設定と hooks、作業ツリー (`git status --ignored` で無視されたファイルも) を確かめること' "$command_file"
+grep -F -- '4 のセキュリティ観点の監査ブロックを起動した run も、この節を飛ばし' "$command_file"
+grep -F -- 'これは「作業ツリーの差分だけが対象」でも「head がチェックアウトされていない」でもないので、`/aidd:issue-implement` が自分で `/security-review` を実行し直す対象に当たらない' "$command_file"
+grep -F -- '起動の後: git もほかのコマンドも動かさない' "$command_file"
+if grep -F -- 'ブロックの後の判定者の git' "$command_file"; then
+  echo "after the launch the judge uses no git at all" >&2
+  exit 1
+fi
 # Throwaway clone (#171 fourth review): the session runs outside the judge's tree; what it can still
 # reach with the user's rights is compared, and the judge's later git follows the exit code.
 grep -F -- '判定者の作業ツリーの外に下のブロックが作る使い捨ての clone で起動する' "$command_file"
 grep -F -- '`shutil.which` で git の絶対パスを決め' "$command_file"
-grep -F -- 'clone で動かしても、絶対パスで判定者のリポジトリに書くこと、利用者全体の設定 (`~/.gitconfig`・PATH 上のディレクトリ・shell の設定など) を書き換えることは防げない' "$command_file"
-grep -F -- 'ハッシュの行を表示したあと (新しいセッションが動いたあと) に1で終わった場合は、このリポジトリで git を動かさずに止まり' "$command_file"
+grep -F -- 'clone で動かしても、絶対パスで判定者のリポジトリ (`.git` の設定・hooks・index・refs、作業ツリー。無視されたファイルを含む) に書くこと' "$command_file"
 grep -F -- '未実測: clone で起動する方式は、本物の `claude -p` では実測していない' "$command_file"
-grep -F -- '`/aidd:issue-implement` が「未実行の監査を自分で `/security-review` として実行する」経路に毎回入りうる。その経路では、実装したセッションの文脈に差分の展開が入る' "$command_file"
+grep -F -- '読み違えて issue-implement が自分で実行すると、実装したセッションの文脈に差分の展開が入る' "$command_file"
 grep -F -- '判定に使うのは、受けながら sha256 を取ったメモリの中のバイト列だけで、`<stem>.txt` を読み直さない' "$command_file"
 # No exit 0 (#171 third review): the session can write its own stdout, so output never proves the range.
 grep -F -- '新しいセッションは利用者と同じ権限で動き、自分の出力 (stdout へのイベントの差し込みを含む) を自由に作れるので、出力の中身で監査した範囲を証明できない' "$command_file"
@@ -450,8 +453,7 @@ grep -F -- '常に2で終わる (監査した範囲を確かめられないた�
 grep -F -- '偽のイベントで終了コードは変わらない' "$command_file"
 grep -F -- '`GIT_CONFIG_NOSYSTEM=1`・`GIT_CONFIG_GLOBAL=/dev/null`・`GIT_ATTR_NOSYSTEM=1`・`GIT_NO_REPLACE_OBJECTS=1`・`-c core.attributesFile=/dev/null`・`-c core.fsmonitor=false`' "$command_file"
 grep -F -- '`setsid` などでグループを抜けた子は止められない' "$command_file"
-grep -F -- '最終判定の直前に、判定者は作業ツリーと `HEAD` をもう一度確かめる' "$command_file"
-grep -F -- 'シンボリックリンクに置き換えられていないこと (`os.lstat`) を確かめ' "$command_file"
+grep -F -- 'シンボリックリンクに置き換えられていない・消されていないこと (`os.lstat`) を確かめてから読み取り専用にする' "$command_file"
 if grep -F -- 'security-review run: checked' "$command_file"; then
   echo "the block must have no confirmed (exit 0) path" >&2
   exit 1
@@ -558,6 +560,8 @@ bg)
   # a process left in the session's group edits the judge's tree after the block's checks
   ( until [ -e "$SR_TMP/run/security-review-round2.sha256" ]; do :; done; sleep 0.5; echo late >"$SR_JUDGE/app.txt" ) \
     </dev/null >/dev/null 2>&1 & ;;
+sumsplant) : >"${SR_RAW%.txt}.sha256" ;;
+rawrm) rm -f "${SR_RAW%.txt}-stderr.txt" ;;
 rawlink)
   rm -f "$SR_RAW"
   ln -s "$SR_TMP/victim" "$SR_RAW" ;;
@@ -693,8 +697,11 @@ for sr_f in security-review-round1.txt security-review-round1-stderr.txt; do
   [ "$(awk -v f="$sr_f" '$2 == f {print $1}' "$sr_tmp/run/security-review-round1.sha256")" = \
     "$(shasum -a 256 "$sr_tmp/run/$sr_f" | awk '{print $1}')" ]
 done
-printed=$(sed -n 's/.*security-review-round1\.sha256 sha256 \([0-9a-f]\{64\}\).*/\1/p' "$sr_out")
-[ "$printed" = "$(shasum -a 256 "$sr_tmp/run/security-review-round1.sha256" | awk '{print $1}')" ]
+grep -Fx -- 'security-review run: launching' "$sr_out"
+printed=$(sed -n 's/.*security-review-round1\.txt sha256 \([0-9a-f]\{64\}\).*/\1/p' "$sr_out")
+[ "$printed" = "$(shasum -a 256 "$sr_tmp/run/security-review-round1.txt" | awk '{print $1}')" ]
+# the launching line comes before the hash line
+[ "$(grep -n 'security-review run: launching' "$sr_out" | cut -d: -f1)" -lt "$(grep -n 'sha256' "$sr_out" | head -1 | cut -d: -f1)" ]
 (cd "$sr_tmp/run" && shasum -a 256 -c security-review-round1.sha256 >/dev/null)
 [ ! -w "$sr_tmp/run/security-review-round1.txt" ]
 [ ! -w "$sr_tmp/run/security-review-round1-stderr.txt" ]
@@ -738,21 +745,20 @@ fi
 [ ! -e "$sr_tmp/log.args" ]
 grep -F -- 'already exists' "$sr_tmp/out-security-review-round1"
 sr_clear
-# Exit 1 (not run, nothing printed for the judge) or 2 (ran, result printed). The judge-side cases
-# write through absolute paths, which a session with the user's rights can do from the clone.
-sr_judge="the judge's repository"
+# Exit 1 (not run, nothing printed for the judge) or 2 (ran, result printed). After the launch the
+# block runs no git and compares nothing on the judge's side, so writes the session makes there through
+# absolute paths (commits, config with commands, hooks, index flags, another git on PATH) do not change
+# the exit code and run nothing inside the block; the judge runs nothing afterwards either (SKILL.md).
 for sr_case in '1:nocmd:is not a command of the new session' '1:error:did not end with a successful result' \
   '1:iserror:did not end with a successful result' '1:empty:did not end with a successful result' \
   '1:notlast:did not end with a successful result' '1:init0:no single init event' \
   '1:init2:no single init event' '1:cwd:ran in another directory' '1:exit1:claude exited 1' \
   '1:nocwd:ran in another directory' '1:emptycwd:ran in another directory' \
-  '1:tamper:the raw output file changed after it was written' '1:rawlink:was replaced during the run' \
+  '1:tamper:the raw output file changed after it was written' '1:rawlink:was replaced or removed during the run' \
+  '1:rawrm:was replaced or removed during the run' '1:sumsplant:could not be created' \
   '1:marker:contains the block' '1:status:contains the block' \
-  "1:commit:$sr_judge" '1:dirty:uncommitted or untracked changes after the run' \
-  "1:config:$sr_judge" "1:hooks:$sr_judge" "1:skipwt:$sr_judge" "1:assume:$sr_judge" \
-  "1:infoattr:$sr_judge" "1:commondir:$sr_judge" "1:replace:$sr_judge" \
-  "1:pathgit:the user's git setup" \
-  '2:files:-' '2:noexpand:-' '2:measured:-'; do
+  '2:commit:-' '2:dirty:-' '2:config:-' '2:hooks:-' '2:skipwt:-' '2:assume:-' '2:infoattr:-' '2:commondir:-' \
+  '2:replace:-' '2:pathgit:-' '2:files:-' '2:noexpand:-' '2:measured:-'; do
   sr_want=${sr_case%%:*}
   sr_rest=${sr_case#*:}
   sr_mode=${sr_rest%%:*}
@@ -764,20 +770,18 @@ for sr_case in '1:nocmd:is not a command of the new session' '1:error:did not en
     exit 1
   fi
   sr_out="$sr_tmp/out-security-review-round2"
+  grep -Fx -- 'security-review run: launching' "$sr_out"
+  # every run that launched prints the stream hash first, whatever happens to the files afterwards
+  grep -E -- 'security-review-round2\.txt sha256 [0-9a-f]{64}' "$sr_out"
   if [ "$sr_mode" = rawlink ]; then
-    # replaced by a link: refused before anything is hashed or made read-only
-    if grep -F -- 'sha256' "$sr_out"; then exit 1; fi
     [ -w "$sr_tmp/victim" ]
-  else
-    grep -E -- 'security-review-round2\.sha256 sha256 [0-9a-f]{64}' "$sr_out"
-  fi
-  if [ "$sr_mode" = tamper ]; then
+  elif [ "$sr_mode" = tamper ]; then
     # The recorded hash is the streamed one, so the changed file no longer matches it.
     if (cd "$sr_tmp/run" && shasum -a 256 -c security-review-round2.sha256 >/dev/null 2>&1); then
       echo "the recorded hash must be the one taken while the output was streamed" >&2
       exit 1
     fi
-  elif [ "$sr_mode" != rawlink ]; then
+  elif [ "$sr_mode" != rawrm ] && [ "$sr_mode" != sumsplant ]; then
     (cd "$sr_tmp/run" && shasum -a 256 -c security-review-round2.sha256 >/dev/null)
   fi
   if [ "$sr_want" = 1 ]; then
@@ -790,15 +794,13 @@ for sr_case in '1:nocmd:is not a command of the new session' '1:error:did not en
     grep -Fx -- 'security-review run: ran; the audited range is not confirmed' "$sr_out"
     grep -F -- 'No vulnerabilities found.' "$sr_out"
   fi
-  # whatever the session wrote, the block's own git ran none of it
+  # whatever the session wrote, the block ran none of it
   if [ -e "$sr_tmp/pwned" ]; then
-    echo "mode $sr_mode: a command written by the new session ran on the judge's side" >&2
+    echo "mode $sr_mode: a command written by the new session ran inside the block" >&2
     exit 1
   fi
   sr_clear
-  case $sr_mode in 2:* | files | noexpand | measured | nocmd | error | iserror | empty | notlast | init0 | init2 | cwd | \
-    exit1 | nocwd | emptycwd | tamper | rawlink | marker | status) ;;
-  *)
+  case $sr_mode in commit | dirty | config | hooks | skipwt | assume | infoattr | commondir | replace | pathgit)
     sr_repo
     sr_commit app.txt app
     ;;
@@ -884,30 +886,22 @@ sr_repo
 rm "$sr_work/oldlink"
 sr_commit oldlink plain
 sr_refused 'symbolic link' ok security-review-final
-# Per-worktree config: with extensions.worktreeConfig, config.worktree is in the compared config, so a
-# filter added there is caught before the block's git status could run it.
+# Per-worktree config (extensions.worktreeConfig): a filter the session adds to config.worktree is not
+# run inside the block, which runs no git after the launch.
 sr_repo
 sr_commit app.txt app
 git -C "$sr_work" config extensions.worktreeConfig true
-if sr_run wtconfig security-review-round1; then
-  echo "a filter added to config.worktree must be caught" >&2
-  exit 1
-fi
-grep -F -- "$sr_judge" "$sr_tmp/out-security-review-round1"
+sr_ran wtconfig security-review-round1
 [ ! -e "$sr_tmp/pwned" ]
 sr_probe
 sr_clear
-# A local include is listed with --includes, so a driver added to it is caught before git status.
+# A driver added through a local include is not run inside the block either.
 sr_repo
 sr_commit app.txt app
 : >"$sr_tmp/local-inc.cfg"
 git -C "$sr_work" config include.path "$sr_tmp/local-inc.cfg"
 printf '* filter=x\n' >"$(git -C "$sr_work" rev-parse --path-format=absolute --git-common-dir)/info/attributes"
-if sr_run localinclude security-review-round1; then
-  echo "a filter added through a local include must be caught" >&2
-  exit 1
-fi
-grep -F -- "$sr_judge" "$sr_tmp/out-security-review-round1"
+sr_ran localinclude security-review-round1
 [ ! -e "$sr_tmp/pwned" ]
 sr_probe
 sr_clear
@@ -917,16 +911,12 @@ sr_commit app.txt app
 sr_git -C "$sr_work" switch -q --detach
 sr_git -C "$sr_work" worktree add -q "$sr_tmp/wt$sr_n" feat
 sr_work=$(cd "$sr_tmp/wt$sr_n" && pwd -P)
-if sr_run wtgit security-review-round1; then
-  echo "a .git file pointing elsewhere must be caught" >&2
-  exit 1
-fi
-grep -F -- "$sr_judge" "$sr_tmp/out-security-review-round1"
+sr_ran wtgit security-review-round1
 [ ! -e "$sr_tmp/pwned" ]
 sr_probe
 sr_clear
-# The user's git setup: a filter in the global config, or only the user's attributes file (the driver
-# already sits in the repository config). The block's git reads neither and the change is caught.
+# The user's git setup: a filter through the global config, or only the user's attributes file (the
+# driver already sits in the repository config). Nothing of it runs inside the block.
 # These cases use a HOME owned by this test; the block drops inherited GIT_* variables.
 sr_home="$sr_tmp/home"
 for sr_case in global userattr; do
@@ -944,11 +934,7 @@ for sr_case in global userattr; do
   (
     unset GIT_CONFIG_GLOBAL XDG_CONFIG_HOME
     export HOME="$sr_home"
-    if sr_run "$sr_case" security-review-round1; then
-      echo "a change to the user's git setup must be caught" >&2
-      exit 1
-    fi
-    grep -F -- "the user's git setup" "$sr_tmp/out-security-review-round1"
+    sr_ran "$sr_case" security-review-round1
     [ ! -e "$sr_tmp/pwned" ]
     sr_probe
   ) # no "|| ..." here: it would turn off set -e inside the subshell
