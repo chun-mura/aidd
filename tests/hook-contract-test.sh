@@ -1863,6 +1863,95 @@ assert o["agent_message"] == o["user_message"]
 assert "hookSpecificOutput" not in o
 '
 
+# #181: a lone surrogate (JSON.stringify writes one as \ud800) must not lose a computed verdict, called
+# directly (Claude Code) or through the adapter. The children read it as Node does (U+FFFD), and a lone
+# surrogate from elsewhere (an undecodable environment value) is escaped on output. A correct verdict,
+# including no output, is not counted as a skip.
+python3 - "$adapter" "$write_guard" "$dispatcher" "$repo" "$tmp_dir/surrogate" <<'PYEOF'
+import json, os, subprocess, sys
+from pathlib import Path
+
+adapter, guard, dispatcher, repo, root = sys.argv[1:]
+root = Path(root)
+project = root / "project"
+project.mkdir(parents=True)
+(project / "a�.draft").write_text("x")
+lone = "\ud800"
+base_env = {k: v for k, v in os.environ.items() if not k.startswith(("AIDD_", "CURSOR_"))}
+
+
+def run(argv, event, state, **extra):
+    env = dict(base_env, AIDD_TEST_STATE_DIR=str(state), **extra)
+    # json.dumps escapes the lone surrogate as \ud800, as JSON.stringify does.
+    result = subprocess.run(argv, input=json.dumps(event).encode("ascii"), capture_output=True, env=env, timeout=30)
+    assert result.returncode == 0, result
+    return result.stdout.decode("utf-8")
+
+
+def specific(out):
+    return json.loads(out)["hookSpecificOutput"]
+
+
+def bash_event(command, cwd=repo):
+    return {"hook_event_name": "PreToolUse", "session_id": "s181", "tool_name": "Bash", "cwd": cwd,
+            "tool_input": {"command": command}}
+
+
+def write_event(path):
+    return {"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": str(project), "tool_input": {"file_path": str(path)}}
+
+
+direct = root / "direct-state"
+# write-guard, direct
+s = specific(run(["bash", guard], write_event(project / f".env.{lone}"), direct))
+assert s["permissionDecision"] == "deny" and ".env.�" in s["permissionDecisionReason"], s
+# The file Node would write (U+FFFD) already exists, so it is an edit, not a new file.
+assert run(["bash", guard], write_event(project / f"a{lone}.draft"), direct, AIDD_UNREADABLE_NAME_PATTERNS="*.draft") == ""
+s = specific(run(["bash", guard], write_event(project / f".claude/skills/new{lone}/SKILL.md"), direct,
+                 AIDD_ASSET_OVERLAP_PLUGINS="/missing\udcff"))
+assert "Could not read" in s["additionalContext"] and "/missing\udcff" in s["additionalContext"], s
+# tool-reminder, direct
+s = specific(run(["bash", dispatcher], bash_event(f"git reset --hard # {lone}"), direct))
+assert s["permissionDecision"] == "deny", s
+s = specific(run(["bash", dispatcher], bash_event(f"gh issue create -R o/r{lone} --title t"), direct))
+assert s["permissionDecision"] == "deny" and "o/r�" in s["permissionDecisionReason"], s
+s = specific(run(["bash", dispatcher], bash_event(f"git -C {repo}/{lone} commit -a -m x"), direct))
+assert s["permissionDecision"] == "deny" and "git commit -a" in s["permissionDecisionReason"], s
+s = specific(run(["bash", dispatcher], bash_event("gh issue create -R o/r --title t"), direct,
+                 AIDD_REQUIRED_LABEL_PREFIX="p\udcff"))
+assert s["permissionDecision"] == "deny" and "p\udcff" in s["permissionDecisionReason"], s
+
+# Through the adapter: Cursor Write / Shell and Codex apply_patch keep the deny and count nothing.
+def cursor(event, name):
+    return dict(event, hook_event_name="preToolUse", cursor_version="1.7.0", tool_name=name)
+
+
+def adapter_deny(script, event, case):
+    state = root / case
+    o = json.loads(run(["bash", adapter, script], event, state))
+    deny = o.get("permission") == "deny" or o.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+    assert deny, (case, o)
+    assert not (state / "adapter-skips.json").exists(), case
+    return o
+
+
+assert ".env.�" in adapter_deny("write-guard.sh", cursor(write_event(project / f".env.{lone}"), "Write"), "cursor-env")["user_message"]
+patch = {"hook_event_name": "PreToolUse", "tool_name": "apply_patch", "cwd": str(project),
+         "tool_input": {"command": f"*** Begin Patch\n*** Add File: .env.{lone}\n+x\n*** End Patch\n"}}
+adapter_deny("write-guard.sh", patch, "codex-env")
+adapter_deny("tool-reminder.sh", cursor(bash_event(f"git reset --hard # {lone}"), "Shell"), "cursor-reset")
+adapter_deny("tool-reminder.sh", cursor(bash_event(f"gh issue create -R o/r{lone} --title t"), "Shell"), "cursor-issue")
+adapter_deny("tool-reminder.sh", cursor(bash_event(f"git -C {repo}/{lone} commit -a -m x"), "Shell"), "cursor-commit")
+for case, script, event in (
+    ("pass-shell", "tool-reminder.sh", cursor(bash_event(f"git status # {lone}"), "Shell")),
+    ("pass-write", "write-guard.sh", cursor(write_event(project / f"notes{lone}.md"), "Write")),
+):
+    state = root / case
+    assert run(["bash", adapter, script], event, state) == "", case
+    assert not (state / "adapter-skips.json").exists(), case
+print("lone surrogate cases: OK")
+PYEOF
+
 # python3 missing → adapter-skips.json, no sentinel file.
 nopy_bin="$tmp_dir/nopy-bin"
 mkdir -p "$nopy_bin"
