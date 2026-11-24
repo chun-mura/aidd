@@ -412,6 +412,14 @@ grep -F -- '未実測' "$command_file"
 grep -F -- '実測 (2026-11-24、Claude Code 2.1.331' "$command_file"
 grep -F -- '展開したプロンプト (FILES MODIFIED を含む) は stream-json に出なかった' "$command_file"
 grep -F -- '2で終わった場合は、監査は走ったが確定した差分と同じ範囲を監査したと確かめられないので、`perspective_reviews.executed` は `false`、`human_required` (`human_required_reason` は `review_incomplete`) とする' "$command_file"
+# Replay was measured too: it carries only the command tags; the transcript was deliberately not read.
+grep -F -- 'replay の user イベントは `<command-message>` と `<command-name>` のタグだけで、展開した本文を含まなかった' "$command_file"
+grep -F -- 'ディスク上の会話の記録は確かめていない (利用者の設定ディレクトリを読む設計を避けるため、確かめないと判断した)' "$command_file"
+grep -F -- 'このため今の版ではブロックが2で終わり、`/security-review` の監査は `review_incomplete` になる' "$command_file"
+if grep -F -- 'ディスク上の会話の記録から、展開したプロンプトを確かめられるか' "$command_file"; then
+  echo "replay and the transcript are no longer unmeasured candidates" >&2
+  exit 1
+fi
 if grep -F -- 'stream-json に展開した FILES MODIFIED が出るか' "$command_file"; then
   echo "the measured points must not stay listed as unmeasured" >&2
   exit 1

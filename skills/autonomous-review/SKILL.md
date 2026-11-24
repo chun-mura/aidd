@@ -336,7 +336,8 @@ PY
 - 新しいセッションは差分の本文を自分のプロンプトとして受け取るので、差分に書かれた指示で監査の結果が偏る (指摘を出さないなど) おそれは残る。指摘が無いことは安全の証明ではない。新しいセッションは user 設定 (hook・CLAUDE.md・プラグイン) を読み込み、会話の記録などを実行IDディレクトリの外にも書く
 - 改ざんを見つける拠り所は、ブロックが表示したハッシュの行 (このセッションのツールの出力) である。実行IDディレクトリのファイルは、読み取り専用を外せば書き換えられ、`<stem>.sha256` ごと作り直されても、表示された値と比べなければ見つけられない
 - 実測 (2026-11-24、Claude Code 2.1.331、1ファイルだけ変えた使い捨てのリポジトリで1回): init の `slash_commands` に `security-review` があり、`-p` でコマンドが展開されて監査が走った (差分の hunk が、新しいセッションが委譲した subagent のプロンプトに入っていた)。展開したプロンプト (FILES MODIFIED を含む) は stream-json に出なかった。そのためこの版ではブロックが毎回2で終わり、`/security-review` の監査は `review_incomplete` になる。`--permission-mode dontAsk` で、展開の `git` は差分を出せたが、subagent の Bash の呼び出し2回が拒否され (`permission_denials`)、Read で続けて result は `success` だった。費用は `total_cost_usd` で約 0.39 USD、所要は約53秒。新しいセッションは user のプラグインを読み込み、そのプラグインの agent に監査を委譲した (監査の中身は user の環境で変わる)。init の前に SessionStart の hook のイベントが出た
-- 未実測: `--setting-sources user` で、プロジェクトの skill・コマンドの読み込みまで止まるか (上のとおり、該当するファイルを変える差分では起動しない)。`--input-format stream-json --replay-user-messages` やディスク上の会話の記録から、展開したプロンプトを確かめられるか
+- replay (`--input-format stream-json --replay-user-messages`) でも、展開した本文は確かめられない (実測 2026-11-24、Claude Code 2.1.331、1回)。replay の user イベントは `<command-message>` と `<command-name>` のタグだけで、展開した本文を含まなかった。ディスク上の会話の記録は確かめていない (利用者の設定ディレクトリを読む設計を避けるため、確かめないと判断した)。このため今の版ではブロックが2で終わり、`/security-review` の監査は `review_incomplete` になる
+- 未実測: `--setting-sources user` で、プロジェクトの skill・コマンドの読み込みまで止まるか (上のとおり、該当するファイルを変える差分では起動しない)
 
 ### deferred の追跡
 
