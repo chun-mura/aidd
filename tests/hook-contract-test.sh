@@ -1838,6 +1838,11 @@ cursor_read "file://%6cocalhost$alias_dir/alias.md?x#y "; adapter_gate | expect_
 cursor_read "file://$repo_root\\skills\\x\\%2e%2e\\autonomous-review\\SKILL.md"; adapter_gate | expect_cursor_deny
 cursor_read "file://$alias_dir/other.md"; expect_adapter_pass
 cursor_read "file://[bad/autonomous-review/SKILL.md"; expect_adapter_pass
+# When fileURLToPath throws, Cursor resolves the raw text, whose .. may climb back to the SKILL.md.
+up=$(printf '/..%.0s' $(seq 40))
+for bad in '/%2f?' 'evil/?' '/%ff#'; do
+  cursor_read "file://$bad$up$repo_root/skills/autonomous-review/SKILL.md" /work; adapter_gate | expect_cursor_deny
+done
 cursor_read "$alias_dir/nonexist/../other.md"; expect_adapter_pass
 cursor_read "$alias_dir/nonexist.md"; expect_adapter_pass
 cursor_read "$repo_root/skills/design-review/../design-review/SKILL.md"; expect_adapter_pass

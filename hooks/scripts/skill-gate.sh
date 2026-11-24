@@ -43,27 +43,31 @@ elif event.get("tool_name") == "Read":
     path = tool_input.get("file_path")
     own = os.path.join(plugin_root, "skills", "autonomous-review", "SKILL.md")
     if isinstance(path, str) and path:
+        candidates = [path]
         if path.startswith("file://"):
-            # Cursor opens a file URI as the path it names (Node fileURLToPath, WHATWG URL rules), before ~
-            # and cwd. Follow those rules erring toward the SKILL.md: drop tabs and newlines and trailing
-            # controls and spaces, read "\\" as "/", ignore the host, query and fragment, and percent-decode.
+            # Cursor opens a file URI as the path it names (Node fileURLToPath, WHATWG URL rules), and the
+            # raw text itself when that conversion throws, before ~ and cwd. Check both. For the URI, follow
+            # those rules erring toward the SKILL.md: drop tabs and newlines and trailing controls and spaces,
+            # read "\\" as "/", ignore the host, query and fragment, and percent-decode.
             rest = re.sub(r"[\t\n\r]", "", path).rstrip("".join(map(chr, range(0x21))))
             rest = rest[len("file://"):].replace("\\", "/")
             if "/" in rest:
-                path = urllib.parse.unquote(re.split(r"[?#]", rest[rest.index("/"):], maxsplit=1)[0])
-        path = os.path.expanduser(path)
+                candidates.append(urllib.parse.unquote(re.split(r"[?#]", rest[rest.index("/"):], maxsplit=1)[0]))
         cwd = event.get("cwd")
-        if isinstance(cwd, str) and cwd:
-            path = os.path.join(cwd, path)  # a relative path is the reader's, not this hook's
         def same(candidate):
             try:
                 return os.path.samefile(candidate, own)
             except (OSError, ValueError):
                 return False  # nothing there to read, or not a path (NUL)
-        # The reader may resolve the path as text (a missing directory before .., or past PATH_MAX),
-        # so a path that names the SKILL.md only once normalized is refused too.
-        if same(path) or same(os.path.normpath(path)):
-            reply("deny", deny_reason)
+        for candidate in candidates:
+            candidate = os.path.expanduser(candidate)
+            if isinstance(cwd, str) and cwd:
+                candidate = os.path.join(cwd, candidate)  # a relative path is the reader's, not this hook's
+            # The reader may resolve the path as text (a missing directory before .., or past PATH_MAX),
+            # so a path that names the SKILL.md only once normalized is refused too.
+            if same(candidate) or same(os.path.normpath(candidate)):
+                reply("deny", deny_reason)
+                break
 PYEOF
 )
 
