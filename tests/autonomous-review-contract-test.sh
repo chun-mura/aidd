@@ -98,6 +98,69 @@ grep -F -- '`S<N>-<n>` はそのラウンドの `rounds[].finding_ids` に入れ
 # Later rounds compare against the diff up to that round's target commit.
 grep -F -- '確定した差分 (`<base_sha>...<そのラウンドの対象コミット>`。1ラウンド目は head、2ラウンド目以降は修正後のコミット)' "$command_file"
 grep -F -- '`id` は主レビューの `R<n>` と重ならないよう `S<N>-<n>` (`<N>` はラウンド) とし' "$command_file"
+# Files whose body git diff hides (-diff, binary) still pass the file-set and merge-base checks,
+# so the diff output itself must reveal them, and they never count as reviewed (#170).
+grep -F -- '### 本文が出ないファイル' "$command_file"
+grep -F -- '同じ作業ディレクトリ・同じ範囲・同じオプションに `--numstat -z` を足した `git diff` を取り、追加・削除の行数が両方 `-` のファイルを「本文が出ないファイル」とする' "$command_file"
+grep -F -- '作業ツリー差分ではステージ済み (`--staged`) と未ステージの両方で取る' "$command_file"
+grep -F -- 'レビュー・監査した範囲に数えない' "$command_file"
+grep -F -- 'ほかのファイルのレビューは続け、ファイルの一覧を `residual_risks` と `report.md` に記録し、最終判定は `human_required` (`human_required_reason` は `review_incomplete`) とする' "$command_file"
+grep -F -- '本当のバイナリ (画像など) と、`-diff` で本文を隠したテキストを区別しない' "$command_file"
+grep -F -- '`--text` (`-a`) で本文を出さない' "$command_file"
+# The three places that read or match the diff all point at the same rule.
+grep -F -- '1. 確定した差分（2ラウンド目以降は前ラウンドの修正差分と必要な周辺文脈）を読み、上の「本文が出ないファイル」を検出し' "$command_file"
+grep -F -- 'スナップショットに中身があっても、レビュー担当が読んだとは確かめられないので、上の「本文が出ないファイル」に従ってレビュー済みに数えない' "$command_file"
+grep -F -- '`origin/HEAD...HEAD` で上の「本文が出ないファイル」の検出もし、1件でもあれば' "$command_file"
+grep -F -- '本文が出ないファイルなし' "$command_file"
+if grep -E -- 'git diff [^`]*(--text|-a)( |`)' "$command_file"; then
+  echo "the diffs must not force hidden bodies out with --text; such files are detected and left unreviewed" >&2
+  exit 1
+fi
+# Reproduce in a throwaway repository: the hidden files appear in --name-only but not as hunks,
+# and the documented --numstat -z check finds exactly them, for branch and working-tree diffs.
+hidden_tmp=$(mktemp -d "${TMPDIR:-/tmp}/aidd-ar-hidden.XXXXXX")
+trap 'rm -rf "$hidden_tmp"' EXIT
+hidden_git() { git -C "$hidden_tmp" -c user.name=t -c user.email=t@example.invalid "$@"; }
+hidden_files() {
+  hidden_git diff --no-ext-diff --no-relative --ignore-submodules=none --numstat -z "$@" |
+    while IFS=$'\t' read -r -d '' added deleted path; do
+      if [ -z "$path" ]; then # rename: source and destination follow as NUL-separated fields
+        IFS= read -r -d '' path
+        IFS= read -r -d '' path
+      fi
+      if [ "$added" = - ] && [ "$deleted" = - ]; then printf '%s\n' "$path"; fi
+    done
+}
+hidden_git init -q -b main
+hidden_git commit -q --allow-empty -m init
+hidden_git switch -q -c feat
+printf 'hidden.txt -diff\n' >"$hidden_tmp/.gitattributes"
+printf 'hidden-body-marker\n' >"$hidden_tmp/hidden.txt"
+printf '\211PNG\000\001\002' >"$hidden_tmp/img.png"
+printf 'plain-body-marker\n' >"$hidden_tmp/plain.txt"
+hidden_git add -- .gitattributes hidden.txt img.png plain.txt
+hidden_git commit -q -m add
+branch_diff=$(hidden_git diff --no-ext-diff --no-relative --ignore-submodules=none main...feat)
+grep -F -- 'plain-body-marker' <<<"$branch_diff"
+grep -F -- 'Binary files /dev/null and b/hidden.txt differ' <<<"$branch_diff"
+grep -F -- 'Binary files /dev/null and b/img.png differ' <<<"$branch_diff"
+if grep -F -- 'hidden-body-marker' <<<"$branch_diff"; then
+  echo "premise changed: git diff now shows the body of a -diff file" >&2
+  exit 1
+fi
+names=$(hidden_git diff --no-ext-diff --no-relative --ignore-submodules=none --name-only main...feat)
+grep -Fx -- 'hidden.txt' <<<"$names"
+grep -Fx -- 'img.png' <<<"$names"
+[ "$(hidden_files main...feat | sort)" = "$(printf 'hidden.txt\nimg.png')" ]
+printf 'more\n' >>"$hidden_tmp/hidden.txt"
+printf '\000\003' >>"$hidden_tmp/img.png"
+hidden_git add -- img.png
+printf 'more\n' >>"$hidden_tmp/plain.txt"
+[ "$(hidden_files --staged)" = 'img.png' ]
+[ "$(hidden_files)" = 'hidden.txt' ]
+hidden_git commit -q -m more -- img.png
+hidden_git mv img.png moved.png
+[ "$(hidden_files --staged)" = 'moved.png' ]
 # Inside the perspective-review step, aidd:security-reviewer may appear only in the two exclusion
 # sentences; once they are removed, no other mention (such as a rephrased "also run it") may remain.
 perspective_step=$(awk '/^4\. 差分の性質に応じて観点別レビューを追加で実行する/{on=1} /^5\. 各有効な指摘/{on=0} on' "$command_file")
