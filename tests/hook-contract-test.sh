@@ -1059,6 +1059,28 @@ denied_with 'config/*.draft' "$project/config/a.draft"
 
 # Paths that match nothing produce no output.
 [ -z "$(run_write_guard Write file_path "$project/src/main.py")" ]
+
+# Contrast pairs for the default list: real key and credential names are refused, ordinary source
+# names that only share a word with them are not.
+for name in id_ed25519 server.pem .env aws_credentials; do
+  run_write_guard Write file_path "$project/$name" | grep -qF '"deny"'
+done
+for name in token_counter.py tokenizer.ts; do
+  [ -z "$(run_write_guard Write file_path "$project/src/$name")" ]
+done
+# The defaults are substring globs taken from common denyRead settings, so they also refuse
+# ordinary names. A project whose sandbox does not deny those replaces the list with its own
+# patterns, and the patterns it names keep being refused.
+run_write_guard Write file_path "$project/src/secretary.ts" | grep -qF "'*secret*'"
+run_write_guard Write file_path "$project/.env.example" | grep -qF "'.env.*'"
+run_write_guard Write file_path "$project/src/mycredentials_adapter.ts" | grep -qF "'*credential*'"
+own_patterns='.env:*.pem:id_ed25519*'
+for name in src/secretary.ts .env.example src/mycredentials_adapter.ts; do
+  [ -z "$(AIDD_UNREADABLE_NAME_PATTERNS=$own_patterns run_write_guard Write file_path "$project/$name")" ]
+done
+for name in .env server.pem id_ed25519; do
+  AIDD_UNREADABLE_NAME_PATTERNS=$own_patterns run_write_guard Write file_path "$project/$name" | grep -qF '"deny"'
+done
 [ -z "$(printf '{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{}}' | bash "$write_guard")" ]
 
 # The pattern list is replaceable, and the guard can be turned off.
