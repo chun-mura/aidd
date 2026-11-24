@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.86.0 (2026-11-24)
+
+- `autonomous-review`: `.gitattributes` の `-diff` やバイナリ扱い (`core.bigFileThreshold` を含む) で差分の本文が出ないファイルを、本文を確かめないまま「レビュー済み」「監査済み」に数えていたのを直した (#170)。差分の出力そのもの (`--numstat -z` で追加・削除の行数が両方 `-`) で検出し、手順1・Codex に渡す差分・`/security-review` の照合で扱いをそろえ、該当すればそのファイルを未レビューとして `human_required` (`review_incomplete`) にする。ほかのファイルのレビューと `/security-review` の指摘の検証は続け、`/security-review` の `executed` は `false` にする。本当のバイナリと `-diff` で隠したテキストは区別しない (どちらも本文を読んでいない。属性は作業ツリーから読まれることがある)。`--text` は使わない (制御文字や巨大な中身がプロンプトに入るため)。削除と、blob が同じ変更 (中身が同じ rename、mode だけの変更) は対象から外す
+- 帰結: バイナリの追加や中身の変更を含む差分は `auto_merge_eligible` にならず、`gh pr create` 前の警告が出続ける。既知の限界: `diff.<driver>.textconv` で本文が変換・消去される場合と、`git archive` の `export-ignore` は、この検出では見つからない (#177)
+
 ## 0.84.0 (2026-11-24)
 
 - Cursor の skill gate の残課題を直した (#173)。Cursor 3.31.11 / cursor-agent 2026.10.22 のバンドルで、Read の相対パスは workspace (root が1つならその root、複数で親が同じならその親、無ければプロセスの cwd) を基点に `path.resolve` されることを確かめた。gate は `file://` の変換前の文字列だけでなく相対パス全般を、`/` と cwd のすべての祖先を基点に照合し、基点に依存せず SKILL.md を指せば拒否する (誤って拒否するのは SKILL.md を名指しするパスに限る)。`~` は Cursor と同じく `~`・`~/`・`~\` のときだけ展開し、`~user` は展開しない。workspace の root が無い Read でも gate を動かす (cwd を `/` にする。ほかの子の `no_cwd` の扱いは変えない)
