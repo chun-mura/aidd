@@ -112,7 +112,7 @@ grep -F -- '`--text` (`-a`) で本文を出さない' "$command_file"
 grep -F -- '1. 確定した差分（2ラウンド目以降は前ラウンドの修正差分と必要な周辺文脈）を読み、上の「本文が出ないファイル」を検出し' "$command_file"
 grep -F -- 'スナップショットに中身があっても、レビュー担当が読んだとは確かめられないので、上の「本文が出ないファイル」に従ってレビュー済みに数えない' "$command_file"
 # A hidden file must not drop the /security-review findings on the files whose body was shown.
-grep -F -- '判定者はブロックを起動する前に、自分のリポジトリで `<base_sha>...<対象コミット>` に対して上の「本文が出ないファイル」の検出もし' "$command_file"
+grep -F -- '判定者はブロックを実行する前に、自分のリポジトリで `<base_sha>...<対象コミット>` に対して上の「本文が出ないファイル」の検出もし' "$command_file"
 if grep -F -- '1件でもあれば確定した差分と同じ範囲を監査したと確かめられない場合として扱う' "$command_file"; then
   echo "a hidden file must not turn the whole /security-review run into not-run" >&2
   exit 1
@@ -426,12 +426,12 @@ fi
 # Review follow-ups (#171): nonce markers, the judge's hidden-file check before the launch, and how
 # issue-implement treats an audit that ran or failed.
 grep -F -- '(`<nonce>` は実行ごとのランダムな値で、2行とも同じ)' "$command_file"
-grep -F -- '上の「本文が出ないファイル」の検出 (`--numstat -z` と `--raw -z`) はブロックでは行わない。判定者がブロックを起動する前に、4 の照合のとおり `<base_sha>...<対象コミット>` で行う' "$command_file"
+grep -F -- '上の「本文が出ないファイル」の検出 (`--numstat -z` と `--raw -z`) はブロックでは行わない。判定者がブロックを実行する前に、4 の照合のとおり `<base_sha>...<対象コミット>` で行う' "$command_file"
 # After the launch the judge runs nothing in the repository (#171 fifth review).
-grep -F -- 'このリポジトリでも作業ツリーでも、git・品質ゲート・テスト・ほかのコマンドを一切動かさない' "$command_file"
+grep -F -- 'このリポジトリでも作業ツリーでも、git・`gh`・品質ゲート・テスト・ほかのコマンドを一切動かさない' "$command_file"
 grep -F -- '許すのは、ブロックが表示した結果の本文をデータとして読むこと、指摘の現物をファイルを読むこと (Read) だけで確かめること、`report.md` と `state.json` を書くこと、実行IDディレクトリのファイルに対する下の `/usr/bin/shasum` だけである' "$command_file"
 grep -F -- 'このあと git やテストを動かす前に、`.git` の設定と hooks、作業ツリー (`git status --ignored` で無視されたファイルも) を確かめること' "$command_file"
-grep -F -- '4 のセキュリティ観点の監査ブロックを起動した run も、この節を飛ばし' "$command_file"
+grep -F -- '4 のセキュリティ観点の新しいセッションを起動した run (`launching` の行が出た run) も、この節を飛ばし' "$command_file"
 grep -F -- 'これは「作業ツリーの差分だけが対象」でも「head がチェックアウトされていない」でもないので、`/aidd:issue-implement` が自分で `/security-review` を実行し直す対象に当たらない' "$command_file"
 grep -F -- '起動の後: git もほかのコマンドも動かさない' "$command_file"
 if grep -F -- 'ブロックの後の判定者の git' "$command_file"; then
@@ -444,18 +444,32 @@ grep -F -- '判定者の作業ツリーの外に下のブロックが作る使�
 grep -F -- '`shutil.which` で git の絶対パスを決め' "$command_file"
 grep -F -- 'clone で動かしても、絶対パスで判定者のリポジトリ (`.git` の設定・hooks・index・refs、作業ツリー。無視されたファイルを含む) に書くこと' "$command_file"
 grep -F -- '未実測: clone で起動する方式は、本物の `claude -p` では実測していない' "$command_file"
-grep -F -- '`/aidd:issue-implement` は、この2つの理由では自分で `/security-review` を実行し直さず、監査のブロックを起動した run のあとはそのリポジトリでコマンドを動かさない (issue-implement の 5)' "$command_file"
+grep -F -- '`/aidd:issue-implement` は、この2つの理由では自分で `/security-review` を実行し直さず、新しいセッションを起動した run のあとはそのリポジトリでコマンドを動かさない (issue-implement の 5)' "$command_file"
 # #171 sixth review: cleanup before the launch, no launch on failed, the user's view of a clean tree,
 # the local-filter limit, an absolute shasum and the /proc note.
-grep -F -- '(4 のセキュリティ観点の監査ブロックを起動する run では、起動の前) に `git worktree remove <temporary-dir>` で削除する' "$command_file"
-grep -F -- '4 のセキュリティ観点の監査ブロックを起動する run では、下の確認 (`git worktree list --porcelain`) と削除を起動の前に済ませる' "$command_file"
+grep -F -- '(4 のセキュリティ観点の監査ブロックを実行する run では、ブロックの実行の前) に `git worktree remove <temporary-dir>` で削除する' "$command_file"
+grep -F -- '4 のセキュリティ観点の監査ブロックを実行する run では、下の確認 (`git worktree list --porcelain`) と削除をブロックの実行の前に済ませる' "$command_file"
 grep -F -- '2ブランチ比較の一時worktreeとスナップショットの後片付けと `git worktree list --porcelain` での確認) をすべて済ませ' "$command_file"
-grep -F -- '判定が `failed` に確定した run (3ラウンド後に confirmed の blocker / major が残る、必須の品質ゲートが失敗する) では起動しない。セキュリティ観点を未実行 (理由は `failed` が確定したため) として記録し、`failed` を保つ' "$command_file"
+grep -F -- '判定が `failed` に確定した run (3ラウンド後に confirmed の blocker / major が残る) と、必須の品質ゲートが一つでも失敗・未確定の run (品質ゲートの節で `failed` と `human_required` のどちらを選んだかに関係なく) では、ブロックを実行しない' "$command_file"
 grep -F -- '無視の規則は利用者の global の `core.excludesFile` (無ければ XDG の `git/ignore`) を使い (無視の規則は命令を実行しない)、この skill が書く `.aidd/autonomous-review/` と `.aidd/review-dismissed.md` は除く' "$command_file"
 grep -F -- '利用者の local の設定のフィルタ (`filter.<name>.clean` など) を、差分の `.gitattributes` が当てたファイルにも使う' "$command_file"
 grep -F -- '`/usr/bin/shasum` が無ければ確かめず、確かめていないことを `report.md` に書く' "$command_file"
 grep -F -- 'git・テスト・品質ゲート・ほかのコマンドを動かしていない (ハーネスの hook と、実行IDディレクトリに対する `shasum` を除く)' "$command_file"
 grep -F -- '【未検証】Linux では、同じ利用者のプロセスが `/proc/<pid>/fd/1` からブロックの stdout' "$command_file"
+# #171 seventh review: the words "run the block" and "launch" are told apart, a signal stops the session
+# and removes the clone, the state.json check after the launch is by reading, gh is not run either.
+grep -F -- '「ブロックの実行」、ブロックが `security-review run: launching` の行を表示して新しいセッション (`claude -p`) を動かし始めることを「起動」と呼ぶ' "$command_file"
+grep -F -- '- 利用者への注意: `launching` の行が出た run (新しいセッションを起動した run) では' "$command_file"
+grep -F -- 'Bash ツールの上限に達した場合、またはハッシュの行が出なかった場合は、さらに次を書く。「新しいセッションと clone (`$TMPDIR/aidd-security-review.*`) が残っているかもしれない' "$command_file"
+grep -F -- 'SIGKILL では何も動かないので、新しいセッションと clone が残りうる' "$command_file"
+grep -F -- 'コマンド (python・jq など) を動かさず、書いた内容を読んで目で確かめる' "$command_file"
+grep -F -- '「新しいセッションを起動した: 監査は走ったが、監査した範囲を確かめられない (ブロックの終了コード2)」' "$command_file"
+grep -F -- 'この run では、4 のセキュリティ観点の監査ブロックを実行しない' "$command_file"
+grep -F -- '監査は常に `review_incomplete` で判定を良くすることがなく、新しいセッションを起動するとゲートを直すためのコマンドも動かせなくなるため' "$command_file"
+if grep -F -- 'ブロックを起動' "$command_file"; then
+  echo "say 'run the block' or 'launch the session', not 'launch the block'" >&2
+  exit 1
+fi
 grep -F -- '判定に使うのは、受けながら sha256 を取ったメモリの中のバイト列だけで、`<stem>.txt` を読み直さない' "$command_file"
 # No exit 0 (#171 third review): the session can write its own stdout, so output never proves the range.
 grep -F -- '新しいセッションは利用者と同じ権限で動き、自分の出力 (stdout へのイベントの差し込みを含む) を自由に作れるので、出力の中身で監査した範囲を証明できない' "$command_file"
@@ -528,6 +542,11 @@ sr_dir=$(gj rev-parse --path-format=absolute --git-dir)
 sr_common=$(gj rev-parse --path-format=absolute --git-common-dir)
 case "$SR_MODE" in
 exit1) exit 1 ;;
+hang)
+  # a session still running when the tool's time limit hits
+  echo $$ >"$SR_LOG.pid"
+  sleep 60
+  exit 0 ;;
 clonewrite)
   # anything inside the clone stays there
   echo changed >>app.txt
@@ -992,4 +1011,54 @@ sr_commit app.txt app
 sr_ran bg security-review-final
 sleep 2
 [ "$(cat "$sr_work/app.txt")" = app ]
+sr_clear
+# A tool time limit sends SIGTERM to the block's process group: the block stops the session's group,
+# removes the clone and ends as not run (SIGKILL cannot be handled; SKILL.md states it).
+sr_repo
+sr_commit app.txt app
+mkdir -p "$sr_tmp/run"
+sr_blk=${sr_block//"<workdir>"/$sr_work}
+sr_blk=${sr_blk//"<rundir>"/$sr_tmp/run}
+sr_blk=${sr_blk//"<stem>"/security-review-final}
+sr_blk=${sr_blk//"<base_sha>"/$sr_base}
+sr_blk=${sr_blk//"<target>"/$sr_head}
+printf '%s\n' "$sr_blk" >"$sr_tmp/block-signal.sh"
+rm -f "$sr_tmp/log".*
+SR_MODE=hang SR_LOG="$sr_tmp/log" SR_TMP="$sr_tmp" SR_JUDGE="$sr_work" PATH="$sr_tmp/bin:$PATH" \
+  python3 -I - "$sr_tmp/block-signal.sh" "$sr_tmp/out-signal" "$sr_work" "$sr_tmp/log" <<'DRIVER'
+import os, signal, subprocess, sys, time
+block, out, work, log = sys.argv[1:5]
+p = subprocess.Popen(["bash", block], cwd=work, start_new_session=True, stdin=subprocess.DEVNULL,
+                     stdout=open(out, "w"), stderr=subprocess.STDOUT)
+deadline = time.time() + 60
+while not os.path.exists(log + ".pid") and time.time() < deadline:
+    time.sleep(0.1)
+if not os.path.exists(log + ".pid"):
+    os.killpg(p.pid, signal.SIGKILL)
+    sys.exit("the fake session never started")
+os.killpg(p.pid, signal.SIGTERM)  # what a tool time limit does to the command's process group
+p.wait(timeout=30)
+pid = int(open(log + ".pid").read())
+clone = open(log + ".cwd").read().strip()
+deadline = time.time() + 20
+while time.time() < deadline:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        if not os.path.exists(clone):
+            break
+    time.sleep(0.1)
+alive = True
+try:
+    os.kill(pid, 0)
+except ProcessLookupError:
+    alive = False
+if alive:
+    os.kill(pid, signal.SIGKILL)
+    sys.exit("the fake session survived the signal")
+if os.path.exists(clone):
+    sys.exit("the clone survived the signal")
+DRIVER
+grep -F -- 'security-review run: launching' "$sr_tmp/out-signal"
+grep -F -- 'security-review run: not run: stopped by signal 15' "$sr_tmp/out-signal"
 sr_clear
