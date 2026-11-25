@@ -9,7 +9,7 @@ input=$(cat)
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}"
 
 PY_CODE=$(cat <<'PYEOF'
-import fnmatch, json, os, sys, unicodedata
+import fnmatch, json, os, re, sys, unicodedata
 
 # Claude Code has no built-in sandbox read-deny list (sandbox.filesystem.denyRead defaults to
 # unset), so these are the names commonly put in denyRead / Read() deny rules. A file created
@@ -35,6 +35,10 @@ raw_path = tool_input.get("file_path") or tool_input.get("notebook_path")
 if not isinstance(raw_path, str) or not raw_path:
     sys.exit(0)
 cwd = event.get("cwd") or os.getcwd()
+# Node writes a lone surrogate (JSON.stringify sends it as \ud800) as U+FFFD, so judge that file.
+raw_path = re.sub("[\ud800-\udfff]", "\ufffd", raw_path)
+if isinstance(cwd, str):
+    cwd = re.sub("[\ud800-\udfff]", "\ufffd", cwd)
 path = os.path.expanduser(raw_path)
 if not os.path.isabs(path):
     path = os.path.join(cwd, path)
@@ -43,12 +47,24 @@ if os.path.lexists(path):
     sys.exit(0)
 
 
+def emit(specific):
+    value = {"hookSpecificOutput": specific}
+    text = json.dumps(value, ensure_ascii=False)
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        # A lone surrogate left in the text (an undecodable environment value) has no UTF-8 form:
+        # printing it fails or writes a stray byte. Escaped, the verdict survives.
+        text = json.dumps(value)
+    print(text)
+
+
 def deny(reason):
-    print(json.dumps({"hookSpecificOutput": {
+    emit({
         "hookEventName": "PreToolUse",
         "permissionDecision": "deny",
         "permissionDecisionReason": reason,
-    }}, ensure_ascii=False))
+    })
     sys.exit(0)
 
 
@@ -149,10 +165,10 @@ def asset_overlap():
         )
     else:
         context = with_extra_plugins(kind, plugin, listing, extra)
-    print(json.dumps({"hookSpecificOutput": {
+    emit({
         "hookEventName": "PreToolUse",
         "additionalContext": context,
-    }}, ensure_ascii=False))
+    })
 
 
 # Claude Code replaces an additionalContext over 10,000 characters with a file path and a preview,
@@ -165,7 +181,8 @@ FAILED_MAX = 600
 
 
 def units(s):
-    return len(s.encode("utf-16-le")) // 2
+    # surrogatepass: a lone surrogate (an undecodable environment value) is one code unit, not an error.
+    return len(s.encode("utf-16-le", "surrogatepass")) // 2
 
 
 def one_line(value, limit):
@@ -251,6 +268,8 @@ PYEOF
 
 # -I (isolated mode) keeps the working directory off sys.path, so a json.py or asset_index.py in
 # the project cannot stand in for the real module.
-printf '%s' "$input" | python3 -I -c "$PY_CODE" "$PLUGIN_ROOT" 2>/dev/null
+# -X utf8: harnesses speak UTF-8. Under a non-UTF-8 locale, python would decode this code and
+# its input by the locale and fail to print a Japanese verdict, losing it (#184).
+printf '%s' "$input" | python3 -I -X utf8 -c "$PY_CODE" "$PLUGIN_ROOT" 2>/dev/null
 
 exit 0

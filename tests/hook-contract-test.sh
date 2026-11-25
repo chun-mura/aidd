@@ -1596,7 +1596,8 @@ for reverse in (False, True):
         paths.reverse()
     out, counts, _ = invoke(f"batch-unencodable-{reverse}", paths=paths)
     assert_deny(out)
-    assert counts == {"bad_output": 1, "script_nonzero_exit": 1}, counts
+    # A lone surrogate (#173) reaches the child escaped instead of failing the call.
+    assert counts == {"script_nonzero_exit": 1}, counts
 out, counts, _ = invoke("batch-empty-path", paths=["ok:deny", "", "exit42:empty"])
 assert_deny(out)
 assert counts == {"unparsed_patch": 1, "script_nonzero_exit": 1}, counts
@@ -1862,6 +1863,218 @@ assert o["agent_message"] == o["user_message"]
 assert "hookSpecificOutput" not in o
 '
 
+# #181: a lone surrogate (JSON.stringify writes one as \ud800) must not lose a computed verdict, called
+# directly (Claude Code) or through the adapter. The children read it as Node does (U+FFFD), and a lone
+# surrogate from elsewhere (an undecodable environment value) is escaped on output. A correct verdict,
+# including no output, is not counted as a skip.
+python3 - "$adapter" "$write_guard" "$dispatcher" "$repo" "$tmp_dir/surrogate" <<'PYEOF'
+import json, os, subprocess, sys
+from pathlib import Path
+
+adapter, guard, dispatcher, repo, root = sys.argv[1:]
+root = Path(root)
+project = root / "project"
+project.mkdir(parents=True)
+(project / "a�.draft").write_text("x")
+lone = "\ud800"
+base_env = {k: v for k, v in os.environ.items() if not k.startswith(("AIDD_", "CURSOR_"))}
+
+
+def run(argv, event, state, **extra):
+    env = dict(base_env, AIDD_TEST_STATE_DIR=str(state), **extra)
+    # json.dumps escapes the lone surrogate as \ud800, as JSON.stringify does.
+    result = subprocess.run(argv, input=json.dumps(event).encode("ascii"), capture_output=True, env=env, timeout=30)
+    assert result.returncode == 0, result
+    return result.stdout.decode("utf-8")
+
+
+def specific(out):
+    return json.loads(out)["hookSpecificOutput"]
+
+
+def bash_event(command, cwd=repo):
+    return {"hook_event_name": "PreToolUse", "session_id": "s181", "tool_name": "Bash", "cwd": cwd,
+            "tool_input": {"command": command}}
+
+
+def write_event(path):
+    return {"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": str(project), "tool_input": {"file_path": str(path)}}
+
+
+direct = root / "direct-state"
+# write-guard, direct
+s = specific(run(["bash", guard], write_event(project / f".env.{lone}"), direct))
+assert s["permissionDecision"] == "deny" and ".env.�" in s["permissionDecisionReason"], s
+# The file Node would write (U+FFFD) already exists, so it is an edit, not a new file.
+assert run(["bash", guard], write_event(project / f"a{lone}.draft"), direct, AIDD_UNREADABLE_NAME_PATTERNS="*.draft") == ""
+# A relative path is based on the cwd Node uses (U+FFFD), where the file already exists.
+(project / "d�").mkdir()
+(project / "d�/x.draft").write_text("x")
+event = dict(write_event("x.draft"), cwd=str(project / f"d{lone}"))
+assert run(["bash", guard], event, direct, AIDD_UNREADABLE_NAME_PATTERNS="*.draft") == ""
+s = specific(run(["bash", guard], write_event(project / f".claude/skills/new{lone}/SKILL.md"), direct,
+                 AIDD_ASSET_OVERLAP_PLUGINS="/missing\udcff"))
+assert "Could not read" in s["additionalContext"] and "/missing\udcff" in s["additionalContext"], s
+# tool-reminder, direct
+s = specific(run(["bash", dispatcher], bash_event(f"git reset --hard # {lone}"), direct))
+assert s["permissionDecision"] == "deny", s
+s = specific(run(["bash", dispatcher], bash_event(f"gh issue create -R o/r{lone} --title t"), direct))
+assert s["permissionDecision"] == "deny" and "o/r�" in s["permissionDecisionReason"], s
+s = specific(run(["bash", dispatcher], bash_event(f"git -C {repo}/{lone} commit -a -m x"), direct))
+assert s["permissionDecision"] == "deny" and "git commit -a" in s["permissionDecisionReason"], s
+s = specific(run(["bash", dispatcher], bash_event("gh issue create -R o/r --title t"), direct,
+                 AIDD_REQUIRED_LABEL_PREFIX="p\udcff"))
+assert s["permissionDecision"] == "deny" and "p\udcff" in s["permissionDecisionReason"], s
+# Paths that exist only as U+FFFD: git checkout <path> discards only when the path exists on disk,
+# and the cwd (a repository named with U+FFFD) must be the one the checks run in.
+for name in ("crepo", "r�"):
+    subprocess.run(["git", "init", "-q", str(root / name)], check=True)
+(root / "crepo/f�").write_text("x")
+s = specific(run(["bash", dispatcher], bash_event(f"git checkout f{lone}", str(root / "crepo")), direct))
+assert s.get("permissionDecision") == "deny" and "git checkout <path>" in s["permissionDecisionReason"], s
+s = specific(run(["bash", dispatcher], bash_event("git commit -a -m x", str(root / f"r{lone}")), direct))
+assert s["permissionDecision"] == "deny" and "git commit -a" in s["permissionDecisionReason"], s
+
+# Through the adapter: Cursor Write / Shell and Codex apply_patch keep the deny and count nothing.
+def cursor(event, name):
+    return dict(event, hook_event_name="preToolUse", cursor_version="1.7.0", tool_name=name)
+
+
+def adapter_deny(script, event, case):
+    state = root / case
+    o = json.loads(run(["bash", adapter, script], event, state))
+    deny = o.get("permission") == "deny" or o.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+    assert deny, (case, o)
+    assert not (state / "adapter-skips.json").exists(), case
+    return o
+
+
+assert ".env.�" in adapter_deny("write-guard.sh", cursor(write_event(project / f".env.{lone}"), "Write"), "cursor-env")["user_message"]
+patch = {"hook_event_name": "PreToolUse", "tool_name": "apply_patch", "cwd": str(project),
+         "tool_input": {"command": f"*** Begin Patch\n*** Add File: .env.{lone}\n+x\n*** End Patch\n"}}
+adapter_deny("write-guard.sh", patch, "codex-env")
+adapter_deny("tool-reminder.sh", cursor(bash_event(f"git reset --hard # {lone}"), "Shell"), "cursor-reset")
+adapter_deny("tool-reminder.sh", cursor(bash_event(f"gh issue create -R o/r{lone} --title t"), "Shell"), "cursor-issue")
+adapter_deny("tool-reminder.sh", cursor(bash_event(f"git -C {repo}/{lone} commit -a -m x"), "Shell"), "cursor-commit")
+for case, script, event in (
+    ("pass-shell", "tool-reminder.sh", cursor(bash_event(f"git status # {lone}"), "Shell")),
+    ("pass-write", "write-guard.sh", cursor(write_event(project / f"notes{lone}.md"), "Write")),
+):
+    state = root / case
+    assert run(["bash", adapter, script], event, state) == "", case
+    assert not (state / "adapter-skips.json").exists(), case
+print("lone surrogate cases: OK")
+PYEOF
+
+# #184: a stdout that is not UTF-8 (an ISO-8859-1 locale) must not lose a verdict whose text is not ASCII:
+# Japanese, or the U+FFFD that stands for a lone surrogate. The hooks write UTF-8 bytes, called directly or
+# through the adapter. python3 -I ignores PYTHONIOENCODING, so only a locale reproduces it; Python 3.15 and
+# later default to UTF-8 mode and have nothing to reproduce.
+python3 - "$repo_root/hooks/scripts" "$repo" "$tmp_dir/locale" <<'PYEOF'
+import json, os, subprocess, sys
+from pathlib import Path
+
+scripts, repo, root = Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3])
+project = root / "project"
+project.mkdir(parents=True)
+base_env = {k: v for k, v in os.environ.items()
+            if not k.startswith(("AIDD_", "CURSOR_", "LC_", "LANG", "LOCPATH"))}
+
+
+def stdout_encoding(env):
+    return subprocess.run(["python3", "-I", "-c", "import sys; print(sys.stdout.encoding)"], env=env,
+                          capture_output=True, text=True).stdout.strip().lower().replace("-", "")
+
+
+def find_locale():
+    # macOS ships en_US.ISO8859-1; Ubuntu ships the definitions, so build one under LOCPATH.
+    for name in ("en_US.ISO8859-1", "en_US.ISO-8859-1"):
+        env = dict(base_env, LC_ALL=name)
+        if stdout_encoding(env) != "utf8":
+            return env
+    locpath = root / "locales"
+    locpath.mkdir()
+    subprocess.run(["localedef", "-i", "en_US", "-f", "ISO-8859-1", str(locpath / "en_US.ISO-8859-1")],
+                   capture_output=True)
+    env = dict(base_env, LC_ALL="en_US.ISO-8859-1", LOCPATH=str(locpath))
+    if stdout_encoding(env) != "utf8":
+        return env
+    utf8_mode = subprocess.run(["python3", "-I", "-c", "import sys; print(sys.flags.utf8_mode)"],
+                               capture_output=True, text=True).stdout.strip()
+    assert utf8_mode == "1", "no ISO-8859-1 locale to reproduce #184 with"
+    return env
+
+
+locale_env = find_locale()
+
+
+def run(argv, event, state):
+    env = dict(locale_env, AIDD_TEST_STATE_DIR=str(state))
+    # json.dumps escapes a lone surrogate as \ud800, as JSON.stringify does.
+    result = subprocess.run(argv, input=json.dumps(event).encode("ascii"), capture_output=True, env=env, timeout=30)
+    assert result.returncode == 0, result
+    return result.stdout.decode("utf-8")
+
+
+def deny_reason(out):
+    o = json.loads(out)
+    if "permission" in o:
+        assert o["permission"] == "deny", o
+        return o["user_message"]
+    s = o["hookSpecificOutput"]
+    assert s["permissionDecision"] == "deny", s
+    return s["permissionDecisionReason"]
+
+
+def is_japanese(text):
+    return any("\u3040" <= c <= "\u9fff" for c in text)
+
+
+def write(path):
+    return {"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": str(project),
+            "tool_input": {"file_path": str(project / path)}}
+
+
+guard = ["bash", str(scripts / "write-guard.sh")]
+dispatcher = ["bash", str(scripts / "tool-reminder.sh")]
+adapter = ["bash", str(scripts / "harness-adapter.sh")]
+env_write = write(".env.\ud800")  # the reason names the file as Node writes it (U+FFFD)
+skill_write = write(".claude/skills/doctor/SKILL.md")  # the reason quotes the Japanese description
+reset = {"hook_event_name": "PreToolUse", "session_id": "s184", "tool_name": "Bash", "cwd": repo,
+         "tool_input": {"command": "git reset --hard"}}
+cursor = {"hook_event_name": "preToolUse", "cursor_version": "1.7.0"}
+patch = {"hook_event_name": "PreToolUse", "tool_name": "apply_patch", "cwd": str(project),
+         "tool_input": {"command": "*** Begin Patch\n*** Add File: .claude/skills/doctor/SKILL.md\n+x\n*** End Patch\n"}}
+gate = {"hook_event_name": "PreToolUse", "tool_name": "Skill", "tool_input": {"skill": "aidd:autonomous-review"}}
+session = {"hook_event_name": "SessionStart", "cwd": str(project)}
+
+cases = (
+    ("direct-env", guard, env_write, ".env.�"),
+    ("direct-skill", guard, skill_write, None),
+    ("direct-reset", dispatcher, reset, None),
+    ("cursor-env", adapter + ["write-guard.sh"], dict(env_write, **cursor), ".env.�"),
+    ("cursor-skill", adapter + ["write-guard.sh"], dict(skill_write, **cursor), None),
+    ("codex-skill", adapter + ["write-guard.sh"], patch, None),
+    ("cursor-reset", adapter + ["tool-reminder.sh"], dict(reset, tool_name="Shell", **cursor), None),
+)
+for case, argv, event, expected in cases:
+    state = root / case
+    reason = deny_reason(run(argv, event, state))
+    assert (expected in reason) if expected else is_japanese(reason), (case, reason)
+    assert not (state / "adapter-skips.json").exists(), case
+# skill-gate answers from python, not from the shell's fail-closed fallback.
+state = root / "gate"
+s = json.loads(run(["bash", str(scripts / "skill-gate.sh")], gate, state))["hookSpecificOutput"]
+assert s["permissionDecision"] == "ask" and is_japanese(s["permissionDecisionReason"]), s
+assert json.loads((state / "skill-gate.json").read_text())["counts"] == {"ask": 1}
+# A text reply the adapter passes on as text (Codex shape) keeps its Japanese.
+state = root / "codex-text"
+out = run(adapter + ["session-start.sh"], session, state)
+assert is_japanese(out), out
+assert not (state / "adapter-skips.json").exists()
+print("non-UTF-8 stdout cases: OK")
+PYEOF
+
 # python3 missing → adapter-skips.json, no sentinel file.
 nopy_bin="$tmp_dir/nopy-bin"
 mkdir -p "$nopy_bin"
@@ -2029,7 +2242,7 @@ text = json.dumps(p, indent=2 if mode == "indent" else None)
 if mode == "escape":
     text = text.replace("/", "\\/").replace("autonomous-review", "\\u0061utonomous\\u002dreview")
     text = text.replace("alias", "\\u0061lias")
-open(sys.argv[2], "w").write(text)
+open(sys.argv[2], "w").write(text.replace("<lone>", "\\ud800"))  # a lone surrogate, as JSON.stringify writes it
 PY
 }
 adapter_gate() { AIDD_TEST_STATE_DIR="$gate_dir" bash "$adapter" skill-gate.sh < "$adapter_in"; }
@@ -2113,6 +2326,44 @@ cursor_read "file:///%2f?/../..$repo_root/skills/autonomous-review/SKILL.md" /wo
 cursor_read "file://evil/?/../../..$repo_root/skills/autonomous-review/SKILL.md" /work; adapter_gate | expect_cursor_deny
 cursor_read "file:///%2f?/../../../autonomous-review/SKILL.md" "$repo_root/skills/design-review"; adapter_gate | expect_cursor_deny
 cursor_read "file:///%2f?/../..$alias_dir/other.md" /work; expect_adapter_pass
+# Issue #173 S2: Cursor resolves a relative Read from its workspace (one root: the hook's cwd), the roots'
+# common parent (several roots), or its own process cwd (no root, a GUI app's is usually /). The Read
+# event carries no cwd, so a relative path naming the SKILL.md from / or any ancestor of cwd is denied.
+cursor_read autonomous-review/SKILL.md "$repo_root/skills/design-review"; adapter_gate | expect_cursor_deny
+cursor_read "${repo_root#/}/skills/autonomous-review/SKILL.md" /work; adapter_gate | expect_cursor_deny
+cursor_read "../../..$repo_root/skills/autonomous-review/SKILL.md" /work; adapter_gate | expect_cursor_deny
+cursor_read design-review/SKILL.md "$repo_root/skills/design-review"; expect_adapter_pass
+cursor_read "${repo_root#/}/skills/design-review/SKILL.md" /work; expect_adapter_pass
+# S2-2: a lone surrogate reaches the gate, which reads it as Node does (U+FFFD); unrelated Reads still pass.
+cursor_read "$repo_root/skills/x<lone>/../autonomous-review/SKILL.md"; adapter_gate | expect_cursor_deny
+ln -s "$repo_root/skills/autonomous-review/SKILL.md" "$alias_dir/alias"$'\xef\xbf\xbd'".md"
+cursor_read "$alias_dir/alias<lone>.md"; adapter_gate | expect_cursor_deny
+cursor_read "$repo_root/skills/autonomous-review/SKILL.md<lone>"; expect_adapter_pass
+cursor_read "$alias_dir/other<lone>.md"; expect_adapter_pass
+# The root (the gate's cwd) may carry one too: Node opens it as U+FFFD, so the gate bases a relative path there.
+mkdir "$alias_dir/root"$'\xef\xbf\xbd'
+ln -s "$repo_root/skills/autonomous-review/SKILL.md" "$alias_dir/root"$'\xef\xbf\xbd'"/linked.md"
+cursor_read linked.md "$alias_dir/root<lone>"; adapter_gate | expect_cursor_deny
+cursor_read other.md "$alias_dir/root<lone>"; expect_adapter_pass
+# Cursor expands only ~ alone or before / (not ~user): ~root/.. stays relative and is judged from every base.
+cursor_read '~root/../autonomous-review/SKILL.md' "$repo_root/skills/design-review"; adapter_gate | expect_cursor_deny
+# No workspace root and no CURSOR_PROJECT_DIR: the gate still runs (from /), other scripts keep no_cwd.
+rootless_read() {  # FILE_PATH: a Cursor Read with workspace_roots []
+  python3 - "$fixtures/cursor/preToolUse.read-before-edit.json" "$adapter_in" "$1" <<'PY'
+import json, sys
+p = json.load(open(sys.argv[1]))
+p["workspace_roots"] = []
+p["tool_input"]["file_path"] = sys.argv[3]
+json.dump(p, open(sys.argv[2], "w"))
+PY
+}
+rootless_gate() { env -u CURSOR_PROJECT_DIR AIDD_TEST_STATE_DIR="$gate_dir" bash "$adapter" skill-gate.sh < "$adapter_in"; }
+rootless_read "$repo_root/skills/autonomous-review/SKILL.md"; rootless_gate | expect_cursor_deny
+rootless_read "${repo_root#/}/skills/autonomous-review/SKILL.md"; rootless_gate | expect_cursor_deny
+rootless_read /work/repo/new.txt
+before=$(cat "$gate_dir/adapter-skips.json" 2>/dev/null || true)
+[ -z "$(rootless_gate)" ]
+[ "$before" = "$(cat "$gate_dir/adapter-skips.json" 2>/dev/null || true)" ]
 cursor_read "$alias_dir/nonexist/../other.md"; expect_adapter_pass
 cursor_read "$alias_dir/nonexist.md"; expect_adapter_pass
 cursor_read "$repo_root/skills/design-review/../design-review/SKILL.md"; expect_adapter_pass

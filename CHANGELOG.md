@@ -1,8 +1,43 @@
 # Changelog
 
-## 0.85.0 (2026-11-24)
+## 0.92.0 (2026-11-25)
 
 - `eval`: 実装レビューの同種・異種比較 (`/aidd:eval impl`) の資産と手順を足した (#131)。新しい文脈の Claude のレビューで Codex を代えられるかを、aidd の条件で測ったことが無かったため。`tests/eval/impl/` に Python の小さな差分5ケース (シードあり3: 境界のずれ・例外の握り潰し・認可の欠落 (危険な変更)、欠陥の無い対照2) と正解キー、凍結前に決める採点基準 `rubric.md` を置いた。ケース・キー・採点基準・固定プロンプト・準備ブロックは人が確認して `freeze.sha256` で凍結・コミットし、凍結と食い違えば準備で止まる。同種 (`claude -p --tools Read,Grep,Glob`) と異種 (`codex exec --sandbox read-only`) を交互に各3試行以上行い、#129 の抽出・凍結・照合を使い回し、codex の記録の抽出と JSON 契約の判定を足した。結果は提案だけで、autonomous-review の適格条件は変えない。この版では凍結と本実行をしていない (人の確認と承認の後に行う)
+
+## 0.91.0 (2026-11-25)
+
+- hooks: `write-guard.sh`・`tool-reminder.sh`・`skill-gate.sh`・`harness-adapter.sh` の python を UTF-8 mode (`-X utf8`) で起動するようにした (#184)。UTF-8 でないロケール (例: ISO-8859-1、Python 3.14 以前) では、日本語の拒否文言や U+FFFD の出力で落ちたり、`-c` のコード中の文言が化けたりして、拒否が失われていた。文言・#181 のエスケープ・#119 の方針・fail-open・python を起動する前の早期 exit は変えていない。直接の経路と adapter 経由の経路を契約テストで固定した。挙動の変化 (Python 3.14 以前): UTF-8 のロケールで stdin に不正な UTF-8 のバイトが来た場合、これまでは読み込みで落ちて何も出さなかったが、孤立サロゲートとして読み、#181 の処理で U+FFFD に置き換えて判定する (拒否が増える方向。Python 3.15 以降の既定と同じ)
+
+## 0.90.0 (2026-11-25)
+
+- `autonomous-review`: 利用者の設定の textconv (`diff.<driver>.textconv`) で本文が変換・消去されたファイルを、本文を確かめないままレビュー済みにしないようにした (#177)。本文を出す `git diff` (レビュー担当に渡す差分、スナップショットに当てる差分、作業ツリー差分の識別に保存する差分を含む) に `--no-textconv` を付ける。`--text` と違い、バイナリの判定は変わらない
+- `autonomous-review`: Codex に渡すスナップショットを、`git archive` ではなく、対象のコミットの生の blob (`git ls-tree` + `git cat-file --batch`) から作るようにした (#177)。`export-ignore` でファイルが欠けることも、`export-subst`・`ident`・改行の変換・smudge フィルタで中身が変わることもなくなる。危険な名前 (HFS+ で `.git` と読まれる名前を含む) や、大文字小文字を区別しないと衝突するパスがある木、作成の失敗は、`review_incomplete` にする。作業ツリー差分を当てる手順は利用者の設定に左右されないようにした (接頭辞・色・相対パスを固定し、`.aidd/` を除き、`git apply` は system と global の設定を読まず、外側のリポジトリを探さない)
+
+## 0.89.0 (2026-11-24)
+
+- `autonomous-review`: 実装監査 `/security-review` を、判定者のセッションの中で実行するのをやめ、新しい `claude -p` プロセスで実行するようにした (#171)。以前は差分の本文がスラッシュコマンドの展開として判定者の文脈に入り、結果ファイルも判定者が書き写していた。監査はラウンドごとではなく、すべてのレビュー・品質ゲート・修正コミット・`report.md` に要る git の操作を終えたあと、最終判定の前に1回だけ行う。新しいセッションは、判定者の作業ツリーの外に作る使い捨ての clone (空のテンプレートで init し、base の ref と HEAD だけを fetch、remote・共有オブジェクト・hooks なし、`origin/HEAD` を base に向ける) で起動し、ブロックの最後に clone を削除する。起動の前に、判定者のリポジトリの前提 (HEAD・作業ツリーの清潔さ・差分の範囲) を確かめ、シンボリックリンクと、新しいセッションが読み込むファイル (`.claude/`・`.mcp.json`・`CLAUDE.md`。大文字小文字・引用符付きの名前を含む) を変える差分では起動しない。`Edit`・`Write`・`NotebookEdit` は `--disallowedTools` で止め、新しいセッションは自分のプロセスグループで起動して、終わったらグループごと止める (setsid で抜けた子は止められない)。生の出力 (stream-json) はブロックがパイプで受けながら sha256 を取り、ファイルに触れる前にその値を表示し、判定にはそのバイト列だけを使う。判定者は生の出力を開かず、nonce 付きの区切りの間に表示された結果の本文だけをデータとして読む。区切りの nonce は、新しいセッションが終わった後に作る。監査を起動する run では、2ブランチ比較の一時 worktree とスナップショットの後片付けと `git worktree list` での確認を、起動の前に済ませる。判定が `failed` に確定した run では起動せず、`failed` を保つ。起動前の清潔さの確認は、利用者の global の `core.excludesFile` (無ければ XDG の `git/ignore`) に従い、`.aidd/review-dismissed.md` を除く。ブロックは SIGTERM・SIGHUP・SIGINT (Bash ツールの上限・中断) を受けると、新しいセッションのプロセスグループを止め、clone を削除してから未実行で終わる (SIGKILL では残りうるので、`report.md` で利用者に確かめるよう伝える)。「ブロックの実行」と、`launching` の後の「起動」を書き分け、利用者への注意と台帳を飛ばす条件は起動した run に限る。必須の品質ゲートが失敗・未確定の run では、ブロックを実行しない。起動の後は `gh` も動かさず、`state.json` の検証は読んで確かめる
+- ブロックが `launching` を表示したあと、判定者はそのリポジトリで git・品質ゲート・ほかのコマンドを一切動かさず、結果の本文を読み、指摘の現物を Read で確かめ、`report.md` と `state.json` を書くだけにする。監査の指摘は修正せず人に渡し、ブロックが1 (未実行) でも2 (監査は走ったが範囲を確かめられない) でも `human_required` (`review_incomplete`) で終わる。0で終わる経路は無い。新しいセッションは利用者と同じ権限で動き、判定者のリポジトリや利用者の環境を書き換えうる (ブロックは防がず、検出もしない) ので、`report.md` の冒頭で、利用者に `.git` の設定・hooks・作業ツリー (無視されたファイルを含む) を確かめるよう伝える
+- `issue-implement`: autonomous-review が `/security-review` を「範囲を確かめられない (終了コード2)」または「ブロックが1で終わった」として未実行にした場合は、自分で `/security-review` を実行し直さない。autonomous-review が監査のブロックを起動した run の後は、テスト・ビルド・mutation-check・配置の置き直し・git を含め、このリポジトリでコマンドを動かさず、完了報告で止まって利用者の確認を待つ (新しいセッションが `.git`・hooks・作業ツリーを書き換えうるため)。止まる条件は、`report.md` の注意に加えて、`state.json` の `perspective_reviews.security.reason` が「新しいセッションを起動した」で始まる場合と、`launching` の行を見た場合。起動の後は deferred の issue も起票せず、完了報告で人に渡す。範囲の理由で自分で `/security-review` を実行した場合は、差分の本文が文脈に入ったことを残存リスクに書く (#171)
+- 実測 (2026-11-24、Claude Code 2.1.331、2回) では、`-p` でもコマンドは展開されて監査が走ったが、展開した FILES MODIFIED は stream-json にも replay (`--replay-user-messages`) にも出なかった。新しいセッションは自分の出力 (stdout へのイベントの差し込みを含む) を作れるので、出力で範囲を証明することもできない。範囲を確かめる手段は、将来の CLI で別の issue として扱う。会話の記録は、利用者の設定ディレクトリを読む設計を避けるため確かめていない。clone で起動する方式は、本物の `claude -p` では未実測
+
+## 0.88.0 (2026-11-24)
+
+- `write-guard.sh`・`tool-reminder.sh`: 入力に孤立サロゲート (`\ud800` など) があると、計算済みの拒否が出力で失われていたのを直した (#181)。原因は `ensure_ascii=False` での出力が `UnicodeEncodeError` で落ちることで、子は exit 0 で終わるため adapter も `adapter-skips.json` に数えられなかった (直接の Claude Code の経路でも同じ)。`file_path`・`notebook_path`・`command`・`cwd` の孤立サロゲートを Node と同じく U+FFFD に置き換えてから判定し (`skill-gate.sh` と同じやり方)、出力が UTF-8 にできない場合だけエスケープした JSON で出す。adapter は変えておらず、#119 の方針 (異常終了時は有効な拒否 JSON だけを残す)・fail-open・python を起動する前の早期 exit も変えていない。正しく判定された入力を skip として数えることもない。既知の限界: UTF-8 でないロケールの stdout では、日本語の拒否文言の出力が落ちることがある (#181 の前からの挙動)
+
+## 0.87.0 (2026-11-24)
+
+- `issue-implement` の完了報告と `autonomous-review` の `report.md` の対応表を、原要件から追えるようにした (#124)。以前の表は観点・テスト・前提を壊して落ちたか・未実装の理由の4列で、原要件のどれを確かめたか、人が受容した未実装は何かが一続きで分からなかった。表を「原要件 (出典)・設計判断・観点・テスト (ファイル:テスト名)・前提を壊して落ちたか・実行結果・未実装の理由と人の判断」の7列にし、出典は既存の reqd の番号・見出し (番号が無ければファイルパスと見出し) か、issue・仕様の該当箇所を使う (推測は原要件に数えない。autonomous-review は利用者が `[対象]` で示した変更目的までとし、差分から推測した目的を出典にしない)。原要件は全件を載せ、既存テストで満たす場合もテスト名と実行結果を書き、失敗・未実行を pass と書かない。E2E・移行・性能・ロールバックの検証は、原要件か変更の性質が求めるものだけについて実施・不要の理由・未実施を書く。「未判断」の行が残れば、issue-implement は人に上げるか deferred の追跡先を決めるまで完了にせず、autonomous-review は `human_required` (`human_judgment`) にする。新しい要件台帳やテスト手法は加えていない
+
+## 0.86.0 (2026-11-24)
+
+- `autonomous-review`: `.gitattributes` の `-diff` やバイナリ扱い (`core.bigFileThreshold` を含む) で差分の本文が出ないファイルを、本文を確かめないまま「レビュー済み」「監査済み」に数えていたのを直した (#170)。差分の出力そのもの (`--numstat -z` で追加・削除の行数が両方 `-`) で検出し、手順1・Codex に渡す差分・`/security-review` の照合で扱いをそろえ、該当すればそのファイルを未レビューとして `human_required` (`review_incomplete`) にする。ほかのファイルのレビューと `/security-review` の指摘の検証は続け、`/security-review` の `executed` は `false` にする。本当のバイナリと `-diff` で隠したテキストは区別しない (どちらも本文を読んでいない。属性は作業ツリーから読まれることがある)。`--text` は使わない (制御文字や巨大な中身がプロンプトに入るため)。削除と、blob が同じ変更 (中身が同じ rename、mode だけの変更) は対象から外す
+- 帰結: バイナリの追加や中身の変更を含む差分は `auto_merge_eligible` にならず、`gh pr create` 前の警告が出続ける。既知の限界: `diff.<driver>.textconv` で本文が変換・消去される場合と、`git archive` の `export-ignore` は、この検出では見つからない (#177)
+
+## 0.84.0 (2026-11-24)
+
+- Cursor の skill gate の残課題を直した (#173)。Cursor 3.31.11 / cursor-agent 2026.10.22 のバンドルで、Read の相対パスは workspace (root が1つならその root、複数で親が同じならその親、無ければプロセスの cwd) を基点に `path.resolve` されることを確かめた。gate は `file://` の変換前の文字列だけでなく相対パス全般を、`/` と cwd のすべての祖先を基点に照合し、基点に依存せず SKILL.md を指せば拒否する (誤って拒否するのは SKILL.md を名指しするパスに限る)。`~` は Cursor と同じく `~`・`~/`・`~\` のときだけ展開し、`~user` は展開しない。workspace の root が無い Read でも gate を動かす (cwd を `/` にする。ほかの子の `no_cwd` の扱いは変えない)
+- `file_path` に孤立サロゲートがあると、adapter が子に渡す入力を UTF-8 にできず (`bad_output`)、gate を呼ばずに Read を通していたのを直した。UTF-8 にできないときだけエスケープした JSON で渡し、gate は U+FFFD として判定する。これは skill-gate 以外の子にも効き、たとえば tool-reminder の拒否も失わなくなる。#119 の「異常終了時は有効な拒否 JSON だけを保持する」と一般的な fail-open は変えていない
+- 末尾が `/`・`/.` のパスを adapter の早期判定で python に回し、macOS の stat の揺れで契約テストがまれに失敗していたのを直した。autonomous-review (Codex) の指摘で、cwd の孤立サロゲートも U+FFFD として扱うようにした。既知の限界: 複数の root の親が異なるときと root も `CURSOR_PROJECT_DIR` も無いときに、プロセスの cwd が `/` でも cwd の祖先でもなければ通る。Windows では未計測。孤立サロゲートの入力で子スクリプトが出力に失敗したときに `adapter-skips.json` に数えられない件は #181
 
 ## 0.83.0 (2026-11-24)
 

@@ -42,7 +42,11 @@ elif event.get("tool_name") == "Read":
     # opens the same SKILL.md under another spelling.
     path = tool_input.get("file_path")
     own = os.path.join(plugin_root, "skills", "autonomous-review", "SKILL.md")
+    def expand_home(p):  # Cursor expands only a leading ~ alone or before / or \ (not ~user)
+        return re.sub(r"^~(?=$|/|\\)", lambda _: os.path.expanduser("~"), p)
     if isinstance(path, str) and path:
+        # Node opens a lone surrogate (JSON.stringify sends it as \ud800) as U+FFFD, so read it the same way.
+        path = re.sub("[\ud800-\udfff]", "\ufffd", path)
         candidates = [path]
         if path.startswith("file://"):
             # Cursor opens a file URI as the path it names (Node fileURLToPath, WHATWG URL rules), and the
@@ -54,13 +58,15 @@ elif event.get("tool_name") == "Read":
             if "/" in rest:
                 candidates.append(urllib.parse.unquote(re.split(r"[?#]", rest[rest.index("/"):], maxsplit=1)[0]))
         cwd = event.get("cwd")
+        if isinstance(cwd, str):
+            cwd = re.sub("[\ud800-\udfff]", "\ufffd", cwd)  # the adapter's cwd may carry one too
         def same(candidate):
             try:
                 return os.path.samefile(candidate, own)
             except (OSError, ValueError):
                 return False  # nothing there to read, or not a path (NUL)
         for candidate in candidates:
-            candidate = os.path.expanduser(candidate)
+            candidate = expand_home(candidate)
             if isinstance(cwd, str) and cwd:
                 candidate = os.path.join(cwd, candidate)  # a relative path is the reader's, not this hook's
             # The reader may resolve the path as text (a missing directory before .., or past PATH_MAX),
@@ -69,11 +75,14 @@ elif event.get("tool_name") == "Read":
                 reply("deny", deny_reason)
                 break
         else:
-            if path.startswith("file://"):
-                # Cursor resolves the raw text from a base we cannot see (a GUI app's cwd is usually /),
-                # so try every base it could climb to: / and each ancestor of cwd. Drop the leading ..
-                # (they only pick the base) and refuse when the rest names the SKILL.md from any of them.
-                rest = os.path.normpath(path).split("/")
+            raw = expand_home(path)
+            if not os.path.isabs(raw):
+                # Cursor resolves a relative path (and a file URI it cannot convert) from its workspace when it
+                # has one root, the roots' common parent when they share one, and else its own process cwd (a GUI
+                # app's is usually /). The Read event has no cwd; the adapter fills in the first root. So try every
+                # base Cursor could use: / and each ancestor of cwd. Drop the leading .. (they only pick the base)
+                # and refuse when the rest names the SKILL.md from any of them.
+                rest = os.path.normpath(raw).split("/")
                 while rest and rest[0] == "..":
                     rest.pop(0)
                 rest = "/".join(rest)
@@ -92,7 +101,9 @@ kind=""
 out=""
 status=1
 if command -v python3 >/dev/null 2>&1; then
-  out=$(printf '%s' "$payload" | python3 -I -c "$PY_CODE" "$PLUGIN_ROOT" "$ASK_REASON" "$DENY_REASON" 2>/dev/null)
+  # -X utf8: harnesses speak UTF-8. Under a non-UTF-8 locale, python would decode this code and
+  # its input by the locale and fail to print a Japanese verdict, losing it (#184).
+  out=$(printf '%s' "$payload" | python3 -I -X utf8 -c "$PY_CODE" "$PLUGIN_ROOT" "$ASK_REASON" "$DENY_REASON" 2>/dev/null)
   status=$?
 fi
 if [ "$status" -eq 0 ]; then
