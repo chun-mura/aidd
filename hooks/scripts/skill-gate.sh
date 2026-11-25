@@ -101,7 +101,9 @@ kind=""
 out=""
 status=1
 if command -v python3 >/dev/null 2>&1; then
-  out=$(printf '%s' "$payload" | python3 -I -c "$PY_CODE" "$PLUGIN_ROOT" "$ASK_REASON" "$DENY_REASON" 2>/dev/null)
+  # -X utf8: harnesses speak UTF-8. Under a non-UTF-8 locale, python would decode this code and
+  # its input by the locale and fail to print a Japanese verdict, losing it (#184).
+  out=$(printf '%s' "$payload" | python3 -I -X utf8 -c "$PY_CODE" "$PLUGIN_ROOT" "$ASK_REASON" "$DENY_REASON" 2>/dev/null)
   status=$?
 fi
 if [ "$status" -eq 0 ]; then

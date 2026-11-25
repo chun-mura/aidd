@@ -54,7 +54,7 @@ def emit(specific):
         text.encode("utf-8")
     except UnicodeEncodeError:
         # A lone surrogate left in the text (an undecodable environment value) has no UTF-8 form:
-        # printing it fails or writes a stray byte, by locale. Escaped, the verdict survives.
+        # printing it fails or writes a stray byte. Escaped, the verdict survives.
         text = json.dumps(value)
     print(text)
 
@@ -268,6 +268,8 @@ PYEOF
 
 # -I (isolated mode) keeps the working directory off sys.path, so a json.py or asset_index.py in
 # the project cannot stand in for the real module.
-printf '%s' "$input" | python3 -I -c "$PY_CODE" "$PLUGIN_ROOT" 2>/dev/null
+# -X utf8: harnesses speak UTF-8. Under a non-UTF-8 locale, python would decode this code and
+# its input by the locale and fail to print a Japanese verdict, losing it (#184).
+printf '%s' "$input" | python3 -I -X utf8 -c "$PY_CODE" "$PLUGIN_ROOT" 2>/dev/null
 
 exit 0

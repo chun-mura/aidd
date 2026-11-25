@@ -1966,6 +1966,115 @@ for case, script, event in (
 print("lone surrogate cases: OK")
 PYEOF
 
+# #184: a stdout that is not UTF-8 (an ISO-8859-1 locale) must not lose a verdict whose text is not ASCII:
+# Japanese, or the U+FFFD that stands for a lone surrogate. The hooks write UTF-8 bytes, called directly or
+# through the adapter. python3 -I ignores PYTHONIOENCODING, so only a locale reproduces it; Python 3.15 and
+# later default to UTF-8 mode and have nothing to reproduce.
+python3 - "$repo_root/hooks/scripts" "$repo" "$tmp_dir/locale" <<'PYEOF'
+import json, os, subprocess, sys
+from pathlib import Path
+
+scripts, repo, root = Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3])
+project = root / "project"
+project.mkdir(parents=True)
+base_env = {k: v for k, v in os.environ.items()
+            if not k.startswith(("AIDD_", "CURSOR_", "LC_", "LANG", "LOCPATH"))}
+
+
+def stdout_encoding(env):
+    return subprocess.run(["python3", "-I", "-c", "import sys; print(sys.stdout.encoding)"], env=env,
+                          capture_output=True, text=True).stdout.strip().lower().replace("-", "")
+
+
+def find_locale():
+    # macOS ships en_US.ISO8859-1; Ubuntu ships the definitions, so build one under LOCPATH.
+    for name in ("en_US.ISO8859-1", "en_US.ISO-8859-1"):
+        env = dict(base_env, LC_ALL=name)
+        if stdout_encoding(env) != "utf8":
+            return env
+    locpath = root / "locales"
+    locpath.mkdir()
+    subprocess.run(["localedef", "-i", "en_US", "-f", "ISO-8859-1", str(locpath / "en_US.ISO-8859-1")],
+                   capture_output=True)
+    env = dict(base_env, LC_ALL="en_US.ISO-8859-1", LOCPATH=str(locpath))
+    if stdout_encoding(env) != "utf8":
+        return env
+    utf8_mode = subprocess.run(["python3", "-I", "-c", "import sys; print(sys.flags.utf8_mode)"],
+                               capture_output=True, text=True).stdout.strip()
+    assert utf8_mode == "1", "no ISO-8859-1 locale to reproduce #184 with"
+    return env
+
+
+locale_env = find_locale()
+
+
+def run(argv, event, state):
+    env = dict(locale_env, AIDD_TEST_STATE_DIR=str(state))
+    # json.dumps escapes a lone surrogate as \ud800, as JSON.stringify does.
+    result = subprocess.run(argv, input=json.dumps(event).encode("ascii"), capture_output=True, env=env, timeout=30)
+    assert result.returncode == 0, result
+    return result.stdout.decode("utf-8")
+
+
+def deny_reason(out):
+    o = json.loads(out)
+    if "permission" in o:
+        assert o["permission"] == "deny", o
+        return o["user_message"]
+    s = o["hookSpecificOutput"]
+    assert s["permissionDecision"] == "deny", s
+    return s["permissionDecisionReason"]
+
+
+def is_japanese(text):
+    return any("\u3040" <= c <= "\u9fff" for c in text)
+
+
+def write(path):
+    return {"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": str(project),
+            "tool_input": {"file_path": str(project / path)}}
+
+
+guard = ["bash", str(scripts / "write-guard.sh")]
+dispatcher = ["bash", str(scripts / "tool-reminder.sh")]
+adapter = ["bash", str(scripts / "harness-adapter.sh")]
+env_write = write(".env.\ud800")  # the reason names the file as Node writes it (U+FFFD)
+skill_write = write(".claude/skills/doctor/SKILL.md")  # the reason quotes the Japanese description
+reset = {"hook_event_name": "PreToolUse", "session_id": "s184", "tool_name": "Bash", "cwd": repo,
+         "tool_input": {"command": "git reset --hard"}}
+cursor = {"hook_event_name": "preToolUse", "cursor_version": "1.7.0"}
+patch = {"hook_event_name": "PreToolUse", "tool_name": "apply_patch", "cwd": str(project),
+         "tool_input": {"command": "*** Begin Patch\n*** Add File: .claude/skills/doctor/SKILL.md\n+x\n*** End Patch\n"}}
+gate = {"hook_event_name": "PreToolUse", "tool_name": "Skill", "tool_input": {"skill": "aidd:autonomous-review"}}
+session = {"hook_event_name": "SessionStart", "cwd": str(project)}
+
+cases = (
+    ("direct-env", guard, env_write, ".env.�"),
+    ("direct-skill", guard, skill_write, None),
+    ("direct-reset", dispatcher, reset, None),
+    ("cursor-env", adapter + ["write-guard.sh"], dict(env_write, **cursor), ".env.�"),
+    ("cursor-skill", adapter + ["write-guard.sh"], dict(skill_write, **cursor), None),
+    ("codex-skill", adapter + ["write-guard.sh"], patch, None),
+    ("cursor-reset", adapter + ["tool-reminder.sh"], dict(reset, tool_name="Shell", **cursor), None),
+)
+for case, argv, event, expected in cases:
+    state = root / case
+    reason = deny_reason(run(argv, event, state))
+    assert (expected in reason) if expected else is_japanese(reason), (case, reason)
+    assert not (state / "adapter-skips.json").exists(), case
+# skill-gate answers from python, not from the shell's fail-closed fallback.
+state = root / "gate"
+s = json.loads(run(["bash", str(scripts / "skill-gate.sh")], gate, state))["hookSpecificOutput"]
+assert s["permissionDecision"] == "ask" and is_japanese(s["permissionDecisionReason"]), s
+assert json.loads((state / "skill-gate.json").read_text())["counts"] == {"ask": 1}
+# A text reply the adapter passes on as text (Codex shape) keeps its Japanese.
+state = root / "codex-text"
+out = run(adapter + ["session-start.sh"], session, state)
+assert is_japanese(out), out
+assert not (state / "adapter-skips.json").exists()
+print("non-UTF-8 stdout cases: OK")
+PYEOF
+
 # python3 missing → adapter-skips.json, no sentinel file.
 nopy_bin="$tmp_dir/nopy-bin"
 mkdir -p "$nopy_bin"
