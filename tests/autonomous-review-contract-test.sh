@@ -102,7 +102,6 @@ grep -F -- '名前の変更では path の欄が空になり、続く2つのフ�
 grep -F -- '`--raw -z --no-abbrev` を足した `git diff` で、状態が `D` (削除) のもの、または変更前と変更後の blob の OID が同じもの (中身が同じ名前の変更、mode だけの変更) は本文が出ないファイルに数えない' "$command_file"
 grep -F -- '未ステージの差分では変更後の OID が0で出るので比べられず、除外しない' "$command_file"
 grep -F -- '`gh pr create` の前の警告が出続ける' "$command_file"
-grep -F -- 'textconv (`diff.<driver>.textconv`) で本文が変換・消去される場合は、この検出では見つからない (別 Issue)' "$command_file"
 grep -F -- '差分に本文が出ないファイルがある' "$command_file"
 grep -F -- 'レビュー・監査した範囲に数えない' "$command_file"
 grep -F -- 'ほかのファイルのレビューは続け、ファイルの一覧を `residual_risks` と `report.md` に記録し、最終判定は `human_required` (`human_required_reason` は `review_incomplete`) とする' "$command_file"
@@ -194,6 +193,135 @@ chmod +x "$hidden_tmp/moved.png"
 hidden_git commit -q -m moved -- moved.png keep.bin gone.bin
 chmod -x "$hidden_tmp/moved.png"
 [ "$(hidden_files -- moved.png)" = 'moved.png' ]
+# textconv (#177): a diff driver from the user's config rewrites or erases the body, also with
+# --no-ext-diff and in --binary patches, while --numstat skips it; --no-textconv shows the body.
+grep -F -- '本文を出す `git diff` (1 で読む差分、レビュー担当に渡す差分、スナップショットに当てる差分、作業ツリー差分の識別に保存する差分) にはすべて `--no-textconv` を付け' "$command_file"
+grep -F -- '`--no-textconv` は `--text` と違い、バイナリの判定 (NUL・`core.bigFileThreshold`・`-diff`) を変えない' "$command_file"
+grep -F -- '監査は常に `review_incomplete` で監査済みに数えないので、別に検出しない' "$command_file"
+if grep -F -- 'この検出では見つからない (別 Issue)' "$command_file"; then
+  echo "the textconv limit is handled now (#177); drop the pointer to a separate issue" >&2
+  exit 1
+fi
+# Every git diff in the skill that prints a body carries --no-textconv. Name, numstat and raw
+# listings skip textconv; /security-review's own origin/HEAD diff cannot take the option.
+body_diffs=$(grep -oE '`git diff [^`]*`' "$command_file" | grep -vE -- '--name-only|--numstat|--raw|origin/HEAD' || true)
+[ -n "$body_diffs" ]
+if grep -v -- '--no-textconv' <<<"$body_diffs"; then
+  echo "a git diff that prints a body lacks --no-textconv" >&2
+  exit 1
+fi
+# Outside any repository: git apply in a subdirectory of a repository silently skips paths outside it.
+t177_tmp=$(mktemp -d "${TMPDIR:-/tmp}/aidd-ar-177.XXXXXX")
+trap 'rm -rf "$hidden_tmp" "$t177_tmp"' EXIT
+tc_tmp="$t177_tmp/textconv"
+mkdir "$tc_tmp"
+tc_git() { git -C "$tc_tmp" -c user.name=t -c user.email=t@example.invalid -c diff.hide.textconv=true "$@"; }
+tc_git init -q -b main
+printf 'a\n' >"$tc_tmp/conv.txt"
+tc_git add -- conv.txt
+tc_git commit -q -m init
+tc_git switch -q -c feat
+printf 'conv.txt diff=hide\nconvbin.dat diff=hide\n' >"$tc_tmp/.gitattributes"
+printf 'a\nconv-body-marker\n' >"$tc_tmp/conv.txt"
+printf 'b\000in' >"$tc_tmp/convbin.dat"
+tc_git add -- .gitattributes conv.txt convbin.dat
+tc_git commit -q -m conv
+if tc_git diff --no-ext-diff --no-relative main...feat | grep -E -- 'b/conv\.txt|conv-body-marker'; then
+  echo "premise changed: a textconv driver no longer erases the body" >&2
+  exit 1
+fi
+tc_git diff --no-ext-diff --no-relative --numstat main...feat | grep -Fx -- $'1\t0\tconv.txt' # the #170 check misses it
+tc_git diff --no-ext-diff --no-textconv --no-relative main...feat | grep -F -- '+conv-body-marker'
+tc_git diff --no-ext-diff --no-textconv --no-relative main...feat | grep -F -- 'Binary files /dev/null and b/convbin.dat differ'
+tc_git diff --no-ext-diff --no-textconv --no-relative --numstat main...feat | grep -Fx -- $'-\t-\tconvbin.dat'
+printf 'local-body-marker\n' >>"$tc_tmp/conv.txt"
+if tc_git diff --no-ext-diff --binary | grep -F -- 'local-body-marker'; then
+  echo "premise changed: a textconv driver no longer erases the body of a --binary patch" >&2
+  exit 1
+fi
+mkdir "$tc_tmp.snap"
+tc_git archive --format=tar HEAD -- . | tar -xf - -C "$tc_tmp.snap"
+tc_git diff --no-ext-diff --no-textconv --binary | git -C "$tc_tmp.snap" apply
+cmp "$tc_tmp/conv.txt" "$tc_tmp.snap/conv.txt"
+# export-ignore / export-subst (#177): git archive drops or rewrites files by the commit's own
+# attributes, even with an empty attribute source, so the snapshot is matched against the diff.
+grep -F -- '### スナップショットと食い違うファイル' "$command_file"
+grep -F -- '`export-ignore` のファイルはスナップショットに入らず、`export-subst` のファイルは `$Format:...$` が展開されて中身が変わる' "$command_file"
+grep -F -- '状態が `D` (削除) のものと、変更後の mode が `160000` (submodule) のものを除いた' "$command_file"
+grep -F -- '通常のファイルは `git hash-object --no-filters -- <snapshot>/<path>`、シンボリックリンクはリンク先の文字列 (`readlink`) を `git hash-object --stdin` に渡したもの' "$command_file"
+grep -F -- 'パスが無い・種類が違う・OID が違うファイルを「スナップショットと食い違うファイル」とする' "$command_file"
+grep -F -- 'スナップショットに無い・行が合わないことを理由に `false_positive` にせず' "$command_file"
+grep -F -- 'スナップショットを作ったら、レビュー担当を起動する前に上の「スナップショットと食い違うファイル」を確かめる' "$command_file"
+grep -F -- '差分に本文が出ないファイルがある、スナップショットと食い違うファイルがある' "$command_file"
+grep -F -- '本文が出ないファイルなし、スナップショットと食い違うファイルなし' "$command_file"
+ex_tmp="$t177_tmp/export"
+mkdir "$ex_tmp"
+ex_git() { git -C "$ex_tmp" -c user.name=t -c user.email=t@example.invalid "$@"; }
+oid_of() { # <path in a directory>: a link hashes its target string, as git stores it
+  if [ -L "$1" ]; then printf '%s' "$(readlink "$1")" | git hash-object --stdin; else git hash-object --no-filters -- "$1"; fi
+}
+mismatched() { # <snapshot> <git diff args...>: the documented check on a branch or staged diff
+  local snap=$1
+  shift
+  ex_git diff --no-ext-diff --no-relative --ignore-submodules=none --raw -z --no-abbrev "$@" |
+    while IFS= read -r -d '' meta; do
+      read -r _ new_mode _ new_oid status <<<"${meta#:}"
+      IFS= read -r -d '' path
+      if [[ $status == [RC]* ]]; then IFS= read -r -d '' path; fi
+      [ "${status:0:1}" != D ] && [ "$new_mode" != 160000 ] || continue
+      # unstaged (zero id), or staged and changed again in the work tree: the work tree file
+      if [ -z "${new_oid//0/}" ] || { [ "${1:-}" = --staged ] && ! ex_git diff --no-ext-diff --quiet -- "$path"; }; then
+        new_oid=$(oid_of "$ex_tmp/$path")
+      fi
+      if [ ! -e "$snap/$path" ] && [ ! -L "$snap/$path" ] || [ "$(oid_of "$snap/$path")" != "$new_oid" ]; then
+        printf '%s\n' "$path"
+      fi
+    done
+}
+ex_git init -q -b main
+printf 'x\n' >"$ex_tmp/keep.txt"
+printf 'old\n' >"$ex_tmp/hid.txt"
+printf 'gone\n' >"$ex_tmp/del.txt"
+printf 'v $Format:%%H$\nl2\nl3\nl4\nl5\nl6\nl7\nl8\n' >"$ex_tmp/subst.txt"
+ln -s keep.txt "$ex_tmp/lnk"
+ex_git add -- keep.txt hid.txt del.txt subst.txt lnk
+ex_git commit -q -m init
+ex_git switch -q -c feat
+printf 'hid.txt export-ignore\nnew.txt export-ignore\nsubst.txt export-subst\ndel.txt export-ignore\n' >"$ex_tmp/.gitattributes"
+printf 'hidden-body-marker\n' >"$ex_tmp/hid.txt"
+printf 'n\n' >"$ex_tmp/new.txt"
+printf 'v2 $Format:%%H$\nl2\nl3\nl4\nl5\nl6\nl7\nl8\n' >"$ex_tmp/subst.txt"
+printf 'y\n' >"$ex_tmp/keep.txt"
+rm "$ex_tmp/lnk"
+ln -s hid.txt "$ex_tmp/lnk"
+ex_git rm -q del.txt
+ex_git add -- .gitattributes hid.txt new.txt subst.txt keep.txt lnk
+ex_git commit -q -m feat
+mkdir "$ex_tmp.snap"
+ex_git archive --format=tar feat -- . ':(exclude).aidd' | tar -xf - -C "$ex_tmp.snap"
+if [ -e "$ex_tmp.snap/hid.txt" ] || [ -e "$ex_tmp.snap/new.txt" ] || grep -F -- '$Format' "$ex_tmp.snap/subst.txt"; then
+  echo "premise changed: git archive keeps export-ignore files or leaves export-subst unexpanded" >&2
+  exit 1
+fi
+ex_git diff --no-ext-diff --name-only main...feat | grep -Fx -- 'hid.txt'
+[ "$(mismatched "$ex_tmp.snap" main...feat | sort)" = "$(printf 'hid.txt\nnew.txt\nsubst.txt')" ]
+mkdir "$ex_tmp.attr"
+ex_git --attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904 archive --format=tar feat -- . | tar -xf - -C "$ex_tmp.attr"
+if [ -e "$ex_tmp.attr/hid.txt" ]; then
+  echo "premise changed: an empty attribute source now stops export-ignore in git archive" >&2
+  exit 1
+fi
+# Working-tree diff: a hunk far from the expanded line still applies, and the snapshot keeps the expansion.
+printf 'v2 $Format:%%H$\nl2\nl3\nl4\nl5\nl6\nl7\nl8 changed\n' >"$ex_tmp/subst.txt"
+printf 'z\n' >"$ex_tmp/keep.txt"
+ex_git add -- keep.txt
+printf 'zz\n' >"$ex_tmp/keep.txt"
+mkdir "$ex_tmp.local"
+ex_git archive --format=tar HEAD -- . ':(exclude).aidd' | tar -xf - -C "$ex_tmp.local"
+ex_git diff --no-ext-diff --no-textconv --binary --staged | git -C "$ex_tmp.local" apply
+ex_git diff --no-ext-diff --no-textconv --binary | git -C "$ex_tmp.local" apply
+[ -z "$(mismatched "$ex_tmp.local" --staged)" ]
+[ "$(mismatched "$ex_tmp.local")" = 'subst.txt' ]
 # Inside the perspective-review step, aidd:security-reviewer may appear only in the two exclusion
 # sentences; once they are removed, no other mention (such as a rephrased "also run it") may remain.
 perspective_step=$(awk '/^4\. 差分の性質に応じて観点別レビューを追加で実行する/{on=1} /^5\. 各有効な指摘/{on=0} on' "$command_file")
