@@ -117,7 +117,21 @@ grep -F -- '実装の差分ではないので、`/security-review` の実行済�
 grep -F -- '変更をコミットして head をチェックアウトした状態で `/security-review` を実行し、その結果を完了報告に書く (' "$issue_implement"
 grep -F -- '(`/aidd:autonomous-review` の「委譲先が除外する種類」) は、実行しても監査されていないので、機微情報の保存に当たる差分ではその除外を完了報告の残存リスクに書く' "$issue_implement"
 grep -F -- '委譲先が除外する種類:' "$repo_root/skills/autonomous-review/SKILL.md"
-grep -F -- '(機微情報の保存に当たる差分では、下の `/security-review` の項と同じく、委譲先が除外する種類を残存リスクに書く)。autonomous-review が実行済みと記録した場合は重ねない' "$issue_implement"
+grep -F -- '(機微情報の保存に当たる差分では、下の `/security-review` の項と同じく、委譲先が除外する種類を残存リスクに書く)。' "$issue_implement"
+grep -F -- 'autonomous-review が実行済みと記録した場合は重ねない' "$issue_implement"
+# #171: autonomous-review's final audit runs /security-review in a separate session. A run where the
+# audit ran (exit 2) or its block ended with 1 is not a range reason, so it is not re-run here, and
+# after a launched audit nothing more runs in the repository.
+grep -F -- '未実行の理由が対象の範囲 (作業ツリーの差分だけ、head がチェックアウトされていない) のときだけ、' "$issue_implement"
+grep -F -- '理由が「監査は走ったが、監査した範囲を確かめられない (ブロックの終了コード2)」または「ブロックが1で終わった」のときは、対象の範囲の理由ではないので、自分で `/security-review` を実行し直さない' "$issue_implement"
+grep -F -- '**監査の新しいセッションを起動した run のあと**' "$issue_implement"
+grep -F -- '以後このリポジトリでは、テスト・ビルド・`/stdd:mutation-check`・6 の配置の置き直し・git・`gh` (deferred の issue の起票を含む) を含め、コマンドを一切動かさない' "$issue_implement"
+grep -F -- '7 の完了報告で止まって利用者の確認を待つ' "$issue_implement"
+grep -F -- '`state.json` の `perspective_reviews` の `security` の `reason` が「新しいセッションを起動した」で始まる、このセッションで `security-review run: launching` の行を見た' "$issue_implement"
+grep -F -- '対象の範囲の理由で自分で実行した場合も、差分の本文がこのセッションの文脈に入ったことを完了報告の残存リスクに書く' "$issue_implement"
+grep -F -- '起票が要る deferred は完了報告に書いて人に渡す' "$issue_implement"
+grep -F -- '- **配置**: 5 の「監査の新しいセッションを起動した run のあと」に当たる場合は行わず、未実行として完了報告に書く' "$issue_implement"
+grep -F -- '5 の「監査の新しいセッションを起動した run のあと」に当たる場合は、検証のコマンドを動かさず、未実行として完了報告に書く (完了を主張しない)' "$issue_implement"
 # test-perspectives carries the failure-path, removal and sibling-authz perspectives that
 # issue-implement 4-5 / 4-6 rely on (#92).
 grep -F -- '失敗の分岐では、送出される型だけでなく、その後に起きるべきこと (ロックの解放、残りの要素の処理の続行、部分失敗の後の再実行での回復) を観点にする' "$test_perspectives"
