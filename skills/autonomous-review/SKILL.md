@@ -47,8 +47,8 @@ argument-hint: "[対象] [--base <branch>] [--head <branch>] [--reviewer codex|c
 `--reviewer codex` のスナップショット (レビュー・ループの 2) は、`git archive` ではなく、対象のコミットの生の blob を書き出して作る。`git archive` は対象のコミットの属性と利用者の設定で中身を変える: `export-ignore` のファイルを落とし、`export-subst` (`$Format:...$`)・`ident` を展開し、`eol=crlf`・`core.autocrlf`・smudge フィルタ (Git LFS を含む) で変換する (使い捨てのリポジトリで再現した。`--attr-source` に空の tree を指定しても `export-ignore` は効いた)。そうなると、差分に載ったファイルがスナップショットに無い、または中身が違い、レビュー担当がそのファイルを読んだとは確かめられず、指摘も「存在しない行」として落ちうる。生の blob は `git diff` が比べる中身 (正規化した中身。LFS なら pointer) と同じなので、作業ツリー差分の run でスナップショットに当てる差分もそのまま当たる。
 
 - 書き出すもの: `git ls-tree -r -z --full-tree <コミット>` の全項目。`.aidd/` (過去の run の証跡) は除き、submodule (mode `160000`) は `git archive` と同じく空のディレクトリにする (中身はもともとスナップショットに入らない)。実行ビットは mode `100755` だけに付け、シンボリックリンク (mode `120000`) はすべてのファイルを書いたあとに作る (リンクを通して書かないため)。属性・フィルタ・改行の変換は一切当てない (`git cat-file --batch`)。
-- 拒否するもの: パスの要素が空・`.`・`..`・`.git` (大文字小文字を区別しない) の項目、同じパスの重複、空でない・シンボリックリンクのスナップショットのディレクトリ。作ったディレクトリをたどる前に、シンボリックリンクでない本物のディレクトリであることを確かめる。
-- 失敗の扱い: 次のブロックの `<commit>` と `<snapshot>` (作成を記録して `mkdir` で作った空のディレクトリ) を置き換えて、実行IDディレクトリの `snapshot-round<N>-block.txt` に書き、`bash snapshot-round<N>-block.txt` で実行する。終了コードが0で、最後の行が `snapshot: created <件数> entries` のときだけ作成できたとする。それ以外 (git の失敗・出力を読めない・拒否・書き込みの失敗・上限での停止) は作成の失敗として、レビュー担当を起動せず `human_required` (`human_required_reason` は `review_incomplete`) とする。差分を `git apply` で当てられない場合も同じ。
+- 拒否するもの: パスの要素が空・`.`・`..`・`.git` の項目 (`.git` は大文字小文字を区別せず、git の `is_hfs_dotgit` と同じく HFS+ が無視する文字 (U+200C など) と末尾の空白・`.` を除いて比べる)、大文字小文字を区別せずに同じパスが2つある、または同じ名前がファイルとディレクトリの両方になる木 (書き出す前に確かめる)、空でない・シンボリックリンクのスナップショットのディレクトリ。そのうえで、ファイルは `O_EXCL | O_NOFOLLOW` で新しく作り、作ったディレクトリをたどる前にシンボリックリンクでない本物のディレクトリであることを確かめる。ASCII 以外の大文字小文字の違い・NTFS の短い名前 (`git~1`) は確かめない (ファイルを書く前の上の2つで止まる)。
+- 失敗の扱い: 次のブロックの `<commit>` と `<snapshot>` (作成を記録して `mkdir` で作った空のディレクトリ) を置き換えて、実行IDディレクトリの `snapshot-round<N>-block.txt` に書き、`bash snapshot-round<N>-block.txt` で実行する。終了コードが0で、最後の行が `snapshot: created <件数> entries` のときだけ作成できたとする。Bash ツールの `timeout` パラメータで上限 (目安 120000ms) を付けて実行する。それ以外 (git の失敗・出力を読めない・拒否・書き込みの失敗・Bash ツールの上限で止まった) は作成の失敗として、レビュー担当を起動せず `human_required` (`human_required_reason` は `review_incomplete`) とする。差分を `git apply` で当てられない場合も同じ。
 
 ```bash
 # snapshot: write the raw blobs of a commit (no attributes, filters or line-ending conversion) into an empty directory
@@ -57,6 +57,11 @@ set -uo pipefail
 python3 -I - "$commit" "$snap" <<'PY'
 import os, stat, subprocess, sys
 commit, snap = sys.argv[1], os.fsencode(sys.argv[2])
+# code points HFS+ ignores in names (as git's is_hfs_dotgit), so that ".g\u200cit" is ".git" there
+IGNORED = {*range(0x200C, 0x2010), *range(0x202A, 0x202F), *range(0x206A, 0x2070), 0xFEFF}
+def unsafe(p):
+    name = "".join(c for c in p.decode("utf-8", "replace") if ord(c) not in IGNORED).rstrip(" .").lower()
+    return p in (b"", b".", b"..") or name == ".git"
 def fail(msg):
     print(f"snapshot: not created: {msg}", file=sys.stderr)
     sys.exit(1)
@@ -72,13 +77,19 @@ for item in r.stdout.split(b"\0"):
     meta, path = item.split(b"\t", 1)
     mode, kind, oid = meta.split()
     parts = path.split(b"/")
-    if any(p in (b"", b".", b"..") or p.lower() == b".git" for p in parts):
+    if any(unsafe(p) for p in parts):
         fail(f"unsafe path in the tree: {path!r}")
     if parts[0] == b".aidd":
         continue  # past run evidence
     if (kind, mode) != (b"commit", b"160000") and (kind != b"blob" or mode not in (b"100644", b"100755", b"120000")):
         fail(f"unexpected entry: {meta!r}")
     entries.append((mode, oid, parts))
+# A path given twice, or a name that is both a file and a directory when case is ignored (A -> link, a/x),
+# is refused before anything is written, on every file system.
+files = [b"/".join(parts).lower() for _, _, parts in entries]
+dirs = {b"/".join(parts[:i]).lower() for _, _, parts in entries for i in range(1, len(parts))}
+if len(set(files)) != len(files) or dirs & set(files):
+    fail("the tree has the same path twice when case is ignored")
 def parent(parts):
     d = snap
     for p in parts[:-1]:
@@ -182,7 +193,7 @@ E2E・移行・性能・ロールバックの検証は、原要件か変更の�
 
 ### 作業ツリー差分の識別
 
-作業ツリー差分 (`--base` 未指定) の run は、どの差分をレビューしたかをブランチや SHA で示せない。各ラウンドでレビュー担当に渡す差分を確定した時点で、`git rev-parse --verify HEAD` の出力を実行IDディレクトリの `local-round<N>-head.txt` に、`git diff --no-ext-diff --no-textconv --binary --staged` と `git diff --no-ext-diff --no-textconv --binary` の出力を `local-round<N>-staged-diff.txt` と `local-round<N>-unstaged-diff.txt` に保存する (`--reviewer codex` ではスナップショットに当てる差分と同じもの)。最終判定を書く直前に同じ3つを取り直して `local-staged-diff.txt` と `local-unstaged-diff.txt` に保存し、HEAD の出力を `local_diff.head_commit` に、それぞれの `git hash-object <ファイル>` の出力を `staged_diff_hash` と `unstaged_diff_hash` に記録する。
+作業ツリー差分 (`--base` 未指定) の run は、どの差分をレビューしたかをブランチや SHA で示せない。各ラウンドでレビュー担当に渡す差分を確定した時点で、`git rev-parse --verify HEAD` の出力を実行IDディレクトリの `local-round<N>-head.txt` に、`git diff --no-ext-diff --no-textconv --binary --staged` と `git diff --no-ext-diff --no-textconv --binary` の出力を `local-round<N>-staged-diff.txt` と `local-round<N>-unstaged-diff.txt` に保存する (`--reviewer codex` でスナップショットに当てる差分は、これと同じ範囲から `.aidd/` を除き、パスの接頭辞などを固定したもの)。最終判定を書く直前に同じ3つを取り直して `local-staged-diff.txt` と `local-unstaged-diff.txt` に保存し、HEAD の出力を `local_diff.head_commit` に、それぞれの `git hash-object <ファイル>` の出力を `staged_diff_hash` と `unstaged_diff_hash` に記録する。
 
 - 取り直した HEAD と2つのハッシュが、最後のラウンドで保存したもの (`git hash-object` で同じく求める) と1つでも違えば、レビューしていない差分が残っている (最後のラウンドの後の修正を含む) ので `human_required` (`human_required_reason` は `review_incomplete`) とする
 - どれか1つでも得られない場合は `local_diff` を `null` のままにし、差分を識別できないので `human_required` (`human_required_reason` は `review_incomplete`) とする
@@ -250,7 +261,7 @@ run はセッションの終了・時間の上限・利用者の中断などで�
      - **stdin を閉じる**: プロンプトを引数で渡しても、stdin が開いていると codex は stdin からの追加入力を待ち、上限まで止まる。`codex --version`、`codex login status`、`codex exec` は必ず `< /dev/null` で stdin を閉じて起動する。
      - **起動前の確認**: `codex --version < /dev/null` が版の文字列を返し、`codex login status < /dev/null` が exit 0 で終わることを確かめる。存在しない、版を返さない、またはログイン状態を確認できない場合。返った版は `reviewer_version` に記録する。
      - **起動失敗の検出**: codex はサンドボックス内で起動に失敗しても exit 0 で空の応答を返すことがある。終了コードでも stderr の有無でも成否を判断しない。`-o <実行IDディレクトリ>/reviewer-round<N>.txt` (`--output-last-message`) で最終メッセージをファイルに書かせ、その中身が 3 のJSON契約どおりにパースできた場合だけを成功とする。ファイルが無い・空・パースできない場合は起動失敗として扱い、そのときに限り stdout / stderr を失敗理由として記録する。成功した実行でも stderr に `WARNING: proceeding, ...` のような警告が出ることがあり、`proceeding` を含む警告は失敗ではない。
-     - **過去の結論を読ませない**: codex の cwd から、コミット済みの `.aidd/` (過去の run の `report.md` など) や Git の履歴を読めると、独立したレビューのはずが前回の結論をなぞる。worktree は `.aidd/` を消しても、共有するオブジェクト格納庫から `git show HEAD:.aidd/...` で読め、`.git` ファイルが元のリポジトリを指すため使わない。代わりにラウンドごとに、リポジトリ外の空の一時ディレクトリへ、そのラウンドの対象コミット (ブランチ比較では head、ローカル差分では HEAD。2ラウンド目以降は修正後のコミット) の生の blob を、上の「スナップショットの作成」のブロックで書き出す。これは `.git` を持たないスナップショットである。ローカル差分が対象の場合は、`git diff --no-ext-diff --no-textconv --binary --staged` と `git diff --no-ext-diff --no-textconv --binary` の出力を、この順にスナップショットへ `git apply` で当て、変更後の内容にする (当てられなければ、上の「スナップショットの作成」の失敗と同じく `human_required`)。codex は `--skip-git-repo-check -C <snapshot-dir>` を付けて起動し、プロンプトにはリポジトリの絶対パスを含めない。read-only サンドボックスは cwd の外の絶対パスの読み取りまでは防がないため、この点は `residual_risks` に記録する。スナップショットはそのラウンドの 5 の現物検証が終わった時点で削除する (途中で終了する場合も削除する)。作成・削除の結果は、そのラウンドの `rounds[].snapshot` に記録する。
+     - **過去の結論を読ませない**: codex の cwd から、コミット済みの `.aidd/` (過去の run の `report.md` など) や Git の履歴を読めると、独立したレビューのはずが前回の結論をなぞる。worktree は `.aidd/` を消しても、共有するオブジェクト格納庫から `git show HEAD:.aidd/...` で読め、`.git` ファイルが元のリポジトリを指すため使わない。代わりにラウンドごとに、リポジトリ外の空の一時ディレクトリへ、そのラウンドの対象コミット (ブランチ比較では head、ローカル差分では HEAD。2ラウンド目以降は修正後のコミット) の生の blob を、上の「スナップショットの作成」のブロックで書き出す。これは `.git` を持たないスナップショットである。ローカル差分が対象の場合は、`git diff --no-ext-diff --no-textconv --no-color --no-relative --src-prefix=a/ --dst-prefix=b/ --binary --staged -- ':(exclude,top).aidd/'` と `git diff --no-ext-diff --no-textconv --no-color --no-relative --src-prefix=a/ --dst-prefix=b/ --binary -- ':(exclude,top).aidd/'` の出力を、この順に、スナップショットを作業ディレクトリにした `GIT_CEILING_DIRECTORIES=<スナップショットの親> GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null git apply` で当て、変更後の内容にする (当てられなければ、上の「スナップショットの作成」の失敗と同じく `human_required`)。接頭辞・色・相対パスは利用者の設定 (`diff.noprefix`・`color.diff` など) で変わり、違うパスに当たりうるので固定する。`.aidd/` はスナップショットに無いので除く (`.aidd/` の差分はレビュー担当に渡す差分には残る)。`git apply` は、スナップショットの親 (`realpath` で正規化した絶対パス) より上のリポジトリを探さないようにし (親のどこかがリポジトリだと、`git apply` はそのリポジトリの中のパスとして扱い、ファイルを黙って飛ばす)、リポジトリの外で動くので system と global の設定 (`core.autocrlf`・`apply.whitespace` など) も読まないようにして、blob のまま当てる。codex は `--skip-git-repo-check -C <snapshot-dir>` を付けて起動し、プロンプトにはリポジトリの絶対パスを含めない。read-only サンドボックスは cwd の外の絶対パスの読み取りまでは防がないため、この点は `residual_risks` に記録する。スナップショットはそのラウンドの 5 の現物検証が終わった時点で削除する (途中で終了する場合も削除する)。作成・削除の結果は、そのラウンドの `rounds[].snapshot` に記録する。
    - `--reviewer claude`: 現在セッションの同一モデルによる自己レビューを実行する。外部の `codex` は起動しない。自己レビューであることは状態とレポートに明示する。
 3. レビュー担当に次のJSONオブジェクトだけ（Markdownコードフェンス・前後説明なし）を要求する。JSON以外の出力、パース不能なJSON、存在しないファイル・行を根拠とする指摘、根拠のない blocker / major は修正対象にしない。ファイル・行の存在は変更前ではなく変更後の内容で確かめる (`--reviewer codex` ではそのラウンドのスナップショット)。これらは `false_positive` または `deferred` として根拠を記録する。
 

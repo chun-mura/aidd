@@ -322,37 +322,84 @@ done <<<"$expected"
 [ ! -e "$ex_tmp.snap/.aidd" ]
 [ -d "$ex_tmp.snap/sub" ]
 [ -z "$(ls -A "$ex_tmp.snap/sub")" ]
-# Working-tree diff: both diffs apply to the raw blobs, and the result is what git diff compared.
+# Working-tree diff: both diffs, made and applied as documented, give the raw blobs what git diff
+# compared, also under a user config that drops prefixes, colours output, converts line endings and
+# fixes whitespace, with a .aidd/ change, and with the snapshot inside another repository.
+staged_apply_diff=(diff --no-ext-diff --no-textconv --no-color --no-relative --src-prefix=a/ --dst-prefix=b/ --binary --staged -- ':(exclude,top).aidd/')
+unstaged_apply_diff=(diff --no-ext-diff --no-textconv --no-color --no-relative --src-prefix=a/ --dst-prefix=b/ --binary -- ':(exclude,top).aidd/')
+grep -F -- "\`git diff --no-ext-diff --no-textconv --no-color --no-relative --src-prefix=a/ --dst-prefix=b/ --binary --staged -- ':(exclude,top).aidd/'\` と \`git diff --no-ext-diff --no-textconv --no-color --no-relative --src-prefix=a/ --dst-prefix=b/ --binary -- ':(exclude,top).aidd/'\` の出力を、この順に、スナップショットを作業ディレクトリにした \`GIT_CEILING_DIRECTORIES=<スナップショットの親> GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null git apply\` で当て" "$command_file"
+hostile="$t177_tmp/hostile.gitconfig"
+printf '[diff]\n\tnoprefix = true\n[color]\n\tdiff = always\n[core]\n\tautocrlf = true\n[apply]\n\twhitespace = fix\n' >"$hostile"
 printf 'c1\nc2\nc3\nc4\nc5\nc6\nc7\nc8 changed\n' >"$ex_tmp/crlf.txt"
 printf 'hello there\n' >"$ex_tmp/flt.txt"
 printf 'v $Format:%%H$\nl2\nl3 staged\nl4\nl5\nl6\nl7\nl8\n' >"$ex_tmp/subst.txt"
-ex_git add -- subst.txt flt.txt
+printf 'new-in-dir\n' >"$ex_tmp/dir/new.c"
+printf 'trailing  \n' >"$ex_tmp/tw.txt"
+ex_git add -- subst.txt flt.txt dir/new.c tw.txt
 printf 'v $Format:%%H$\nl2\nl3 staged\nl4\nl5\nl6\nl7\nl8 unstaged\n' >"$ex_tmp/subst.txt"
-mkdir "$ex_tmp.local"
-snap_run "$ex_tmp" HEAD "$ex_tmp.local" | grep -Fx -- 'snapshot: created 11 entries'
-ex_git diff --no-ext-diff --no-textconv --binary --staged | git -C "$ex_tmp.local" apply
-ex_git diff --no-ext-diff --no-textconv --binary | git -C "$ex_tmp.local" apply
-for f in crlf.txt flt.txt subst.txt hid.txt; do
-  [ "$(oid_of "$ex_tmp.local/$f")" = "$(ex_git hash-object -- "$f")" ] || { echo "applied snapshot differs: $f" >&2; exit 1; }
+printf 'appended by the skill\n' >>"$ex_tmp/.aidd/autonomous-review/old/report.md"
+outer=$(cd "$t177_tmp" && pwd -P)/outer
+git init -q "$outer"
+mkdir "$outer/snap"
+snap_run "$ex_tmp" HEAD "$outer/snap" | grep -Fx -- 'snapshot: created 11 entries'
+GIT_CONFIG_GLOBAL="$hostile" ex_git "${staged_apply_diff[@]}" >"$t177_tmp/staged.diff"
+GIT_CONFIG_GLOBAL="$hostile" ex_git "${unstaged_apply_diff[@]}" >"$t177_tmp/unstaged.diff"
+for d in staged unstaged; do
+  (cd "$outer/snap" && GIT_CEILING_DIRECTORIES="$outer" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null git apply) <"$t177_tmp/$d.diff"
 done
-# Failures exit nonzero without the created line: an unknown commit, a non-empty or linked
-# directory, and a tree with an unsafe path.
+for f in crlf.txt flt.txt subst.txt hid.txt dir/new.c tw.txt; do
+  [ "$(oid_of "$outer/snap/$f")" = "$(ex_git hash-object -- "$f")" ] || { echo "applied snapshot differs: $f" >&2; exit 1; }
+done
+[ ! -e "$outer/snap/new.c" ]
+[ ! -e "$outer/snap/.aidd" ]
+# Without the fixed prefixes the new file lands elsewhere, and inside another repository a plain
+# git apply skips the files: both premises of the fixed command.
+GIT_CONFIG_GLOBAL="$hostile" ex_git diff --no-ext-diff --no-textconv --no-color --binary --staged | grep -F -- 'diff --git dir/new.c dir/new.c'
+mkdir "$outer/plain"
+snap_run "$ex_tmp" HEAD "$outer/plain" >/dev/null
+(cd "$outer/plain" && GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null git apply) <"$t177_tmp/staged.diff"
+if [ -e "$outer/plain/dir/new.c" ]; then
+  echo "premise changed: git apply inside another repository now applies to the current directory" >&2
+  exit 1
+fi
+# Failures exit nonzero without the created line and write nothing: an unknown commit, a non-empty
+# or linked directory, unsafe names (also as HFS+ reads them), a path given twice, and names that
+# collide when case is ignored (a link A out of the snapshot next to a/x).
 snap_refused() { # <repository> <commit> <snapshot>
   local out rc=0
   out=$(snap_run "$@" 2>&1) || rc=$?
   [ "$rc" -ne 0 ] && grep -E -- '^snapshot: not created: ' <<<"$out" && ! grep -Ex -- 'snapshot: created [0-9]+ entries' <<<"$out"
 }
-mkdir "$ex_tmp.bad"
+mkdir "$ex_tmp.bad" "$t177_tmp/outside"
 snap_refused "$ex_tmp" 0000000000000000000000000000000000000001 "$ex_tmp.bad"
-snap_refused "$ex_tmp" HEAD "$ex_tmp.local"
+snap_refused "$ex_tmp" HEAD "$outer/snap"
 ln -s "$ex_tmp.bad" "$ex_tmp.badlink"
 snap_refused "$ex_tmp" HEAD "$ex_tmp.badlink"
-for unsafe in .. .git .GIT; do
-  blob=$(printf 'x\n' | ex_git hash-object -w --stdin)
-  tree=$(printf '100644 blob %s\t%s\n' "$blob" "$unsafe" | ex_git mktree)
+blob=$(printf 'x\n' | ex_git hash-object -w --stdin)
+link=$(printf '%s' "$t177_tmp/outside" | ex_git hash-object -w --stdin)
+sub=$(printf '100644 blob %s\tx\n' "$blob" | ex_git mktree)
+bad_trees=()
+for unsafe in .. . .git .GIT .git. $'.g\xe2\x80\x8cit' $'\xef\xbb\xbf.git'; do
+  bad_trees+=("$(printf '100644 blob %s\t%s\n' "$blob" "$unsafe" | ex_git mktree)")
+done
+bad_trees+=("$(printf '040000 tree %s\t%s\n' "$(printf '100644 blob %s\t.git\n' "$blob" | ex_git mktree)" d | ex_git mktree)")
+bad_trees+=("$(printf '100644 blob %s\ta\n100644 blob %s\ta\n' "$blob" "$blob" | ex_git mktree)")
+bad_trees+=("$(printf '100644 blob %s\tA\n100644 blob %s\ta\n' "$blob" "$blob" | ex_git mktree)")
+bad_trees+=("$(printf '120000 blob %s\tA\n040000 tree %s\ta\n' "$link" "$sub" | ex_git mktree)")
+for tree in "${bad_trees[@]}"; do
   snap_refused "$ex_tmp" "$tree" "$ex_tmp.bad"
   [ -z "$(ls -A "$ex_tmp.bad")" ]
+  [ -z "$(ls -A "$t177_tmp/outside")" ]
 done
+# Defences behind the checks above (each is covered by another one in these trees) stay in the block.
+for defence in 'p in (b"", b".", b"..")' 'IGNORED = {*range(0x200C, 0x2010), *range(0x202A, 0x202F), *range(0x206A, 0x2070), 0xFEFF}' \
+  '(kind, mode) != (b"commit", b"160000") and (kind != b"blob" or mode not in (b"100644", b"100755", b"120000"))' \
+  'if not stat.S_ISDIR(os.lstat(d).st_mode):' 'os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW' \
+  'if len(head) != 3 or head[0] != oid or head[1] != b"blob":' 'if cat.wait() != 0:' 'for target, data in links:  # last'; do
+  grep -F -- "$defence" <<<"$snap_block"
+done
+grep -F -- '大文字小文字を区別せずに同じパスが2つある、または同じ名前がファイルとディレクトリの両方になる木 (書き出す前に確かめる)' "$command_file"
+grep -F -- 'Bash ツールの上限で止まった) は作成の失敗として' "$command_file"
 # Inside the perspective-review step, aidd:security-reviewer may appear only in the two exclusion
 # sentences; once they are removed, no other mention (such as a rephrased "also run it") may remain.
 perspective_step=$(awk '/^4\. 差分の性質に応じて観点別レビューを追加で実行する/{on=1} /^5\. 各有効な指摘/{on=0} on' "$command_file")
