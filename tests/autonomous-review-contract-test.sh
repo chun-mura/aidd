@@ -239,89 +239,120 @@ if tc_git diff --no-ext-diff --binary | grep -F -- 'local-body-marker'; then
   echo "premise changed: a textconv driver no longer erases the body of a --binary patch" >&2
   exit 1
 fi
+# The codex snapshot is written from raw blobs by the block in the skill (#177), not by git archive.
+snap_block=$(awk '/^# snapshot: /{on=1} on{print} /^# end snapshot$/{on=0}' "$command_file")
+grep -Fx -- '# end snapshot' <<<"$snap_block"
+snap_run() { # <repository> <commit> <snapshot>: run the block as documented; prints its output
+  local block=${snap_block//"<commit>"/$2}
+  block=${block//"<snapshot>"/$3}
+  (cd "$1" && bash -c "$block")
+}
 mkdir "$tc_tmp.snap"
-tc_git archive --format=tar HEAD -- . | tar -xf - -C "$tc_tmp.snap"
+snap_run "$tc_tmp" HEAD "$tc_tmp.snap" | grep -Ex -- 'snapshot: created [0-9]+ entries'
 tc_git diff --no-ext-diff --no-textconv --binary | git -C "$tc_tmp.snap" apply
 cmp "$tc_tmp/conv.txt" "$tc_tmp.snap/conv.txt"
-# export-ignore / export-subst (#177): git archive drops or rewrites files by the commit's own
-# attributes, even with an empty attribute source, so the snapshot is matched against the diff.
-grep -F -- '### スナップショットと食い違うファイル' "$command_file"
-grep -F -- '`export-ignore` のファイルはスナップショットに入らず、`export-subst` のファイルは `$Format:...$` が展開されて中身が変わる' "$command_file"
-grep -F -- '状態が `D` (削除) のものと、変更後の mode が `160000` (submodule) のものを除いた' "$command_file"
-grep -F -- '通常のファイルは `git hash-object --no-filters -- <snapshot>/<path>`、シンボリックリンクはリンク先の文字列 (`readlink`) を `git hash-object --stdin` に渡したもの' "$command_file"
-grep -F -- 'パスが無い・種類が違う・OID が違うファイルを「スナップショットと食い違うファイル」とする' "$command_file"
-grep -F -- 'スナップショットに無い・行が合わないことを理由に `false_positive` にせず' "$command_file"
-grep -F -- 'スナップショットを作ったら、レビュー担当を起動する前に上の「スナップショットと食い違うファイル」を確かめる' "$command_file"
-grep -F -- '差分に本文が出ないファイルがある、スナップショットと食い違うファイルがある' "$command_file"
-grep -F -- '本文が出ないファイルなし、スナップショットと食い違うファイルなし' "$command_file"
+# git archive drops export-ignore files and expands export-subst, also with an empty attribute
+# source; the raw blobs keep every file exactly as the diff compares it.
+grep -F -- '### スナップショットの作成' "$command_file"
+grep -F -- 'の生の blob を、上の「スナップショットの作成」のブロックで書き出す' "$command_file"
+grep -F -- '終了コードが0で、最後の行が `snapshot: created <件数> entries` のときだけ作成できたとする' "$command_file"
+grep -F -- 'レビュー担当を起動せず `human_required` (`human_required_reason` は `review_incomplete`) とする。差分を `git apply` で当てられない場合も同じ' "$command_file"
+grep -F -- 'codex 用のスナップショットを作れない・差分を当てられない' "$command_file"
+grep -F -- '`core.bigFileThreshold` (既定 512MiB) を超える' "$command_file"
+if grep -E -- 'git archive --format' "$command_file"; then
+  echo "the codex snapshot must not be made with git archive, which drops and rewrites files" >&2
+  exit 1
+fi
 ex_tmp="$t177_tmp/export"
 mkdir "$ex_tmp"
 ex_git() { git -C "$ex_tmp" -c user.name=t -c user.email=t@example.invalid "$@"; }
-oid_of() { # <path in a directory>: a link hashes its target string, as git stores it
+oid_of() { # <path>: a link hashes its target string, as git stores it
   if [ -L "$1" ]; then printf '%s' "$(readlink "$1")" | git hash-object --stdin; else git hash-object --no-filters -- "$1"; fi
 }
-mismatched() { # <snapshot> <git diff args...>: the documented check on a branch or staged diff
-  local snap=$1
-  shift
-  ex_git diff --no-ext-diff --no-relative --ignore-submodules=none --raw -z --no-abbrev "$@" |
-    while IFS= read -r -d '' meta; do
-      read -r _ new_mode _ new_oid status <<<"${meta#:}"
-      IFS= read -r -d '' path
-      if [[ $status == [RC]* ]]; then IFS= read -r -d '' path; fi
-      [ "${status:0:1}" != D ] && [ "$new_mode" != 160000 ] || continue
-      # unstaged (zero id), or staged and changed again in the work tree: the work tree file
-      if [ -z "${new_oid//0/}" ] || { [ "${1:-}" = --staged ] && ! ex_git diff --no-ext-diff --quiet -- "$path"; }; then
-        new_oid=$(oid_of "$ex_tmp/$path")
-      fi
-      if [ ! -e "$snap/$path" ] && [ ! -L "$snap/$path" ] || [ "$(oid_of "$snap/$path")" != "$new_oid" ]; then
-        printf '%s\n' "$path"
-      fi
-    done
-}
 ex_git init -q -b main
+ex_git config core.autocrlf true
+ex_git config filter.up.smudge 'tr a-z A-Z'
+ex_git config filter.up.clean 'tr A-Z a-z'
 printf 'x\n' >"$ex_tmp/keep.txt"
-printf 'old\n' >"$ex_tmp/hid.txt"
 printf 'gone\n' >"$ex_tmp/del.txt"
-printf 'v $Format:%%H$\nl2\nl3\nl4\nl5\nl6\nl7\nl8\n' >"$ex_tmp/subst.txt"
 ln -s keep.txt "$ex_tmp/lnk"
-ex_git add -- keep.txt hid.txt del.txt subst.txt lnk
+ex_git add -- keep.txt del.txt lnk
 ex_git commit -q -m init
 ex_git switch -q -c feat
-printf 'hid.txt export-ignore\nnew.txt export-ignore\nsubst.txt export-subst\ndel.txt export-ignore\n' >"$ex_tmp/.gitattributes"
+printf 'hid.txt export-ignore\nsubst.txt export-subst\ncrlf.txt eol=crlf\nid.txt ident\nflt.txt filter=up\n' >"$ex_tmp/.gitattributes"
 printf 'hidden-body-marker\n' >"$ex_tmp/hid.txt"
-printf 'n\n' >"$ex_tmp/new.txt"
-printf 'v2 $Format:%%H$\nl2\nl3\nl4\nl5\nl6\nl7\nl8\n' >"$ex_tmp/subst.txt"
-printf 'y\n' >"$ex_tmp/keep.txt"
-rm "$ex_tmp/lnk"
-ln -s hid.txt "$ex_tmp/lnk"
+printf 'v $Format:%%H$\nl2\nl3\nl4\nl5\nl6\nl7\nl8\n' >"$ex_tmp/subst.txt"
+printf 'c1\nc2\nc3\nc4\nc5\nc6\nc7\nc8\n' >"$ex_tmp/crlf.txt"
+printf '$Id$\n' >"$ex_tmp/id.txt"
+printf 'hello\n' >"$ex_tmp/flt.txt"
+printf '#!/bin/sh\n' >"$ex_tmp/run.sh"
+chmod +x "$ex_tmp/run.sh"
+mkdir -p "$ex_tmp/.aidd/autonomous-review/old" "$ex_tmp/dir"
+printf 'old-run\n' >"$ex_tmp/.aidd/autonomous-review/old/report.md"
+printf 'nested\n' >"$ex_tmp/dir/nested.txt"
 ex_git rm -q del.txt
-ex_git add -- .gitattributes hid.txt new.txt subst.txt keep.txt lnk
+ex_git add -- .gitattributes hid.txt subst.txt crlf.txt id.txt flt.txt run.sh .aidd dir/nested.txt
+ex_git update-index --add --cacheinfo "160000,$(ex_git rev-parse HEAD),sub"
+mkdir "$ex_tmp/sub" # an uninitialized submodule
 ex_git commit -q -m feat
-mkdir "$ex_tmp.snap"
-ex_git archive --format=tar feat -- . ':(exclude).aidd' | tar -xf - -C "$ex_tmp.snap"
-if [ -e "$ex_tmp.snap/hid.txt" ] || [ -e "$ex_tmp.snap/new.txt" ] || grep -F -- '$Format' "$ex_tmp.snap/subst.txt"; then
-  echo "premise changed: git archive keeps export-ignore files or leaves export-subst unexpanded" >&2
+mkdir "$ex_tmp.archive"
+ex_git archive --format=tar feat -- . | tar -xf - -C "$ex_tmp.archive"
+if [ -e "$ex_tmp.archive/hid.txt" ] || grep -F -- '$Format' "$ex_tmp.archive/subst.txt" ||
+  [ "$(oid_of "$ex_tmp.archive/crlf.txt")" = "$(ex_git rev-parse feat:crlf.txt)" ]; then
+  echo "premise changed: git archive keeps export-ignore files or leaves the content unconverted" >&2
   exit 1
 fi
-ex_git diff --no-ext-diff --name-only main...feat | grep -Fx -- 'hid.txt'
-[ "$(mismatched "$ex_tmp.snap" main...feat | sort)" = "$(printf 'hid.txt\nnew.txt\nsubst.txt')" ]
 mkdir "$ex_tmp.attr"
 ex_git --attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904 archive --format=tar feat -- . | tar -xf - -C "$ex_tmp.attr"
 if [ -e "$ex_tmp.attr/hid.txt" ]; then
   echo "premise changed: an empty attribute source now stops export-ignore in git archive" >&2
   exit 1
 fi
-# Working-tree diff: a hunk far from the expanded line still applies, and the snapshot keeps the expansion.
-printf 'v2 $Format:%%H$\nl2\nl3\nl4\nl5\nl6\nl7\nl8 changed\n' >"$ex_tmp/subst.txt"
-printf 'z\n' >"$ex_tmp/keep.txt"
-ex_git add -- keep.txt
-printf 'zz\n' >"$ex_tmp/keep.txt"
+mkdir "$ex_tmp.snap"
+[ "$(snap_run "$ex_tmp" "$(ex_git rev-parse feat)" "$ex_tmp.snap")" = 'snapshot: created 11 entries' ]
+# every file but .aidd/, byte for byte the blob, and nothing else; the submodule is an empty directory
+expected=$(ex_git ls-tree -r --full-tree --name-only feat | grep -vE '^(\.aidd/|sub$)' | sort)
+[ "$(cd "$ex_tmp.snap" && find . \( -type f -o -type l \) | sed 's|^\./||' | sort)" = "$expected" ]
+while IFS= read -r f; do
+  [ "$(oid_of "$ex_tmp.snap/$f")" = "$(ex_git rev-parse "feat:$f")" ] || { echo "snapshot differs from the blob: $f" >&2; exit 1; }
+done <<<"$expected"
+[ -L "$ex_tmp.snap/lnk" ]
+[ -x "$ex_tmp.snap/run.sh" ]
+[ ! -x "$ex_tmp.snap/keep.txt" ]
+[ ! -e "$ex_tmp.snap/.aidd" ]
+[ -d "$ex_tmp.snap/sub" ]
+[ -z "$(ls -A "$ex_tmp.snap/sub")" ]
+# Working-tree diff: both diffs apply to the raw blobs, and the result is what git diff compared.
+printf 'c1\nc2\nc3\nc4\nc5\nc6\nc7\nc8 changed\n' >"$ex_tmp/crlf.txt"
+printf 'hello there\n' >"$ex_tmp/flt.txt"
+printf 'v $Format:%%H$\nl2\nl3 staged\nl4\nl5\nl6\nl7\nl8\n' >"$ex_tmp/subst.txt"
+ex_git add -- subst.txt flt.txt
+printf 'v $Format:%%H$\nl2\nl3 staged\nl4\nl5\nl6\nl7\nl8 unstaged\n' >"$ex_tmp/subst.txt"
 mkdir "$ex_tmp.local"
-ex_git archive --format=tar HEAD -- . ':(exclude).aidd' | tar -xf - -C "$ex_tmp.local"
+snap_run "$ex_tmp" HEAD "$ex_tmp.local" | grep -Fx -- 'snapshot: created 11 entries'
 ex_git diff --no-ext-diff --no-textconv --binary --staged | git -C "$ex_tmp.local" apply
 ex_git diff --no-ext-diff --no-textconv --binary | git -C "$ex_tmp.local" apply
-[ -z "$(mismatched "$ex_tmp.local" --staged)" ]
-[ "$(mismatched "$ex_tmp.local")" = 'subst.txt' ]
+for f in crlf.txt flt.txt subst.txt hid.txt; do
+  [ "$(oid_of "$ex_tmp.local/$f")" = "$(ex_git hash-object -- "$f")" ] || { echo "applied snapshot differs: $f" >&2; exit 1; }
+done
+# Failures exit nonzero without the created line: an unknown commit, a non-empty or linked
+# directory, and a tree with an unsafe path.
+snap_refused() { # <repository> <commit> <snapshot>
+  local out rc=0
+  out=$(snap_run "$@" 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] && grep -E -- '^snapshot: not created: ' <<<"$out" && ! grep -Ex -- 'snapshot: created [0-9]+ entries' <<<"$out"
+}
+mkdir "$ex_tmp.bad"
+snap_refused "$ex_tmp" 0000000000000000000000000000000000000001 "$ex_tmp.bad"
+snap_refused "$ex_tmp" HEAD "$ex_tmp.local"
+ln -s "$ex_tmp.bad" "$ex_tmp.badlink"
+snap_refused "$ex_tmp" HEAD "$ex_tmp.badlink"
+for unsafe in .. .git .GIT; do
+  blob=$(printf 'x\n' | ex_git hash-object -w --stdin)
+  tree=$(printf '100644 blob %s\t%s\n' "$blob" "$unsafe" | ex_git mktree)
+  snap_refused "$ex_tmp" "$tree" "$ex_tmp.bad"
+  [ -z "$(ls -A "$ex_tmp.bad")" ]
+done
 # Inside the perspective-review step, aidd:security-reviewer may appear only in the two exclusion
 # sentences; once they are removed, no other mention (such as a rephrased "also run it") may remain.
 perspective_step=$(awk '/^4\. 差分の性質に応じて観点別レビューを追加で実行する/{on=1} /^5\. 各有効な指摘/{on=0} on' "$command_file")
@@ -350,7 +381,7 @@ grep -F -- '`tracking` が `unresolved` の `deferred` なし' "$command_file"
 grep -F -- '< /dev/null' "$command_file"
 grep -F -- 'exit 0 で空の応答' "$command_file"
 grep -F -- '終了コードでも stderr の有無でも成否を判断しない' "$command_file"
-grep -F -- ':(exclude).aidd' "$command_file"
+grep -F -- '`.aidd/` (過去の run の証跡) は除き' "$command_file" # the block itself is run below
 grep -F -- '--skip-git-repo-check -C <snapshot-dir>' "$command_file"
 grep -F -- 'git apply' "$command_file"
 grep -F -- '`rounds[].snapshot`' "$command_file"
