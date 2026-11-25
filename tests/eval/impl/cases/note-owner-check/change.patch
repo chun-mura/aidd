@@ -1,0 +1,53 @@
+diff --git a/app/notes.py b/app/notes.py
+index 727b967..f28aa9d 100644
+--- a/app/notes.py
++++ b/app/notes.py
+@@ -5,23 +5,23 @@ class Forbidden(Exception):
+     pass
+ 
+ 
+-def get_note(store: dict, user_id: str, note_id: str) -> dict:
++def _owned_note(store: dict, user_id: str, note_id: str) -> dict:
+     note = store.get(note_id)
+     if note is None or note["owner_id"] != user_id:
+         raise Forbidden(note_id)
+     return note
+ 
+ 
++def get_note(store: dict, user_id: str, note_id: str) -> dict:
++    return _owned_note(store, user_id, note_id)
++
++
+ def update_note(store: dict, user_id: str, note_id: str, text: str) -> dict:
+-    note = store.get(note_id)
+-    if note is None or note["owner_id"] != user_id:
+-        raise Forbidden(note_id)
++    note = _owned_note(store, user_id, note_id)
+     note["text"] = text
+     return note
+ 
+ 
+ def delete_note(store: dict, user_id: str, note_id: str) -> None:
+-    note = store.get(note_id)
+-    if note is None or note["owner_id"] != user_id:
++    if store.pop(note_id, None) is None:
+         raise Forbidden(note_id)
+-    del store[note_id]
+diff --git a/tests/test_notes.py b/tests/test_notes.py
+index 5f8bfa7..89ff79e 100644
+--- a/tests/test_notes.py
++++ b/tests/test_notes.py
+@@ -18,3 +18,13 @@ def test_owner_can_read_update_and_delete():
+ def test_other_user_cannot_read():
+     with pytest.raises(Forbidden):
+         get_note(make_store(), "bob", "n1")
++
++
++def test_other_user_cannot_update():
++    with pytest.raises(Forbidden):
++        update_note(make_store(), "bob", "n1", "x")
++
++
++def test_missing_note_is_forbidden():
++    with pytest.raises(Forbidden):
++        delete_note(make_store(), "alice", "n2")

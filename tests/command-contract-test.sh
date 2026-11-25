@@ -927,6 +927,287 @@ printf '%s\n' 'promoted' >> "$fake/tests/eval/keys/demo.md"
 eval_verify_fails changed-key 'the keys changed after staging'
 chmod -R u+w "$eval_tmp"
 
+# eval impl (#131): the implementation review comparison reuses the #129 separation, keeps the
+# eligibility rules as they are, and runs both methods on the same frozen cases, keys and rubric.
+impl_rubric="$repo_root/tests/eval/impl/rubric.md"
+grep -F -- 'この評価は autonomous-review の適格条件を緩めない' "$eval_command"
+grep -F -- '試行は、各ケース・各方式で3試行以上。試行数を減らさない' "$eval_command"
+grep -F -- '本実行とは別のセッションで行う' "$eval_command"
+grep -F -- 'ユーザーが推定コストを見て承認してから始める' "$eval_command"
+grep -F -- 'claude -p --output-format stream-json --verbose --tools Read,Grep,Glob --no-session-persistence' "$eval_command"
+grep -F -- 'codex exec --sandbox read-only --skip-git-repo-check --ephemeral --json -C' "$eval_command"
+grep -F -- '異種が同種より良かった結果と悪かった結果の両方' "$eval_command"
+grep -F -- '## 提案の作り方 (凍結の前に決めた規則)' "$impl_rubric"
+grep -F -- 'この評価は autonomous-review の適格条件を変えない' "$impl_rubric"
+grep -F -- '## そろえきれない条件 (結果に必ず書く)' "$impl_rubric"
+grep -F -- '平均だけにしない' "$impl_rubric"
+grep -F -- '一般化しない' "$impl_rubric"
+# The real cases: every case has its brief, change and key, the change applies to before/, every
+# location in a key exists after the change, the answers never show in a brief or a change, and the
+# set has at least one control and one risky change.
+impl_tmp="$doctor_tmp/eval-impl"
+mkdir -p "$impl_tmp"
+controls=0 risky=0
+for case_dir in "$repo_root"/tests/eval/impl/cases/*/; do
+  name=$(basename "$case_dir")
+  key="$repo_root/tests/eval/impl/keys/$name.md"
+  [ -f "$case_dir/brief.md" ] && [ -f "$case_dir/change.patch" ] && [ -d "$case_dir/before" ] && [ -f "$key" ]
+  after="$impl_tmp/after-$name"
+  cp -R "$case_dir/before" "$after"
+  (cd "$after" && env -u GIT_DIR -u GIT_WORK_TREE git apply --whitespace=error "$case_dir/change.patch")
+  if grep -qF -e 'シード' -e 'デコイ' -e '正解キー' -e 'tests/eval/' "$case_dir/brief.md" "$case_dir/change.patch"; then
+    echo "impl case $name shows the answers in its brief or change" >&2
+    exit 1
+  fi
+  kind=$(sed -n 's/^種類: //p' "$key")
+  danger=$(sed -n 's/^危険な変更: //p' "$key")
+  grep -qE '^変更の種類: [^ ]+$' "$key" || { echo "impl key $name has no change type" >&2; exit 1; }
+  seeds=$(grep -cE '^\| [A-Z]+-S[0-9]+ \|' "$key" || true)
+  case "$kind" in
+    欠陥あり) [ "$seeds" -ge 1 ] ;;
+    '対照 (欠陥なし)') [ "$seeds" -eq 0 ]; controls=$((controls + 1)) ;;
+    *) echo "impl key $name has no kind" >&2; exit 1 ;;
+  esac
+  case "$danger" in yes) risky=$((risky + 1)) ;; no) ;; *) echo "impl key $name has no risk flag" >&2; exit 1 ;; esac
+  grep -oE '^\| [A-Z]+-[SD][0-9]+ \| [^ |]+:[0-9]+ \|' "$key" | while IFS='|' read -r _ _ loc _; do
+    loc=$(printf '%s' "$loc" | tr -d ' ')
+    file=${loc%:*} line=${loc##*:}
+    [ -f "$after/$file" ] && [ "$line" -le "$(wc -l < "$after/$file")" ] || { echo "impl key $name points at $loc, which is not in the change" >&2; exit 1; }
+  done
+done
+[ "$controls" -ge 1 ] && [ "$risky" -ge 1 ]
+# Run the impl blocks on a fake repository: staging stops until the cases are frozen and committed
+# and after any change to them, the prompt carries the brief and the change but no answers, the
+# codex extract flags reads outside the snapshot, and the parse block reads the JSON contract.
+impl_block() {  # impl_block <first-line pattern> <last-line pattern> <out>
+  sed -n "/^$1/,/^$2\$/p" "$eval_command" > "$3"
+  [ -s "$3" ]
+}
+impl_block '# eval impl freeze-cases:' '# end eval impl freeze-cases' "$impl_tmp/freeze-cases.tpl"
+impl_block '# eval impl staging:' '# end eval impl staging' "$impl_tmp/stage.tpl"
+impl_block '# eval codex extract:' 'PY' "$impl_tmp/codex.tpl"
+impl_block '# eval impl parse:' 'PY' "$impl_tmp/parse.tpl"
+printf '%s\n' '#!/bin/sh' 'echo "fake-codex 0.0.0"' > "$eval_tmp/bin/codex"
+chmod +x "$eval_tmp/bin/codex"
+fake2="$impl_tmp/repo"
+fi2="$fake2/tests/eval/impl"
+mkdir -p "$fake2/.claude-plugin" "$fake2/skills/eval" "$fake2/tests/eval/keys" "$fake2/tests/eval/results" "$fi2/keys"
+printf '%s\n' '{"name": "aidd", "version": "9.9.9"}' > "$fake2/.claude-plugin/plugin.json"
+cp "$eval_command" "$fake2/skills/eval/SKILL.md"
+printf '%s\n' 'DESIGN_KEY_SENTINEL' > "$fake2/tests/eval/keys/x.md"
+printf '%s\n' 'RESULT_SENTINEL' > "$fake2/tests/eval/results/old.md"
+printf '%s\n' 'RUBRIC_SENTINEL' > "$fi2/rubric.md"
+impl_case() {  # impl_case <name> <brief text> <new line of app.py>
+  local d="$fi2/cases/$1"
+  mkdir -p "$d/before"
+  printf '%s\n' 'def f():' '    return 1' > "$d/before/app.py"
+  printf '%s\n' '## 変更目的' '' "$2" > "$d/brief.md"
+  printf '%s\n' 'diff --git a/app.py b/app.py' '--- a/app.py' '+++ b/app.py' '@@ -1,2 +1,2 @@' ' def f():' '-    return 1' "+$3" > "$d/change.patch"
+  printf '%s\n' "KEY_SENTINEL $1" > "$fi2/keys/$1.md"
+}
+impl_case demo BRIEF_TEXT '    return 2'
+impl_case leaky 'このシードを見る' '    return 2'
+impl_case broken BRIEF_TEXT '    return 2'
+sed -i.bak 's/^-    return 1$/-    return 9/' "$fi2/cases/broken/change.patch"
+rm -f "$fi2/cases/broken/change.patch.bak"
+impl_case keycopy BRIEF_TEXT '    return 2'
+cp "$fi2/keys/keycopy.md" "$fi2/cases/keycopy/before/notes.md"
+git -C "$fake2" init -q
+git -C "$fake2" add -A
+git -C "$fake2" -c user.name=t -c user.email=t@example.com commit -qm init
+impl_fill() {  # impl_fill <template> <out> <run> <case> [trial] [sums]
+  sed -e "s|<repo>|$fake2|g" -e "s|<run>|$3|g" -e "s|<case>|$4|g" -e "s|<trial>|${5-1}|g" -e "s|<sums>|${6-}|g" "$1" > "$2"
+}
+impl_freeze_cases() {
+  impl_fill "$impl_tmp/freeze-cases.tpl" "$impl_tmp/freeze-cases.sh" - -
+  bash "$impl_tmp/freeze-cases.sh" > "$impl_tmp/freeze-cases.out" 2> "$impl_tmp/freeze-cases.err"
+}
+impl_stage() {  # impl_stage <name> <run> <case>
+  mkdir -p "$2"
+  impl_fill "$impl_tmp/stage.tpl" "$impl_tmp/stage-$1.sh" "$2" "$3"
+  PATH="$eval_tmp/bin:$PATH" bash "$impl_tmp/stage-$1.sh" 2> "$impl_tmp/stage-$1.err"
+}
+impl_stage_fails() {  # impl_stage_fails <name> <run> <case> <expected stderr>
+  if impl_stage "$1" "$2" "$3"; then
+    echo "eval impl staging did not stop: $1" >&2
+    exit 1
+  fi
+  if ! grep -qF -- "$4" "$impl_tmp/stage-$1.err"; then
+    echo "eval impl staging $1 stopped for another reason: $(cat "$impl_tmp/stage-$1.err")" >&2
+    exit 1
+  fi
+}
+impl_stage_fails notfrozen "$impl_tmp/run-notfrozen" demo 'the cases are not frozen'
+ln -s app.py "$fi2/cases/demo/before/link.py"
+if impl_freeze_cases; then
+  echo "eval impl freeze-cases accepted a symbolic link" >&2
+  exit 1
+fi
+grep -F 'a symbolic link or a special file' "$impl_tmp/freeze-cases.err"
+rm "$fi2/cases/demo/before/link.py"
+impl_freeze_cases
+frozen=$(sed -n 's/^eval impl freeze-cases: freeze.sha256 sha256 //p' "$impl_tmp/freeze-cases.out")
+[ "${#frozen}" -eq 64 ]
+grep -F ' keys/demo.md' "$fi2/freeze.sha256"
+grep -F ' rubric.md' "$fi2/freeze.sha256"
+grep -E '^[0-9a-f]{64}  prompt$' "$fi2/freeze.sha256"
+grep -E '^[0-9a-f]{64}  staging$' "$fi2/freeze.sha256"
+if impl_freeze_cases; then
+  echo "eval impl freeze-cases overwrote freeze.sha256" >&2
+  exit 1
+fi
+grep -F 'already exists' "$impl_tmp/freeze-cases.err"
+impl_stage_fails uncommitted "$impl_tmp/run-uncommitted" demo 'freeze.sha256 is not committed'
+git -C "$fake2" add tests/eval/impl/freeze.sha256
+git -C "$fake2" -c user.name=t -c user.email=t@example.com commit -qm freeze
+impl_run="$impl_tmp/run-ok"
+impl_stage ok "$impl_run" demo
+[ "$(cd "$impl_run/input" && find . ! -type d | tr '\n' ' ')" = "./app.py " ]
+grep -Fx '    return 2' "$impl_run/input/app.py"
+impl_prompt="$impl_run/raw/prompt-demo.md"
+grep -F 'BRIEF_TEXT' "$impl_prompt"
+grep -Fx '+    return 2' "$impl_prompt"
+grep -F '"verdict": "approved" | "changes_requested"' "$impl_prompt"
+if grep -rqF -e KEY_SENTINEL -e DESIGN_KEY_SENTINEL -e RESULT_SENTINEL -e RUBRIC_SENTINEL -e '# eval impl prompt' -e "$fake2" \
+    "$impl_run/input" "$impl_run/raw"; then
+  echo "eval impl staging leaked a key, a result, the rubric, the prompt marker or the repository path" >&2
+  exit 1
+fi
+grep -F ' impl/keys/demo.md' "$impl_run/raw/keys.sha256"
+grep -F ' impl/rubric.md' "$impl_run/raw/keys.sha256"
+cmp -s "$fi2/freeze.sha256" "$impl_run/raw/freeze.sha256"
+grep -F "| freeze.sha256 の sha256 | $frozen |" "$impl_run/raw/conditions.md"
+grep -F "| 凍結したコミット | $(git -C "$fake2" rev-parse HEAD) |" "$impl_run/raw/conditions.md"
+grep -F '| codex CLI (準備時) | fake-codex 0.0.0 |' "$impl_run/raw/conditions.md"
+impl_stage_fails again "$impl_run" demo 'input/ or raw/ already exists'
+impl_stage_fails inside "$fake2/run-inside" demo 'the run directory is inside the repository'
+impl_stage_fails badname "$impl_tmp/run-badname" '../keys' 'bad case name: ../keys'
+impl_stage_fails nocase "$impl_tmp/run-nocase" nosuch 'no case or key for nosuch'
+impl_stage_fails leaky "$impl_tmp/run-leaky" leaky 'names the eval assets or the answers'
+impl_stage_fails broken "$impl_tmp/run-broken" broken 'change.patch does not apply'
+impl_stage_fails keycopy "$impl_tmp/run-keycopy" keycopy 'the same content as a key, a result or the rubric'
+mkdir -p "$impl_tmp/worktree"
+git -C "$impl_tmp/worktree" init -q
+impl_stage_fails worktree "$impl_tmp/worktree/run" demo 'input is inside a git work tree'
+cp "$fi2/keys/demo.md" "$impl_tmp/key.orig"
+printf '%s\n' 'promoted' >> "$fi2/keys/demo.md"
+impl_stage_fails keychanged "$impl_tmp/run-keychanged" demo 'differ from freeze.sha256'
+# A change committed without a new freeze still stops, by the manifest and not by git status.
+git -C "$fake2" -c user.name=t -c user.email=t@example.com commit -qam 'key without a new freeze'
+impl_stage_fails keycommitted "$impl_tmp/run-keycommitted" demo 'differ from freeze.sha256'
+cp "$impl_tmp/key.orig" "$fi2/keys/demo.md"
+git -C "$fake2" -c user.name=t -c user.email=t@example.com commit -qam 'restore the frozen key'
+printf '%s\n' 'new' > "$fi2/cases/demo/extra.md"
+impl_stage_fails added "$impl_tmp/run-added" demo 'differ from freeze.sha256'
+rm "$fi2/cases/demo/extra.md"
+sed -i.bak 's/^あなたはコードレビューの担当です。/あなたはレビュアーです。/' "$fake2/skills/eval/SKILL.md"
+impl_stage_fails prompt "$impl_tmp/run-prompt" demo 'differ from freeze.sha256'
+cp "$eval_command" "$fake2/skills/eval/SKILL.md"
+rm -f "$fake2/skills/eval/SKILL.md.bak"
+# The staging block builds the prompt, so changing it also needs a new freeze.
+sed -i.bak 's/^# eval impl staging: copy one frozen case/# eval impl staging: copy one case/' "$fake2/skills/eval/SKILL.md"
+impl_stage_fails staging "$impl_tmp/run-staging" demo 'differ from freeze.sha256'
+cp "$eval_command" "$fake2/skills/eval/SKILL.md"
+rm -f "$fake2/skills/eval/SKILL.md.bak"
+printf '\n' >> "$fake2/skills/eval/SKILL.md"
+impl_stage_fails dirty "$impl_tmp/run-dirty" demo 'has uncommitted changes'
+cp "$eval_command" "$fake2/skills/eval/SKILL.md"
+# The same-model run reuses the #129 extract: without input/plugin it does not ask for the staged
+# aidd, and it still lists the loaded plugins.
+impl_real=$(cd "$impl_run" && pwd -P)
+python3 - "$impl_run/local/demo-claude-t1.jsonl" "$impl_real" <<'PYEOF'
+import json, sys
+out, run = sys.argv[1:3]
+fenced = "```json\n" + json.dumps({"verdict": "approved", "findings": []}) + "\n```"
+lines = [
+    {"type": "system", "subtype": "init", "session_id": "S-2", "model": "model-main", "cwd": run + "/input",
+     "plugins": [{"name": "aidd", "path": "/elsewhere/aidd", "version": "0.1.0"}]},
+    {"type": "result", "subtype": "success", "is_error": False, "session_id": "S-2", "result": fenced,
+     "total_cost_usd": 0.1, "modelUsage": {}},
+]
+with open(out, "w") as f:
+    for m in lines:
+        f.write(json.dumps(m) + "\n")
+PYEOF
+EVAL_REPO="$fake2" eval_fill "$eval_tmp/extract.tpl" "$impl_tmp/extract.sh" "$impl_run"
+sed -i.bak -e "s|<case>|demo-claude|g" -e "s|<trial>|1|g" "$impl_tmp/extract.sh"
+bash "$impl_tmp/extract.sh" > /dev/null
+grep -F '| プラグイン (init) | aidd 0.1.0 |' "$impl_run/raw/demo-claude-t1.meta.md"
+grep -F '検出なし' "$impl_run/raw/demo-claude-t1.meta.md"
+# The other-model run: the last message is the answer; reads of the repository, the keys, the run's
+# raw/, ../ and an absolute path outside the snapshot are flagged; reads inside it and the shell are not.
+python3 - "$impl_run/local" "$impl_real" "$fake2" <<'PYEOF'
+import json, sys
+local, run, repo = sys.argv[1:4]
+answer = {"verdict": "changes_requested", "findings": [
+    {"id": "R1", "severity": "major", "file": "app.py", "line": 2, "title": "t", "claim": "c", "evidence": "e", "verification": "v"},
+    {"id": "R2", "severity": "blocker", "file": "app.py", "line": 99, "title": "t", "claim": "c", "evidence": "e", "verification": "v"},
+    {"id": "R3", "severity": "minor", "file": "../outside.py", "line": 1, "title": "t", "claim": "c", "evidence": "e", "verification": "v"}]}
+cmds = ["/bin/zsh -lc 'sed -n 1,5p app.py 2>/dev/null'", "/bin/zsh -lc 'cat " + run + "/input/app.py'",
+        "cat " + repo + "/tests/eval/impl/keys/demo.md", "cat ../raw/prompt-demo.md", "cat /etc/hosts",
+        "/bin/zsh -lc \"sed -n '/def f/,/^$/p' app.py\""]
+events = [{"type": "thread.started", "thread_id": "T-1"}]
+events += [{"type": "item.completed", "item": {"type": "command_execution", "command": c}} for c in cmds]
+events += [{"type": "turn.completed", "usage": {"input_tokens": 10, "cached_input_tokens": 4, "output_tokens": 5}}]
+with open(local + "/demo-codex-t1.jsonl", "w") as f:
+    f.write("\n".join(json.dumps(e) for e in events) + "\n")
+with open(local + "/demo-codex-t1.last.txt", "w") as f:
+    f.write(json.dumps(answer))
+PYEOF
+impl_fill "$impl_tmp/codex.tpl" "$impl_tmp/codex.sh" "$impl_run" demo 1
+bash "$impl_tmp/codex.sh" > /dev/null
+codex_meta="$impl_run/raw/demo-codex-t1.meta.md"
+grep -F '| thread_id | T-1 |' "$codex_meta"
+grep -F 'input_tokens=10; cached_input_tokens=4; output_tokens=5' "$codex_meta"
+grep -F '| USD | 不明 |' "$codex_meta"
+grep -F '| モデル (event) | 不明 |' "$codex_meta"
+grep -F '参照かファイルの変更 3 件' "$codex_meta"
+grep -F '/tests/eval/impl/keys/demo.md' "$codex_meta" | grep -F '元リポジトリのパス・keys・results'
+grep -F '../raw/prompt-demo.md' "$codex_meta" | grep -F '作業ディレクトリの外 (相対・~)'
+grep -F 'cat /etc/hosts' "$codex_meta" | grep -F '作業ディレクトリの外 (絶対パス)'
+if grep -F -e '[input]/app.py' -e '/def f/' "$codex_meta" | grep -qF '作業ディレクトリの外'; then
+  echo "eval codex extract flagged a read inside the snapshot or a sed address" >&2
+  exit 1
+fi
+grep -F '"verdict": "changes_requested"' "$impl_run/raw/demo-codex-t1.md"
+if bash "$impl_tmp/codex.sh" 2> /dev/null; then
+  echo "eval codex extract overwrote an existing trial" >&2
+  exit 1
+fi
+# A codex run that wrote no last message is a failed trial and exits nonzero.
+: > "$impl_run/local/demo-codex-t2.jsonl"
+impl_fill "$impl_tmp/codex.tpl" "$impl_tmp/codex2.sh" "$impl_run" demo 2
+if bash "$impl_tmp/codex2.sh" > /dev/null 2> "$impl_tmp/codex2.err"; then
+  echo "eval codex extract accepted a run without a last message" >&2
+  exit 1
+fi
+grep -F 'no last message' "$impl_tmp/codex2.err"
+grep -F '不明: --json の記録が無く' "$impl_run/raw/demo-codex-t2.meta.md"
+# The #129 freeze and verify work on the impl run; a changed rubric stops the verify.
+eval_fill "$eval_tmp/freeze.tpl" "$impl_tmp/freeze.sh" "$impl_run"
+bash "$impl_tmp/freeze.sh" > "$impl_tmp/freeze.out"
+impl_sums=$(sed -n 's/^eval freeze: SHA256SUMS sha256 //p' "$impl_tmp/freeze.out")
+grep -F ' local/demo-codex-t1.last.txt' "$impl_run/raw/local.sha256"
+EVAL_REPO="$fake2" eval_fill "$eval_tmp/verify.tpl" "$impl_tmp/verify.sh" "$impl_run" demo "$impl_sums"
+bash "$impl_tmp/verify.sh" > /dev/null
+# The parse block reads the frozen answers: a fenced answer breaks the contract, a failed trial
+# stays failed, and a finding outside the snapshot or past the last line is invalid.
+impl_fill "$impl_tmp/parse.tpl" "$impl_tmp/parse.sh" "$impl_run" -
+bash "$impl_tmp/parse.sh" > "$impl_tmp/parse.out"
+grep -Fx "$(printf 'demo-claude-t1\t契約違反: コードフェンス付き\t\t\t\t\t\t')" "$impl_tmp/parse.out"
+grep -Fx "$(printf 'demo-codex-t1\t契約どおり\tchanges_requested\t0\t1\t0\t0\t2')" "$impl_tmp/parse.out"
+grep -F "$(printf 'demo-codex-t2\t失敗した試行')" "$impl_tmp/parse.out"
+grep -Fx "$(printf 'demo-codex-t1\tR2\tblocker\tapp.py:99\t無効\tt')" "$impl_tmp/parse.out"
+grep -Fx "$(printf 'demo-codex-t1\tR3\tminor\t../outside.py:1\t無効\tt')" "$impl_tmp/parse.out"
+printf '%s\n' 'changed' >> "$fi2/rubric.md"
+EVAL_REPO="$fake2" eval_fill "$eval_tmp/verify.tpl" "$impl_tmp/verify.sh" "$impl_run" demo "$impl_sums"
+if bash "$impl_tmp/verify.sh" 2> "$impl_tmp/verify.err"; then
+  echo "eval verify accepted a rubric changed after staging" >&2
+  exit 1
+fi
+grep -F 'the keys changed after staging' "$impl_tmp/verify.err"
+chmod -R u+w "$impl_tmp"
+
 # retro's reflux listing snippet (#107, D2): run it on fake gh output. It prints the number,
 # updatedAt, the signature line (checked by the ledger's rule) and the title, never the body, and
 # reports when the listing was cut at the limit.

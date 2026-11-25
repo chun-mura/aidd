@@ -1,0 +1,52 @@
+diff --git a/app/cli.py b/app/cli.py
+index d56af1a..f6b8d1c 100644
+--- a/app/cli.py
++++ b/app/cli.py
+@@ -1,12 +1,12 @@
+ """Print the total of the amounts given on the command line."""
+ import sys
+ 
+-from app.report import fmt_total
++from app.report import format_total
+ 
+ 
+ def main(argv: list) -> int:
+     amounts = [float(a) for a in argv]
+-    print(fmt_total(amounts))
++    print(format_total(amounts))
+     return 0
+ 
+ 
+diff --git a/app/report.py b/app/report.py
+index 330454c..56211a7 100644
+--- a/app/report.py
++++ b/app/report.py
+@@ -1,6 +1,8 @@
+ """Formatting helpers used only by app/cli.py (not part of any public API)."""
++from collections.abc import Iterable
+ 
+ 
+-def fmt_total(values):
++def format_total(values: Iterable[float]) -> str:
++    """Return the sum with thousands separators and two decimals."""
+     total = sum(values)
+     return f"{total:,.2f}"
+diff --git a/tests/test_report.py b/tests/test_report.py
+index b08a4ad..c0b7125 100644
+--- a/tests/test_report.py
++++ b/tests/test_report.py
+@@ -1,9 +1,9 @@
+-from app.report import fmt_total
++from app.report import format_total
+ 
+ 
+-def test_fmt_total_groups_thousands():
+-    assert fmt_total([1000, 234.5]) == "1,234.50"
++def test_format_total_groups_thousands():
++    assert format_total([1000, 234.5]) == "1,234.50"
+ 
+ 
+-def test_fmt_total_of_nothing_is_zero():
+-    assert fmt_total([]) == "0.00"
++def test_format_total_of_nothing_is_zero():
++    assert format_total([]) == "0.00"

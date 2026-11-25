@@ -1,13 +1,13 @@
 ---
 name: eval
-description: design-review パイプラインをゴールデンセットで評価し、検出率・誤棄却率を測定する
-argument-hint: [ケース名 (structure / data-error / security / crosscut)。省略時は全ケース]
+description: design-review パイプラインをゴールデンセットで評価し、検出率・誤棄却率を測定する。impl を付けると、実装レビューを同種 (claude -p) と異種 (codex exec) で同じ欠陥セットに対して比べる
+argument-hint: [ケース名 (structure / data-error / security / crosscut)。省略時は全ケース] | impl [ケース名 (tests/eval/impl/cases/ の名前)。省略時は全ケース]
 disable-model-invocation: true
 ---
 
 **パスと引数と質問の扱い**: この文書の相対パスは、この SKILL.md があるディレクトリを起点にする。`$ARGUMENTS` が文字のまま残っている場合（Codex・Cursor など）は、この skill を呼び出したメッセージのうち skill 名以外の部分を `$ARGUMENTS` とみなす。`AskUserQuestion` と書かれた箇所は、ユーザーに質問するツールがあればそれを使い、無ければ質問を書いて作業を止め、回答を待つ。回答が無いまま推測で進めない。
 
-対象ケース: $ARGUMENTS (未指定なら `tests/eval/cases/` 配下の全 `.md`)
+対象ケース: $ARGUMENTS (未指定なら `tests/eval/cases/` 配下の全 `.md`)。先頭が `impl` なら、この下の design-review の手順ではなく、末尾の「実装レビューの比較 (同種・異種)」を行う
 
 design-review パイプラインの精度を、欠陥を意図的に埋め込んだ設計書 (ゴールデンセット) で測定してください。このコマンドは aidd プラグインリポジトリ自身で実行する前提 (`tests/eval/` が存在すること。なければその旨を報告して終了)。
 
@@ -223,7 +223,7 @@ for line in lines:
         reasons = []
         if repo.casefold() in folded or repo_arg.casefold() in folded:
             reasons.append("元リポジトリのパス")
-        if "tests/eval/keys" in folded or "tests/eval/results" in folded:
+        if any(k in folded for k in ("tests/eval/keys", "tests/eval/results", "tests/eval/impl/keys", "tests/eval/impl/rubric")):
             reasons.append("keys・results")
         if any(os.path.join(p, d).casefold() in folded for p in (run, run_arg) for d in ("raw", "local")):
             reasons.append("run の raw・local")
@@ -249,7 +249,8 @@ if init is None:
 else:
     if plugins is None:
         unknown.append("plugins が無く、プラグインの検査は不明")
-    elif len(aidd) != 1 or os.path.realpath(str(aidd[0].get("path"))) != os.path.join(staged, "plugin"):
+    elif os.path.isdir(os.path.join(staged, "plugin")) and (
+            len(aidd) != 1 or os.path.realpath(str(aidd[0].get("path"))) != os.path.join(staged, "plugin")):
         suspect.append("aidd が input/plugin の1つだけではない")
     if not i.get("cwd"):
         unknown.append("cwd が無く、cwd の検査は不明")
@@ -415,6 +416,383 @@ echo "eval verify: ok"
 **6. 報告** — 指標サマリ・コストの表・前回比較を提示する。検出率の低下・反証誤棄却の増加があれば、どの段 (reviewer / refuter / arbiter) で失われたかを生出力から特定して1行で付記する。汚染の疑いがある試行や失敗した試行があれば、それも書く。
 
 refuter について次の目安を付記する。偽指摘の棄却率が高く、かつ誤った棄却 (反証誤棄却とキー外の誤った棄却の合計) が0件なら、refuter は機能している。偽指摘をほとんど落とせないなら、refuter は判子を押すだけになっており、削減を検討する。いずれも1標本なので、変更を判断する前に再実行して再現を確かめる。
+
+## 実装レビューの比較 (同種・異種)
+
+`/aidd:eval impl [ケース名]` で行う。autonomous-review の主レビューを、同じ実装差分・同じ固定プロンプト・同じ JSON 契約・同じ正解キーで、新しい文脈の同種モデル (`claude -p`) と異種モデル (`codex exec`) に複数回行わせ、シード欠陥の検出・誤検出・危険な変更への判定・コストを比べる。素材は `tests/eval/impl/` (`cases/<ケース>/` に変更前のファイル `before/`・差分 `change.patch`・変更目的と不変条件と懸念点 `brief.md`、`keys/<ケース>.md` に正解キー、`rubric.md` に採点基準)。design-review の `tests/eval/cases/` とは別のケースで、欠陥の無い対照の差分も含む。
+
+- 分離は上の「分離と汚染ガード」と同じ考え方で、手順1b の抽出・1c の凍結・2 の照合のブロックをそのまま使う。偽指摘は使わない。「分離の限界」もそのまま当てはまる
+- **この評価は autonomous-review の適格条件を緩めない**。結果から作るのは `rubric.md` の規則による提案だけで、適格条件を変えるかは人が決める
+- 試行は、各ケース・各方式で3試行以上。試行数を減らさない。実測していないモデル名・provider・コストを断定しない
+
+**I1. ケースの確認と凍結 (ユーザー)** — 初めて実行する前と、`tests/eval/impl/` のケース・キー・`rubric.md`、下の固定プロンプトか I2 の準備のブロックを変えたときに行う。本実行とは別のセッションで行う (凍結の後に本実行のセッションを始める)。
+
+1. 各ケースの `brief.md`・`change.patch`・キーと `rubric.md` をユーザーに示し、確認を AskUserQuestion で求める。直す点があれば直してから示し直す
+2. 承認されたら、次のブロックの `<repo>` を置き換えて実行する。`tests/eval/impl/freeze.sha256` (ケース・キー・`rubric.md` のハッシュと、固定プロンプトと I2 の準備のブロック (プロンプトの組み立て方) のハッシュ) を書き、その sha256 を表示する。既にあれば止まる。作り直すのは、ユーザーが新しい版を承認したときだけで、そのときはユーザーが古いファイルを消す
+3. ユーザーが `freeze.sha256` をコミットする。準備 (I2) は、`freeze.sha256` がコミットされていない、今のファイルと一致しない、`tests/eval/impl/` か `skills/eval/SKILL.md` に未コミットの変更がある、のどれかなら止まる。凍結したコミットは結果に書く
+
+```bash
+# eval impl freeze-cases: after the user approved the cases, keys and rubric, write tests/eval/impl/freeze.sha256
+repo='<repo>'
+set -euo pipefail
+fail() { echo "eval impl freeze-cases: $*" >&2; exit 1; }
+impl="$repo/tests/eval/impl"
+[ -d "$impl/cases" ] && [ -d "$impl/keys" ] && [ -f "$impl/rubric.md" ] || fail "no cases, keys or rubric.md"
+[ ! -e "$impl/freeze.sha256" ] || fail "freeze.sha256 already exists; only the user removes it, after approving a new version"
+for d in "$impl"/cases/*/; do
+  c=$(basename "$d")
+  case "$c" in *[!abcdefghijklmnopqrstuvwxyz0123456789-]*) fail "bad case name: $c" ;; esac
+  [ -d "$d/before" ] && [ -f "$d/change.patch" ] && [ -f "$d/brief.md" ] && [ -f "$impl/keys/$c.md" ] || fail "case $c lacks before/, change.patch, brief.md or its key"
+done
+if [ -n "$(find "$impl/cases" "$impl/keys" ! -type f ! -type d)" ]; then fail "a symbolic link or a special file under cases/ or keys/"; fi
+prompt=$(sed -n '/^# eval impl prompt$/,/^# end eval impl prompt$/p' "$repo/skills/eval/SKILL.md" | shasum -a 256 | awk '{print $1}')
+staging=$(sed -n '/^# eval impl staging:/,/^# end eval impl staging$/p' "$repo/skills/eval/SKILL.md" | shasum -a 256 | awk '{print $1}')
+(cd "$impl" && { find cases keys rubric.md -type f | LC_ALL=C sort | while read -r f; do shasum -a 256 "$f"; done
+  printf '%s  %s\n' "$prompt" prompt "$staging" staging; }) > "$impl/freeze.sha256.tmp"
+mv "$impl/freeze.sha256.tmp" "$impl/freeze.sha256"
+echo "eval impl freeze-cases: freeze.sha256 sha256 $(shasum -a 256 "$impl/freeze.sha256" | awk '{print $1}')"
+# end eval impl freeze-cases
+```
+
+**I2. 準備 (メイン)** — ケースごとに新しい run ディレクトリを作り (`mktemp -d "${TMPDIR:-/tmp}/aidd-eval-impl.XXXXXX"` など。ケースの間で `input/` を共有しない)、次のブロックの `<repo>`・`<run>`・`<case>` を置き換えて実行する。同種と異種は同じ run の同じ `input/` と同じプロンプトでレビューする。
+
+ブロックがすること: 凍結を確かめ、`input/` に `before/` をコピーして `change.patch` を当てる (変更後のスナップショット。Git の履歴なし)。次のどれかに当たれば止まる。
+
+- ケース名が英小文字・数字・`-` 以外を含む、ケースかキーが無い、凍結 (I1 の 3) が確かめられない
+- run ディレクトリが元リポジトリの中にある、`input/` か `raw/` が既にある、`input/` がどこかの Git の作業ツリーの中にある、`change.patch` が当たらない
+- `input/` に `before/` と差分の対象以外のファイル・シンボリックリンク・名前が `.git`・`keys`・`results` のものがある、内容が `tests/eval/keys/`・`tests/eval/results/`・`tests/eval/impl/keys/`・`rubric.md` のどれかと同じ
+- `input/` かプロンプトに元リポジトリの絶対パス・`tests/eval/`・`シード`・`デコイ`・`正解キー` がある
+
+`raw/` には、固定プロンプトの後に `brief.md` と差分を付けたもの (`prompt-<case>.md`)・入力のハッシュ (`input.sha256`)・キーと採点基準のハッシュ (`keys.sha256`)・凍結のマニフェストの写し (`freeze.sha256`)・測定条件 (`conditions.md`) を書く。
+
+```bash
+# eval impl staging: copy one frozen case into <run>/input, apply its change, and write the prompt and hashes into <run>/raw
+repo='<repo>'; run='<run>'; case='<case>'
+set -euo pipefail
+fail() { echo "eval impl staging: $*" >&2; exit 1; }
+case "$case" in ''|*[!abcdefghijklmnopqrstuvwxyz0123456789-]*) fail "bad case name: $case" ;; esac
+repo_given=$repo
+repo=$(cd "$repo" && pwd -P); run=$(cd "$run" && pwd -P)
+case "$run/" in "$repo/"*) fail "the run directory is inside the repository" ;; esac
+in="$run/input"; raw="$run/raw"; impl="$repo/tests/eval/impl"; src="$impl/cases/$case"
+if [ -e "$in" ] || [ -e "$raw" ]; then fail "input/ or raw/ already exists in $run"; fi
+[ -d "$src/before" ] && [ -f "$src/change.patch" ] && [ -f "$src/brief.md" ] && [ -f "$impl/keys/$case.md" ] || fail "no case or key for $case"
+[ -f "$impl/freeze.sha256" ] || fail "the cases are not frozen (no tests/eval/impl/freeze.sha256)"
+prompt_sha=$(sed -n '/^# eval impl prompt$/,/^# end eval impl prompt$/p' "$repo/skills/eval/SKILL.md" | shasum -a 256 | awk '{print $1}')
+staging_sha=$(sed -n '/^# eval impl staging:/,/^# end eval impl staging$/p' "$repo/skills/eval/SKILL.md" | shasum -a 256 | awk '{print $1}')
+(cd "$impl" && { find cases keys rubric.md -type f | LC_ALL=C sort | while read -r f; do shasum -a 256 "$f"; done
+  printf '%s  %s\n' "$prompt_sha" prompt "$staging_sha" staging; }) > "$run/manifest"
+cmp -s "$run/manifest" "$impl/freeze.sha256" || fail "the cases, keys, rubric, prompt or staging block differ from freeze.sha256"
+git -C "$repo" ls-files --error-unmatch tests/eval/impl/freeze.sha256 > /dev/null 2>&1 || fail "freeze.sha256 is not committed"
+[ -z "$(git -C "$repo" status --porcelain -- tests/eval/impl skills/eval/SKILL.md)" ] || fail "tests/eval/impl or skills/eval/SKILL.md has uncommitted changes"
+if [ -n "$(find "$src" ! -type f ! -type d)" ]; then fail "the case has a symbolic link or a special file"; fi
+mkdir -p "$in" "$raw" "$run/local"
+if env -u GIT_DIR -u GIT_WORK_TREE git -C "$in" rev-parse --git-dir > /dev/null 2>&1; then fail "input is inside a git work tree"; fi
+cp -R "$src/before/." "$in/"
+(cd "$in" && env -u GIT_DIR -u GIT_WORK_TREE git apply --whitespace=nowarn "$src/change.patch") || fail "change.patch does not apply to before/"
+if [ -n "$(find "$in" \( -iname .git -o -iname keys -o -iname results \))" ]; then fail "input has a .git, keys or results entry"; fi
+if [ -n "$(find "$in" ! -type f ! -type d)" ]; then fail "input has a symbolic link or a special file"; fi
+{ (cd "$src/before" && find . -type f | sed 's|^\./||'); sed -n 's|^+++ b/||p' "$src/change.patch"; } | LC_ALL=C sort -u > "$run/expected"
+(cd "$in" && find . -type f | sed 's|^\./||' | LC_ALL=C sort) > "$run/found"
+[ -z "$(comm -23 "$run/found" "$run/expected")" ] || fail "input holds files outside before/ and the change"
+(cd "$repo/tests/eval" && { for d in keys results impl/keys; do if [ -d "$d" ]; then find "$d" -type f -size +0; fi; done; echo impl/rubric.md; } \
+  | while read -r f; do shasum -a 256 "$f"; done) | awk '{print $1}' | LC_ALL=C sort -u > "$run/forbidden"
+(cd "$in" && find . -type f | while read -r f; do shasum -a 256 "$f"; done) | awk '{print $1}' | LC_ALL=C sort -u > "$run/inhash"
+if [ -n "$(comm -12 "$run/forbidden" "$run/inhash")" ]; then fail "input has the same content as a key, a result or the rubric"; fi
+prompt="$raw/prompt-$case.md"
+sed -n '/^# eval impl prompt$/,/^# end eval impl prompt$/p' "$repo/skills/eval/SKILL.md" | sed '1d;$d' > "$prompt"
+[ -s "$prompt" ] || fail "skills/eval/SKILL.md has no impl prompt"
+{ printf '\n'; cat "$src/brief.md"; printf '\n## 差分\n\n```diff\n'; cat "$src/change.patch"; printf '```\n'; } >> "$prompt"
+case "$repo_given" in /*) ;; *) repo_given=$repo ;; esac
+if grep -rqiF -e "$repo" -e "$repo_given" "$in" "$raw"; then fail "the repository path appears in the input or the prompt"; fi
+if grep -rqF -e 'tests/eval/' -e 'シード' -e 'デコイ' -e '正解キー' "$in" "$prompt"; then fail "the input or the prompt names the eval assets or the answers"; fi
+(cd "$in" && find . -type f | LC_ALL=C sort | while read -r f; do shasum -a 256 "$f"; done) > "$raw/input.sha256"
+(cd "$repo/tests/eval" && shasum -a 256 "impl/keys/$case.md" impl/rubric.md) > "$raw/keys.sha256"
+cp "$impl/freeze.sha256" "$raw/freeze.sha256"
+version=$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["version"])' "$repo/.claude-plugin/plugin.json" 2>/dev/null) || version=不明
+sha=$(git -C "$repo" rev-parse HEAD 2>/dev/null) || sha=不明
+frozen=$(git -C "$repo" log -1 --format=%H -- tests/eval/impl/freeze.sha256 2>/dev/null) || frozen=
+if status=$(git -C "$repo" status --porcelain 2>/dev/null); then
+  if [ -n "$status" ]; then dirty=yes; else dirty=no; fi
+else
+  dirty=不明
+fi
+cli=$(claude --version 2>/dev/null < /dev/null) || cli=
+codex_cli=$(codex --version 2>/dev/null < /dev/null) || codex_cli=
+{
+  printf '| 項目 | 値 |\n|---|---|\n'
+  printf '| aidd version | %s |\n' "$version"
+  printf '| git SHA | %s |\n' "$sha"
+  printf '| 未コミット変更 | %s |\n' "$dirty"
+  printf '| 凍結したコミット | %s |\n' "${frozen:-不明}"
+  printf '| freeze.sha256 の sha256 | %s |\n' "$(shasum -a 256 "$impl/freeze.sha256" | awk '{print $1}')"
+  printf '| claude CLI (準備時) | %s |\n' "${cli:-不明}"
+  printf '| codex CLI (準備時) | %s |\n' "${codex_cli:-不明}"
+  printf '| 対象ケース | %s |\n' "$case"
+  printf '| 準備日時 (UTC) | %s |\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+} > "$raw/conditions.md"
+rm -f "$run/manifest" "$run/expected" "$run/found" "$run/forbidden" "$run/inhash"
+echo "eval impl staging: ok ($run)"
+# end eval impl staging
+```
+
+レビュー担当の固定プロンプト (上のブロックが先頭と末尾の行を除き、後ろに `brief.md` と差分を付けて `raw/prompt-<case>.md` に書く。ここを変えたら I1 の凍結からやり直す):
+
+```text
+# eval impl prompt
+あなたはコードレビューの担当です。作業ディレクトリは、下の差分を当てた後のリポジトリのスナップショットです (Git の履歴はありません)。下の「変更目的」「守る不変条件」「具体的な懸念点」と差分を読み、この差分が持ち込む問題を指摘してください。
+
+- 作業ディレクトリの中のファイルだけを読む。親ディレクトリや作業ディレクトリの外の絶対パスを開かない
+- ファイルを変更しない。ユーザーには質問しない (答えは返らない)
+- 最終回答は次の JSON オブジェクトだけにする (Markdown のコードフェンスや前後の説明を付けない)。`file` は作業ディレクトリからの相対パス、`line` は変更後のファイルの行番号。問題が無ければ `findings` を空の配列にし、`verdict` を `approved` にする
+- `severity` の目安: `blocker` はマージすると壊れる・危険、`major` はマージ前に直すべき欠陥、`minor` は直すとよい点、`nit` は好みの問題
+
+{
+  "verdict": "approved" | "changes_requested",
+  "findings": [
+    {
+      "id": "R1",
+      "severity": "blocker" | "major" | "minor" | "nit",
+      "file": "relative/path",
+      "line": 123,
+      "title": "短い表題",
+      "claim": "何が問題か",
+      "evidence": "コード、仕様、テストに基づく根拠",
+      "verification": "確認手順"
+    }
+  ]
+}
+# end eval impl prompt
+```
+
+**I3. 実行 (新しいセッション)** — 試行ごとに、同種と異種を交互に1回ずつ起動する (`<trial>` は 1 から。同種の t1 → 異種の t1 → 同種の t2 → …)。どちらも1回ずつ新しいセッションで、前の試行の文脈を持ち越さない。課金のある実行なので、ユーザーが推定コストを見て承認してから始める。
+
+```bash
+cd "<run>/input" && claude -p --output-format stream-json --verbose --tools Read,Grep,Glob --no-session-persistence --max-budget-usd <budget> < "<run>/raw/prompt-<case>.md" > "<run>/local/<case>-claude-t<trial>.jsonl"
+cd "<run>/input" && codex exec --sandbox read-only --skip-git-repo-check --ephemeral --json -C "<run>/input" -o "<run>/local/<case>-codex-t<trial>.last.txt" "$(cat "<run>/raw/prompt-<case>.md")" < /dev/null > "<run>/local/<case>-codex-t<trial>.jsonl" 2> "<run>/local/<case>-codex-t<trial>.stderr.txt"
+```
+
+- 同種: `--tools Read,Grep,Glob` でファイルの読み取りだけにする (書き込み・コマンドの実行はできない)。`<budget>` は1試行の USD の上限で、ユーザーが承認した値にする。上限で止まった試行は失敗として記録する
+- 異種: autonomous-review の主レビューと同じく `--sandbox read-only --skip-git-repo-check -C <スナップショット>` で起動し、stdin を閉じ、`-o` の最終メッセージだけを最終回答とする。起動の確認と時間の上限 (Bash の `timeout` 600000ms) も autonomous-review のとおり。`--json` と `--ephemeral` は記録のために足したもので、レビューの中身には関わらない
+- どちらも利用者の設定をそのまま読み込む。そろえきれない条件 (異種は読み取り専用のコマンドを実行でき、読み取りは作業ディレクトリの外にも届く。同種はコマンドを実行できない) は `rubric.md` のとおり結果に書く
+
+実行のたびに記録を取り出す。同種は手順1b の `# eval extract:` のブロックを、`<case>` を `<case>-claude` に置き換えて使う (`input/plugin/` が無いので、aidd のプラグインの検査はせず、読み込まれたプラグインの一覧だけを記録する)。異種は次のブロックを使う。`raw/<case>-codex-t<trial>.md` に `-o` の最終メッセージを、`.meta.md` に thread_id・終了の状態・トークン・実行したコマンドとその判定を書く。絶対パスは、存在するパスだけを作業ディレクトリの外として数える (`sed` のアドレス `/def f/` のような、パスに見える文字列を数えないため。存在しないパスの読み取りは何も読めていない)。codex の `--json` の形式 (`thread.started`・`turn.completed` の `usage`・`item.completed` の `command_execution`) は codex-cli 0.163.0 で実測していない。取れなかった値は「不明」になるので、成功扱いにも0扱いにもしない。モデル名は event に無ければ「不明」と書く。
+
+```bash
+# eval codex extract: <run>/local/<case>-codex-t<trial>.{jsonl,last.txt} -> <run>/raw/<case>-codex-t<trial>.md and .meta.md
+python3 -I - '<run>' '<case>' '<trial>' '<repo>' <<'PY'
+import json, os, re, sys
+
+run_arg, case, trial, repo_arg = sys.argv[1:5]
+if not re.fullmatch(r"[a-z0-9-]+", case) or not re.fullmatch(r"[0-9]+", trial):
+    sys.exit(f"eval codex extract: bad case or trial: {case!r} {trial!r}")
+run, repo = os.path.realpath(run_arg), os.path.realpath(repo_arg)
+staged = os.path.join(run, "input")
+stem = f"{case}-codex-t{trial}"
+local = os.path.join(run, "local")
+subs = sorted({(staged, "[input]"), (os.path.join(run_arg, "input"), "[input]"), (run, "[run]"), (run_arg, "[run]"),
+               (repo, "[repo]"), (repo_arg, "[repo]"), (os.path.expanduser("~"), "~")}, key=lambda s: -len(s[0]))
+system_dirs = ("/bin/", "/usr/", "/opt/homebrew/", "/dev/null")
+
+
+def clean(value):
+    text = str(value)
+    for path, name in subs:
+        if len(path) > 1:
+            text = re.sub(re.escape(path), lambda _: name, text, flags=re.IGNORECASE)
+    return text
+
+
+def cell(value):
+    return "不明" if value is None or value == "" else clean(value).replace("|", "\\|").replace("\n", " ")
+
+
+def read(name):
+    try:
+        with open(os.path.join(local, name), encoding="utf-8") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+events = []
+for line in (read(stem + ".jsonl") or "").splitlines():
+    try:
+        m = json.loads(line)
+    except ValueError:
+        continue
+    if isinstance(m, dict):
+        events.append(m)
+thread = model = None
+usage, turns, errors, commands, refs = {}, 0, [], [], []
+for m in events:
+    kind = m.get("type")
+    if kind == "thread.started":
+        thread = m.get("thread_id")
+    elif kind == "turn.completed":
+        turns += 1
+        u = m.get("usage") if isinstance(m.get("usage"), dict) else {}
+        for k, v in u.items():
+            if isinstance(v, int) and not isinstance(v, bool):
+                usage[k] = usage.get(k, 0) + v
+    elif kind in ("turn.failed", "error"):
+        errors.append(json.dumps(m, ensure_ascii=False)[:300])
+    if isinstance(m.get("model"), str):
+        model = m["model"]
+    item = m.get("item") if isinstance(m.get("item"), dict) else {}
+    if kind == "item.completed" and item.get("type") in ("command_execution", "file_change"):
+        text = item.get("command") if item.get("type") == "command_execution" else json.dumps(item, ensure_ascii=False)
+        text = str(text)
+        commands.append((item.get("type"), text))
+        folded = text.casefold()
+        reasons = []
+        if item.get("type") == "file_change":
+            reasons.append("ファイルの変更")
+        if repo.casefold() in folded or repo_arg.casefold() in folded:
+            reasons.append("元リポジトリのパス")
+        if any(k in folded for k in ("tests/eval/keys", "tests/eval/results", "tests/eval/impl/keys", "tests/eval/impl/rubric")):
+            reasons.append("keys・results")
+        if any(os.path.join(p, d).casefold() in folded for p in (run, run_arg) for d in ("raw", "local")):
+            reasons.append("run の raw・local")
+        if "../" in text or re.search(r"(^|[\s'\"=])~", text):
+            reasons.append("作業ディレクトリの外 (相対・~)")
+        for p in re.findall(r"(?:^|[\s'\"=<>])(/[^\s'\";|&<>]+)", text):
+            real = os.path.realpath(p).casefold()
+            if os.path.exists(p) and not p.startswith(system_dirs) and real != staged.casefold() \
+                    and not real.startswith(staged.casefold() + os.sep):
+                reasons.append("作業ディレクトリの外 (絶対パス)")
+        if reasons:
+            refs.append(("・".join(dict.fromkeys(reasons)), text))
+
+last = read(stem + ".last.txt")
+ok = bool(last and last.strip())
+suspect = [f"作業ディレクトリの外・元リポジトリ・keys・results への参照かファイルの変更 {len(refs)} 件"] if refs else []
+verdict = ("汚染の疑い: " + " / ".join(suspect)) if suspect else "検出なし (--json に残ったコマンドに限る)"
+if not events:
+    verdict += " / 不明: --json の記録が無く、コマンドの検査は不明"
+rows = [
+    ("thread_id", thread),
+    ("モデル (event)", model),
+    ("終了", f"turn.completed {turns} 回 / エラー {len(errors)} 件" if events else None),
+    ("エラー", " / ".join(errors) if errors else ("なし" if events else None)),
+    ("トークン (turn.completed の usage の合計)", "; ".join(f"{k}={v}" for k, v in usage.items()) if usage else None),
+    ("USD", None),
+    ("実行したコマンド・ファイルの変更", len(commands) if events else None),
+    ("判定", verdict),
+]
+out = [f"# 異種のレビューの記録: {case} 試行 {trial}", "", "| 項目 | 値 |", "|---|---|"]
+out += [f"| {k} | {cell(v)} |" for k, v in rows]
+out += ["", "## 実行したコマンド・ファイルの変更 (item.completed)", ""]
+if commands:
+    out += ["| 種類 | 内容 |", "|---|---|"] + [f"| {cell(t)} | {cell(c[:300])} |" for t, c in commands]
+else:
+    out.append("なし" if events else "不明")
+out += ["", "## 作業ディレクトリの外・元リポジトリ・keys・results への参照かファイルの変更", ""]
+if refs:
+    out += ["| 理由 | 内容 |", "|---|---|"] + [f"| {cell(why)} | {cell(c[:300])} |" for why, c in refs]
+else:
+    out.append("なし")
+raw = os.path.join(run, "raw")
+with open(os.path.join(raw, stem + ".meta.md"), "x", encoding="utf-8") as f:
+    f.write("\n".join(out) + "\n")
+with open(os.path.join(raw, stem + ".md"), "x", encoding="utf-8") as f:
+    f.write(clean(last).rstrip("\n") + "\n" if ok else "実行担当の最終回答なし (失敗した試行)\n")
+print(f"eval codex extract: {stem}: {verdict}")
+if not ok:
+    print(f"eval codex extract: {stem}: no last message (-o) was written", file=sys.stderr)
+    sys.exit(1)
+PY
+```
+
+**I4. 凍結と照合 (メイン)** — ケースごとに、そのケースの全試行の実行と抽出が終わったら、手順1c の `# eval freeze:` のブロックで run を凍結し、表示された SHA256SUMS の sha256 を採点の前にユーザーへの途中報告と結果に書く。手順2 の `# eval verify:` のブロックで照合する (キーと `rubric.md` の照合を含む)。照合が通るまで `tests/eval/impl/keys/`・`rubric.md`・過去の結果を読まない。
+
+**I5. 採点 (メイン)** — 照合の後、次のブロックで各試行の最終回答を JSON 契約に照らし、指摘ごとに `file`・`line` が `input/` にあるかを確かめる (読むだけで、run を書き換えない)。そのあと `rubric.md` とキーを読み、`rubric.md` の基準で採点する。キー外の blocker / major は手順4と同じく判定エージェント2体で分類する (渡す対象は run の `input/` の該当ファイル。キー・`rubric.md`・`tests/eval/impl/` を開かないよう明示する)。
+
+```bash
+# eval impl parse: check every final answer in <run>/raw against the JSON contract and the snapshot in <run>/input
+python3 -I - '<run>' <<'PY'
+import json, os, re, sys
+
+run = os.path.realpath(sys.argv[1])
+raw, staged = os.path.join(run, "raw"), os.path.join(run, "input")
+SEVERITY = ("blocker", "major", "minor", "nit")
+FIELDS = ("id", "severity", "file", "line", "title", "claim", "evidence", "verification")
+
+
+def contract(text):
+    try:
+        data = json.loads(text)
+    except ValueError:
+        fenced = re.fullmatch(r"```[a-z]*\n(.*)\n```", text, re.S)
+        try:
+            json.loads(fenced.group(1)) if fenced else None
+        except ValueError:
+            fenced = None
+        return None, "コードフェンス付き" if fenced else "JSON ではない"
+    if not isinstance(data, dict) or data.get("verdict") not in ("approved", "changes_requested") \
+            or not isinstance(data.get("findings"), list):
+        return None, "verdict か findings が契約と違う"
+    for f in data["findings"]:
+        if not isinstance(f, dict) or any(k not in f for k in FIELDS) or f["severity"] not in SEVERITY \
+                or not isinstance(f["file"], str) or isinstance(f["line"], bool) or not isinstance(f["line"], int):
+            return None, "指摘の項目が契約と違う"
+    return data, None
+
+
+def valid(f):
+    path = os.path.realpath(os.path.join(staged, f["file"]))
+    if not path.startswith(staged + os.sep) or not os.path.isfile(path):
+        return False
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        return 1 <= f["line"] <= len(fh.read().splitlines())
+
+
+def tsv(*values):
+    print("\t".join(str(v).replace("\t", " ").replace("\n", " ") for v in values))
+
+
+trials, findings = [], []
+for name in sorted(os.listdir(raw)):
+    m = re.fullmatch(r"([a-z0-9-]+)-(claude|codex)-t([0-9]+)\.md", name)
+    if not m:
+        continue
+    with open(os.path.join(raw, name), encoding="utf-8") as fh:
+        text = fh.read().strip()
+    if text.startswith("実行担当の最終回答なし"):
+        trials.append((name[:-3], "失敗した試行", "", "", "", "", "", ""))
+        continue
+    data, why = contract(text)
+    if data is None:
+        trials.append((name[:-3], "契約違反: " + why, "", "", "", "", "", ""))
+        continue
+    count = {s: 0 for s in SEVERITY}
+    invalid = 0
+    for f in data["findings"]:
+        ok = valid(f)
+        invalid += not ok
+        count[f["severity"]] += ok
+        findings.append((name[:-3], f["id"], f["severity"], f"{f['file']}:{f['line']}", "有効" if ok else "無効", f["title"]))
+    trials.append((name[:-3], "契約どおり", data["verdict"], *(count[s] for s in SEVERITY), invalid))
+tsv("trial", "contract", "verdict", *SEVERITY, "invalid")
+for row in trials:
+    tsv(*row)
+print()
+tsv("trial", "id", "severity", "file:line", "valid", "title")
+for row in findings:
+    tsv(*row)
+PY
+```
+
+**I6. 結果の保存** — `tests/eval/results/YYYY-MM-DD-impl.md` に保存する (同日に再実行したら `-2` などの連番)。各ケースの run の `raw/` を `tests/eval/results/<run-id>/<case>/` にコピーし、そこで `shasum -a 256 -c SHA256SUMS` が通ること、SHA256SUMS の sha256 が I4 で記録した値と同じことを確かめる。`local/` (stream-json・`--json`・stderr の全文) はコミットしない。記載内容:
+
+- 測定条件の表: 手順5の項目 (aidd version・git SHA・未コミット変更・CLI の版・起動コマンド・実測したモデルと provider・試行ごとの session_id か thread_id・所要時間・成否) に加え、凍結したコミット・`freeze.sha256` の sha256・ケースごとの SHA256SUMS の sha256・`<budget>`
+- `rubric.md` の指標を方式ごと・ケースごと・試行ごとに書いた表と、3試行の最小〜最大。失敗した試行・契約違反・無効な指摘も消さずに書く
+- 異種が同種より良かった結果と悪かった結果の両方 (異種だけが検出・異種だけが誤検出、など)
+- `rubric.md` の規則で作った提案 (同種で許容できる範囲の候補・人の判断に残す範囲) と、提案が当てはまる条件 (実測したモデル・版・この5ケース・この固定プロンプト)
+- 未測定の項目とそろえきれなかった条件
+- コストの表: 同種・異種・採点を分け、評価全体の合計も示す。列はトークンと USD に分け、合計の行は既知の分の合計と不明の項目名を書く
+
+**I7. 報告** — 指標の表・提案・コストの表・未測定の項目を示す。提案は適格条件の変更ではないことを添える。
 
 ## 注意
 

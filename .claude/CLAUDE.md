@@ -197,7 +197,11 @@ the raw output and the stream-json, records the printed hash of SHA256SUMS, and 
 verifying it. This separates input and context, not read permissions: absolute-path reads outside the working
 directory and arbitrary Bash commands are not blocked, and the files can be changed before the freeze. The metrics
 are defined in the table in `skills/eval/SKILL.md` (step 3); results are written to
-`tests/eval/results/YYYY-MM-DD.md`, with the raw output under `tests/eval/results/<run-id>/`, and compared against the most recent prior result. **Operating rule 6**: any release that changes `skills/design-review/SKILL.md`, `agents/refuter.md`,
+`tests/eval/results/YYYY-MM-DD.md`, with the raw output under `tests/eval/results/<run-id>/`, and compared against the most recent prior result. `/aidd:eval impl` compares the autonomous-review main review by a fresh `claude -p` (Read/Grep/Glob only) and
+`codex exec --sandbox read-only` on the frozen cases in `tests/eval/impl/` (seeded defects and defect-free controls,
+keys, `rubric.md`). The user approves and commits `tests/eval/impl/freeze.sha256` (cases, keys, rubric, fixed prompt
+and staging block) before any run; staging stops if it does not match. It reuses the #129 extract/freeze/verify, and
+its result is a proposal only — it never relaxes autonomous-review eligibility. **Operating rule 6**: any release that changes `skills/design-review/SKILL.md`, `agents/refuter.md`,
 `agents/design-arbiter.md`, `agents/security-reviewer.md`, or `agents/reviewer.md` must run `/aidd:eval` before
 release and keep the result file — this is
 the only regression signal for pipeline prompt changes, since there's no automated scoring in CI.
