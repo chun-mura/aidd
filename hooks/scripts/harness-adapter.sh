@@ -414,5 +414,7 @@ except Exception:
 PYEOF
 )
 
-printf '%s' "$input" | python3 -I -c "$PY_CODE" "$plugin_root" "$state_dir" "$target" 2>/dev/null || true
+# -X utf8: harnesses speak UTF-8. Under a non-UTF-8 locale, python would decode this code and
+# its input by the locale and fail to print a Japanese verdict, losing it (#184).
+printf '%s' "$input" | python3 -I -X utf8 -c "$PY_CODE" "$plugin_root" "$state_dir" "$target" 2>/dev/null || true
 exit 0
