@@ -822,8 +822,8 @@ PY
 
 - ケース名が英小文字・数字・`-` 以外を含む、`<run>` が手順1a で準備されていない・既に凍結されている・比較のプロンプトが既にある、ケースが `<run>/input/` に無いか `tests/eval/cases/` と違う
 - `<base>` が元リポジトリか `<run>` の中にある、`<base>` に `input/` か `raw/` が既にある、`<base>/input/` がどこかの Git の作業ツリーの中にある
-- 比べる資産に未コミットの変更がある
-- プロンプトかケースのコピーに元リポジトリの絶対パスがある、プロンプトに `tests/eval/`・planted の ID・置き換え忘れの `<case>`・`<config>`・`<rule>` が残っている
+- 比べる資産に未コミットの変更がある。手順1a で `<run>/input/` にコピーしたファイル (`<run>/allowed` の全件) が今の元ファイルと違う、または `<run>` を準備したコミット (`conditions.md` の git SHA) が今の HEAD と違う (未コミットの資産で準備した後に戻した・コミットした場合も止めるため)
+- プロンプトかケースのコピーに元リポジトリの絶対パスがある、プロンプトに `tests/eval/`・planted の ID・置き換え忘れの `<case>`・`<config>`・`<rule>` が残っている (単体モデルのプロンプトは本文を埋め込むので、`tests/eval/` と planted の ID を見る)
 
 失敗したら原因を直し、新しい run ディレクトリ2つでやり直す。
 
@@ -847,14 +847,19 @@ if [ -e "$bin" ] || [ -e "$braw" ]; then fail "input/ or raw/ already exists in 
 status=$(git -C "$repo" status --porcelain -- skills/eval/SKILL.md skills/design-review agents .claude-plugin/plugin.json tests/eval/cases tests/eval/keys) \
   || fail "cannot read the git status of the repository"
 [ -z "$status" ] || fail "the compared assets have uncommitted changes"
+[ -f "$run/allowed" ] || fail "$run has no allowed list from the eval staging block"
+while IFS=$'\t' read -r dst src; do
+  cmp -s "$run/input/$dst" "$repo/$src" || fail "the staged $dst differs from $src"
+done < "$run/allowed"
+head=$(git -C "$repo" rev-parse HEAD) || fail "cannot read the HEAD of the repository"
+grep -qF "| git SHA | $head |" "$raw/conditions.md" || fail "$run was staged at another commit"
 mkdir -p "$bin/cases" "$braw" "$base/local"
 if env -u GIT_DIR -u GIT_WORK_TREE git -C "$bin" rev-parse --git-dir > /dev/null 2>&1; then fail "the baseline input is inside a git work tree"; fi
 printf 'case\tlines\tconfig\tprompt\n' > "$run/compare.tmp"
 for c in $cases; do
   src="$run/input/cases/$c.md"
   [ -f "$src" ] || fail "case $c is not staged in $run"
-  cmp -s "$src" "$repo/tests/eval/cases/$c.md" || fail "the staged case $c differs from tests/eval/cases/$c.md"
-  lines=$(wc -l < "$src" | tr -d ' ')
+  lines=$(awk 'END { print NR }' "$src")
   for config in deep standard direct; do
     if [ "$config" = direct ] && [ "$lines" -ge 100 ]; then
       printf '%s\t%s\t%s\t対象外 (100行以上)\n' "$c" "$lines" "$config" >> "$run/compare.tmp"
@@ -879,7 +884,7 @@ done
 case "$repo_given" in /*) ;; *) repo_given=$repo ;; esac
 if grep -rqiF -e "$repo" -e "$repo_given" "$bin" "$braw" "$raw"/prompt-*-*.md; then fail "the repository path appears in the input or a prompt"; fi
 if grep -qF -e 'tests/eval/' -e 'PL-' -e '<case>' -e '<config>' -e '<rule>' "$raw"/prompt-*-*.md; then fail "a prompt names tests/eval/, shows a planted ID or keeps a placeholder"; fi
-if grep -qF 'tests/eval/' "$braw"/prompt-*.md; then fail "a baseline prompt names tests/eval/"; fi
+if grep -qF -e 'tests/eval/' -e 'PL-' "$braw"/prompt-*.md; then fail "a baseline prompt names tests/eval/ or shows a planted ID"; fi
 (cd "$bin" && find . -type f | LC_ALL=C sort | while read -r f; do shasum -a 256 "$f"; done) > "$braw/input.sha256"
 cp "$raw/keys.sha256" "$braw/keys.sha256"
 { cat "$raw/conditions.md"; printf '| 比較の run | 単体モデル (baseline)。設計レビューの構成は同じ準備の別の run |\n'; } > "$braw/conditions.md"
@@ -930,15 +935,15 @@ direct: `--depth=standard` で適用し、小規模対象ショートカット�
 **C2. 実行 (新しいセッション)** — 課金のある実行なので、ユーザーが推定コストを見て承認してから始める。推定は、ケース × 構成 × 試行の回数と、過去の結果の総トークン・USD (どの結果ファイルの値かを書く) から出し、`<model>` と構成ごとの `<budget>` と一緒に示す。試行ごとに、ケースごとに `deep` → `standard` → `direct` → `baseline` の順で1回ずつ起動する (`<trial>` は 1 から。時間帯の偏りを構成の間で散らすため)。どれも新しいセッションで、前の試行の文脈を持ち越さない。
 
 ```bash
-cd "<run>/input" && claude -p --model <model> --output-format stream-json --verbose --plugin-dir ./plugin --max-budget-usd <budget> < "<run>/raw/prompt-<case>-<config>.md" > "<run>/local/<case>-<config>-t<trial>.jsonl"
-cd "<base>/input" && claude -p --model <model> --output-format stream-json --verbose --tools "" --no-session-persistence --max-budget-usd <budget> < "<base>/raw/prompt-<case>-baseline.md" > "<base>/local/<case>-baseline-t<trial>.jsonl"
+[ ! -e "<run>/local/<case>-<config>-t<trial>.jsonl" ] && cd "<run>/input" && claude -p --model <model> --output-format stream-json --verbose --plugin-dir ./plugin --max-budget-usd <budget> < "<run>/raw/prompt-<case>-<config>.md" > "<run>/local/<case>-<config>-t<trial>.jsonl"
+[ ! -e "<base>/local/<case>-baseline-t<trial>.jsonl" ] && cd "<base>/input" && claude -p --model <model> --output-format stream-json --verbose --tools "" --no-session-persistence --max-budget-usd <budget> < "<base>/raw/prompt-<case>-baseline.md" > "<base>/local/<case>-baseline-t<trial>.jsonl"
 ```
 
-- `<model>` は全構成で同じ値 (既定 `opus`)。`<budget>` は構成ごとの1試行の USD の上限で、ユーザーが承認した値にする。上限で止まった試行は失敗として記録する。`compare.tsv` で `direct` が対象外のケースは、`direct` を起動しない
+- `<model>` は全構成で同じ値 (既定 `opus`)。`<budget>` は構成ごとの1試行の USD の上限で、ユーザーが承認した値にする。上限で止まった試行は失敗として記録する。`compare.tsv` で `direct` が対象外のケースは、`direct` を起動しない。既にある試行番号の stream-json には書き込まない (上のコマンドの先頭の検査が止める)。起動し直すときは新しい試行番号を使う
 - 1回に数分から十数分かかる。手順1b と同じく、バックグラウンドで実行して終了を待つ。user 設定・hook・他のプラグインは変えずにそのまま読み込ませる (単体モデルも同じ。`--tools ""` でツールは使えない)
 - 抽出は手順1b の `# eval extract:` のブロックを、`<run>` を各 run に、`<case>` を `<case>-<config>` (単体モデルは `<case>-baseline`) に置き換えて使う。`<base>/input/` には `plugin/` が無いので、aidd のプラグインの検査はせず、読み込まれたプラグインの一覧だけを記録する
 
-**C3. 凍結と照合 (メイン)** — 全試行の実行と抽出が終わったら、2つの run それぞれに手順1c の `# eval freeze:` と手順2 の `# eval verify:` を使う。SHA256SUMS の sha256 は2つとも、採点の前にユーザーへの途中報告と結果に書く。照合が両方通るまで、キーと過去の結果を読まない。
+**C3. 凍結と照合 (メイン)** — 凍結の前に、`compare.tsv` の対象外でない行と単体モデルの各ケースについて、試行 1〜N のすべてで `local/<case>-<config>-t<trial>.jsonl` と `raw/<case>-<config>-t<trial>.md`・`.meta.md` がそろっていることを確かめる。欠けた組が1つでもあれば凍結しない (起動し忘れた試行があっても、凍結と照合は通ってしまうため)。全試行の実行と抽出が終わったら、2つの run それぞれに手順1c の `# eval freeze:` と手順2 の `# eval verify:` を使う。SHA256SUMS の sha256 は2つとも、採点の前にユーザーへの途中報告と結果に書く。照合が両方通るまで、キーと過去の結果を読まない。
 
 **C4. 採点 (メイン)** — 対象は各試行の最終報告 (設計レビューの構成は `## 最終報告`、単体モデルは回答全体)。シードは手順2と同じく、キーの一致判定基準で意味的に照合する。キー外の指摘は手順4と同じく判定エージェント2体で分類する。全構成・全試行のキー外指摘を同じ論点ごとにまとめて渡し、判定エージェントには構成の名前と出た試行を渡さない (どの構成の指摘かで判定が偏らないようにするため)。論点の分類を、その論点に当たる各試行の指摘に当てはめる。指標:
 
@@ -958,6 +963,8 @@ cd "<base>/input" && claude -p --model <model> --output-format stream-json --ver
 1. 安全上重要なシードごとに、見逃した試行の数が `deep` 以下 (`deep` も見逃したシードは、`deep` より多く見逃さなければよい)
 2. コア検出が、どの試行も `deep` の最小値以上
 3. デコイ誤検出が、どの試行も `deep` の最大値以下
+
+失敗した試行 (上限で止まった・エラーで終わった・最終回答が無い) を `deep` の最小値・最大値・見逃しの数にも、軽い構成の判定にも入れない。どれかの構成に失敗した試行があるケース群は、新しい試行番号で再実行して全構成の成功した試行の数をそろえるまで判定せず「既定を維持」とする (`deep` の失敗が基準を緩め、実行の失敗が軽量化の根拠に紛れ込むため)。
 
 指摘件数・ノイズ率・費用・待ち時間は、候補の中から選ぶ材料にだけ使い、上の3つを満たさない構成を候補にする理由にしない。提案には当てはまる条件 (実測したモデル・版・比べたケース・この固定プロンプト・試行数) を書き、ほかのケースやモデルに一般化しない。
 

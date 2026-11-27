@@ -942,6 +942,10 @@ grep -F -- '**C5. 提案 (実行の前に固定した規則)**' "$eval_command"
 grep -F -- '3試行の最小〜最大 (平均だけにしない)' "$eval_command"
 grep -F -- 'claude -p --model <model> --output-format stream-json --verbose --plugin-dir ./plugin --max-budget-usd <budget>' "$eval_command"
 grep -F -- 'claude -p --model <model> --output-format stream-json --verbose --tools "" --no-session-persistence --max-budget-usd <budget>' "$eval_command"
+grep -F -- '[ ! -e "<run>/local/<case>-<config>-t<trial>.jsonl" ] && cd "<run>/input"' "$eval_command"
+grep -F -- '[ ! -e "<base>/local/<case>-baseline-t<trial>.jsonl" ] && cd "<base>/input"' "$eval_command"
+grep -F -- '欠けた組が1つでもあれば凍結しない' "$eval_command"
+grep -F -- '`deep` の最小値・最大値・見逃しの数にも、軽い構成の判定にも入れない' "$eval_command"
 # Run the compare staging block on the fake repository after the #129 staging: per-config prompts
 # without the mixed findings, direct only below 100 lines, a baseline run holding only the cases and
 # the prior baseline wording with numbered lines, and each guard stopping for its own reason. The
@@ -1019,6 +1023,35 @@ cmp_run2="$cmp_tmp/run2"
 eval_stage cmp2 "$cmp_run2" demo
 cmp_stage_fails baseexists "$cmp_run2" "$cmp_base" demo 'input/ or raw/ already exists'
 cmp_stage_fails notcase "$cmp_run2" "$cmp_tmp/base-notcase" long 'case long is not staged'
+cmp_stage_fails empty "$cmp_run2" "$cmp_tmp/base-empty2" '' 'no cases'
+git init -q "$cmp_tmp/wt"
+cmp_stage_fails baseworktree "$cmp_run2" "$cmp_tmp/wt/base" demo 'the baseline input is inside a git work tree'
+cmp_run3="$cmp_tmp/run3"
+eval_stage cmp3 "$cmp_run3" demo
+: > "$cmp_run3/raw/SHA256SUMS"
+cmp_stage_fails frozen "$cmp_run3" "$cmp_tmp/base-frozen" demo 'is already frozen'
+# A run staged from uncommitted assets, or at another commit, must not pass once the tree is clean.
+printf '%s\n' 'dirty reviewer' > "$fake/agents/reviewer.md"
+cmp_run4="$cmp_tmp/run4"
+eval_stage cmp4 "$cmp_run4" demo
+git -C "$fake" checkout -q -- agents/reviewer.md
+cmp_stage_fails plugindiff "$cmp_run4" "$cmp_tmp/base-plugindiff" demo 'the staged plugin/agents/reviewer.md differs from agents/reviewer.md'
+cmp_run5="$cmp_tmp/run5"
+eval_stage cmp5 "$cmp_run5" demo
+printf '%s\n' 'other' > "$fake/other.txt"
+git -C "$fake" add other.txt
+git -C "$fake" -c user.name=t -c user.email=t@example.com commit -qm other
+cmp_stage_fails othercommit "$cmp_run5" "$cmp_tmp/base-othercommit" demo 'was staged at another commit'
+# The baseline prompt embeds the case text, so a planted ID or tests/eval/ in the case stops there.
+fake_case leakpath 'see tests/eval/keys' '| PL-K1 | mid | cases/leakpath.md:2 | x | y |'
+fake_case leakid 'see PL-Z9' '| PL-K2 | mid | cases/leakid.md:2 | x | y |'
+git -C "$fake" add -A tests/eval/cases tests/eval/planted tests/eval/keys
+git -C "$fake" -c user.name=t -c user.email=t@example.com commit -qm leak
+cmp_run6="$cmp_tmp/run6" cmp_run7="$cmp_tmp/run7"
+eval_stage cmp6 "$cmp_run6" leakpath
+cmp_stage_fails baseleakpath "$cmp_run6" "$cmp_tmp/base-leakpath" leakpath 'a baseline prompt names tests/eval/ or shows a planted ID'
+eval_stage cmp7 "$cmp_run7" leakid
+cmp_stage_fails baseleakid "$cmp_run7" "$cmp_tmp/base-leakid" leakid 'a baseline prompt names tests/eval/ or shows a planted ID'
 # The baseline run goes through the reused extract (no staged aidd to check), freeze and verify.
 cmp_base_real=$(cd "$cmp_base" && pwd -P)
 python3 - "$cmp_base/local/demo-baseline-t1.jsonl" "$cmp_base_real" <<'PYEOF'
