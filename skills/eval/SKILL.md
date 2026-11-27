@@ -1,13 +1,13 @@
 ---
 name: eval
-description: design-review パイプラインをゴールデンセットで評価し、検出率・誤棄却率を測定する。impl を付けると、実装レビューを同種 (claude -p) と異種 (codex exec) で同じ欠陥セットに対して比べる
-argument-hint: [ケース名 (structure / data-error / security / crosscut)。省略時は全ケース] | impl [ケース名 (tests/eval/impl/cases/ の名前)。省略時は全ケース]
+description: design-review パイプラインをゴールデンセットで評価し、検出率・誤棄却率を測定する。impl を付けると、実装レビューを同種 (claude -p) と異種 (codex exec) で同じ欠陥セットに対して比べる。compare を付けると、design-review の deep・standard・小規模の直接レビューと単体モデルを同じケースとキーで比べる
+argument-hint: [ケース名 (structure / data-error / security / crosscut)。省略時は全ケース] | impl [ケース名 (tests/eval/impl/cases/ の名前)。省略時は全ケース] | compare [ケース名 (tests/eval/cases/ の名前)。省略時は全ケース]
 disable-model-invocation: true
 ---
 
 **パスと引数と質問の扱い**: この文書の相対パスは、この SKILL.md があるディレクトリを起点にする。`$ARGUMENTS` が文字のまま残っている場合（Codex・Cursor など）は、この skill を呼び出したメッセージのうち skill 名以外の部分を `$ARGUMENTS` とみなす。`AskUserQuestion` と書かれた箇所は、ユーザーに質問するツールがあればそれを使い、無ければ質問を書いて作業を止め、回答を待つ。回答が無いまま推測で進めない。
 
-対象ケース: $ARGUMENTS (未指定なら `tests/eval/cases/` 配下の全 `.md`)。先頭が `impl` なら、この下の design-review の手順ではなく、末尾の「実装レビューの比較 (同種・異種)」を行う
+対象ケース: $ARGUMENTS (未指定なら `tests/eval/cases/` 配下の全 `.md`)。先頭が `impl` なら、この下の design-review の手順ではなく、末尾の「実装レビューの比較 (同種・異種)」を行う。先頭が `compare` なら、末尾の「design-review の構成比較 (deep・standard・直接・単体モデル)」を行う
 
 design-review パイプラインの精度を、欠陥を意図的に埋め込んだ設計書 (ゴールデンセット) で測定してください。このコマンドは aidd プラグインリポジトリ自身で実行する前提 (`tests/eval/` が存在すること。なければその旨を報告して終了)。
 
@@ -793,6 +793,184 @@ PY
 - コストの表: 同種・異種・採点を分け、評価全体の合計も示す。列はトークンと USD に分け、合計の行は既知の分の合計と不明の項目名を書く
 
 **I7. 報告** — 指標の表・提案・コストの表・未測定の項目を示す。提案は適格条件の変更ではないことを添える。
+
+## design-review の構成比較 (deep・standard・直接・単体モデル)
+
+`/aidd:eval compare [ケース名]` で行う。同じケース (`tests/eval/cases/`) と同じ正解キー (`tests/eval/keys/`) で、design-review の構成と単体モデルを比べ、シード欠陥の検出・安全上重要な見逃し・誤検出・ノイズ・待ち時間・総費用を記録する。実行担当のメインのモデルは、全構成で同じ `--model <model>` に固定する (agent のモデルは agent 定義の frontmatter のまま)。
+
+| 構成 | 内容 | 対象 |
+|---|---|---|
+| `deep` | `--depth=deep`。小規模対象ショートカットを使わず、並列 dispatch → refuter → arbiter | 全ケース |
+| `standard` | 既定の `--depth=standard`。小規模対象ショートカットを使わず並列 dispatch し、refuter・arbiter は design-review の standard の条件に従う | 全ケース |
+| `direct` | `--depth=standard` の小規模対象ショートカット (dispatch せず、メインが直接レビューする) | 100行未満のケースだけ (今は structure・data-error・security)。100行以上は「対象外」として記録する |
+| `baseline` | aidd を使わない単体モデル。`2026-11-07-baseline.md`・`2026-11-22-crosscut-comparison.md` と同じ文言のプロンプトに行番号付きの本文を埋め込み、ツールなし (`--tools ""`) で答えさせる | 全ケース |
+
+- **既存の deep 回帰評価 (手順1〜6) を置き換えない**。運用ルール6の評価は今までどおり手順1〜6で行う。この比較は偽指摘を混ぜない (構成の間で refuter の起動条件と費用をそろえるため) ので、偽指摘の棄却率は測らず、費用は手順1〜6の結果と直接比べない
+- **比較の結果だけで構成を削除しない**。結果から作るのは C5 の規則による提案だけで、design-review の既定や構成を変えるかは人が決める
+- 試行は、各ケース・各構成で3試行以上。試行数を減らさない。実測していないモデル名・provider・コストを断定しない
+- 比較からはキーへ昇格しない (昇格すると構成の間で分母が動くため)。キー外の正当な指摘を昇格するかは、手順1〜6の評価で扱う
+- 分離は「分離と汚染ガード」と同じ。手順1a の準備・1b の抽出・1c の凍結・2 の照合のブロックをそのまま使い、「分離の限界」もそのまま当てはまる
+
+**安全上重要なシード** (実行の前に固定した規則): キーのシード欠陥表で、期待深刻度が `high` のもの、または対応観点が「セキュリティ」で始まるもの (コアシードと昇格シードの両方)。**安全上重要な見逃し**は、そのシードが最終報告に無いこと、または `low` としてしか無いこと。見逃しは最終報告の指摘件数とは別の表に書き、件数が増えたことを検出の改善とも見逃しの埋め合わせとも数えない。
+
+**C1. 準備 (メイン)** — 比べる資産 (`skills/eval/SKILL.md`・`skills/design-review/`・`agents/`・`.claude-plugin/plugin.json`・`tests/eval/cases/`・`tests/eval/keys/`) に未コミットの変更が無い状態で行う (下のブロックが止める。安全上重要なシードの規則・提案の規則・固定プロンプトを、結果を見る前のコミットで固定するため)。元リポジトリの外に run ディレクトリを2つ作る: 設計レビューの3構成用の `<run>` と、単体モデル用の `<base>` (`mktemp -d "${TMPDIR:-/tmp}/aidd-eval-compare.XXXXXX"` など)。
+
+1. `<run>` で手順1a の `# eval staging:` のブロックを、比べるケースをすべて渡して実行する (`raw/prompt-<ケース>.md`・`mix-<ケース>.tsv`・`planted.sha256` もできるが、比較では使わない)
+2. 次のブロックの `<repo>`・`<run>`・`<base>`・`<cases>` (1 と同じ) を置き換えて実行する
+
+ブロックがすること: `<run>/raw/` に構成ごとのプロンプト (`prompt-<ケース>-<構成>.md`、偽指摘は付けない) と構成の一覧 (`compare.tsv`、ケースの行数と `direct` の対象外を含む) を書く。`<base>/input/` にケースだけをコピーし、`<base>/raw/` に単体モデルのプロンプト (`prompt-<ケース>-baseline.md`、行番号付きの本文入り)・入力のハッシュ (`input.sha256`)・`<run>` と同じ `keys.sha256`・測定条件 (`conditions.md`) を書く。次のどれかに当たれば止まる。
+
+- ケース名が英小文字・数字・`-` 以外を含む、`<run>` が手順1a で準備されていない・既に凍結されている・比較のプロンプトが既にある、ケースが `<run>/input/` に無いか `tests/eval/cases/` と違う
+- `<base>` が元リポジトリか `<run>` の中にある、`<base>` に `input/` か `raw/` が既にある、`<base>/input/` がどこかの Git の作業ツリーの中にある
+- 比べる資産に未コミットの変更がある
+- プロンプトかケースのコピーに元リポジトリの絶対パスがある、プロンプトに `tests/eval/`・planted の ID・置き換え忘れの `<case>`・`<config>`・`<rule>` が残っている
+
+失敗したら原因を直し、新しい run ディレクトリ2つでやり直す。
+
+```bash
+# eval compare staging: after the eval staging of <run>, write the per-config prompts into <run>/raw and stage the baseline run <base>
+repo='<repo>'; run='<run>'; base='<base>'; cases='<cases>'
+set -euo pipefail
+fail() { echo "eval compare staging: $*" >&2; exit 1; }
+[ -n "$(printf '%s' "$cases" | tr -d ' \t\n')" ] || fail "no cases"
+for c in $cases; do
+  case "$c" in *[!abcdefghijklmnopqrstuvwxyz0123456789-]*) fail "bad case name: $c" ;; esac
+done
+repo_given=$repo
+repo=$(cd "$repo" && pwd -P); run=$(cd "$run" && pwd -P); base=$(cd "$base" && pwd -P)
+skill="$repo/skills/eval/SKILL.md"; raw="$run/raw"; bin="$base/input"; braw="$base/raw"
+[ -f "$raw/conditions.md" ] && [ -f "$raw/keys.sha256" ] && [ -f "$raw/input.sha256" ] || fail "$run is not staged by the eval staging block"
+[ ! -e "$raw/SHA256SUMS" ] || fail "$run is already frozen"
+[ ! -e "$raw/compare.tsv" ] || fail "the comparison prompts already exist in $run"
+case "$base/" in "$repo/"*|"$run/"*) fail "the baseline run directory is inside the repository or the run" ;; esac
+if [ -e "$bin" ] || [ -e "$braw" ]; then fail "input/ or raw/ already exists in $base"; fi
+status=$(git -C "$repo" status --porcelain -- skills/eval/SKILL.md skills/design-review agents .claude-plugin/plugin.json tests/eval/cases tests/eval/keys) \
+  || fail "cannot read the git status of the repository"
+[ -z "$status" ] || fail "the compared assets have uncommitted changes"
+mkdir -p "$bin/cases" "$braw" "$base/local"
+if env -u GIT_DIR -u GIT_WORK_TREE git -C "$bin" rev-parse --git-dir > /dev/null 2>&1; then fail "the baseline input is inside a git work tree"; fi
+printf 'case\tlines\tconfig\tprompt\n' > "$run/compare.tmp"
+for c in $cases; do
+  src="$run/input/cases/$c.md"
+  [ -f "$src" ] || fail "case $c is not staged in $run"
+  cmp -s "$src" "$repo/tests/eval/cases/$c.md" || fail "the staged case $c differs from tests/eval/cases/$c.md"
+  lines=$(wc -l < "$src" | tr -d ' ')
+  for config in deep standard direct; do
+    if [ "$config" = direct ] && [ "$lines" -ge 100 ]; then
+      printf '%s\t%s\t%s\t対象外 (100行以上)\n' "$c" "$lines" "$config" >> "$run/compare.tmp"
+      continue
+    fi
+    rule=$(sed -n '/^# eval compare configs$/,/^# end eval compare configs$/p' "$skill" | sed -n "s/^$config: //p")
+    [ -n "$rule" ] || fail "skills/eval/SKILL.md has no rule for $config"
+    prompt="$raw/prompt-$c-$config.md"
+    sed -n '/^# eval compare prompt (/,/^# end eval compare prompt$/p' "$skill" \
+      | sed -e "s/<case>/$c/g" -e "s/<config>/$config/g" \
+      | awk -v rule="$rule" '{ i = index($0, "<rule>"); if (i) $0 = substr($0, 1, i - 1) rule substr($0, i + 6); print }' > "$prompt"
+    [ -s "$prompt" ] || fail "skills/eval/SKILL.md has no compare prompt"
+    printf '%s\t%s\t%s\tprompt-%s-%s.md\n' "$c" "$lines" "$config" "$c" "$config" >> "$run/compare.tmp"
+  done
+  cp "$src" "$bin/cases/$c.md"
+  prompt="$braw/prompt-$c-baseline.md"
+  sed -n '/^# eval compare baseline prompt$/,/^# end eval compare baseline prompt$/p' "$skill" | sed '1d;$d' > "$prompt"
+  [ -s "$prompt" ] || fail "skills/eval/SKILL.md has no baseline prompt"
+  printf '\n' >> "$prompt"
+  awk '{ printf "%d\t%s\n", NR, $0 }' "$src" >> "$prompt"
+done
+case "$repo_given" in /*) ;; *) repo_given=$repo ;; esac
+if grep -rqiF -e "$repo" -e "$repo_given" "$bin" "$braw" "$raw"/prompt-*-*.md; then fail "the repository path appears in the input or a prompt"; fi
+if grep -qF -e 'tests/eval/' -e 'PL-' -e '<case>' -e '<config>' -e '<rule>' "$raw"/prompt-*-*.md; then fail "a prompt names tests/eval/, shows a planted ID or keeps a placeholder"; fi
+if grep -qF 'tests/eval/' "$braw"/prompt-*.md; then fail "a baseline prompt names tests/eval/"; fi
+(cd "$bin" && find . -type f | LC_ALL=C sort | while read -r f; do shasum -a 256 "$f"; done) > "$braw/input.sha256"
+cp "$raw/keys.sha256" "$braw/keys.sha256"
+{ cat "$raw/conditions.md"; printf '| 比較の run | 単体モデル (baseline)。設計レビューの構成は同じ準備の別の run |\n'; } > "$braw/conditions.md"
+mv "$run/compare.tmp" "$raw/compare.tsv"
+echo "eval compare staging: ok ($run, $base)"
+# end eval compare staging
+```
+
+設計レビューの構成の固定プロンプト (上のブロックが `<case>`・`<config>` を置き換え、`<rule>` を下の構成の一覧の行に置き換えて `raw/prompt-<ケース>-<構成>.md` に書く):
+
+```text
+# eval compare prompt (case: <case>, config: <config>)
+あなたは aidd の design-review を評価する実行担当です。採点は、あなたの実行が終わった後に別の工程で行います。作業ディレクトリの中のファイルだけを使い、親ディレクトリや作業ディレクトリの外の絶対パスを開かないでください。
+
+1. `plugin/skills/design-review/SKILL.md` を読み、対象 `cases/<case>.md` に次の構成で適用する。`--security` と `--verify-sources` は付けない (security-reviewer の起動は条件判定に任せる)。作業ディレクトリに `.aidd/` は無い。
+   構成: <rule>
+2. dispatch する場合は、各 agent に対象ケースのパスと担当観点だけを渡し、「このファイルだけをレビューする」と明示する。
+3. ユーザーには質問しない (答えは返らない)。判断が要るところは、判断と理由を出力に書いて進める。
+4. 最後に、次の見出しをこの順ですべて含む Markdown を最終回答にする。中身が無い節には「なし」、取れない値には「不明」と書く。
+   - `## 経路` (dispatch した agent、refuter・arbiter を起動したかとその理由、小規模対象ショートカットを使ったか)
+   - `## reviewer の生指摘` (agent ごと、またはメインが直接レビューした指摘。深刻度・引用箇所・指摘・代案)
+   - `## refuter の判定` (指摘ごとに、反証成立/反証失敗と根拠)
+   - `## 最終報告` (design-review がユーザーに返す最終の報告の全文と、high/mid/low 別の件数)
+   - `## security-reviewer の起動` (yes/no と理由)
+# end eval compare prompt
+```
+
+構成の一覧 (`<rule>` に入る行。ここか上のプロンプトを変えたら、プロンプトの版が変わったことになり、ハッシュで追える):
+
+```text
+# eval compare configs
+deep: `--depth=deep` で適用する (並列 dispatch → refuter → arbiter)。対象が1ファイル・100行未満でも、小規模対象ショートカットは使わない。
+standard: `--depth=standard` で適用する (既定の深さ。refuter・arbiter は design-review の standard の条件に従う)。対象が1ファイル・100行未満でも、小規模対象ショートカットは使わず、並列 dispatch する。
+direct: `--depth=standard` で適用し、小規模対象ショートカットを使う (agent に dispatch せず、メインが design-review の観点で直接レビューする)。その後の refuter・arbiter は design-review の standard の条件に従う。
+# end eval compare configs
+```
+
+単体モデルの固定プロンプト (`2026-11-07-baseline.md` の文言のまま。上のブロックが先頭と末尾の行を除き、空行と行番号付きの本文 (`<行番号><タブ><本文>`) を付けて `prompt-<ケース>-baseline.md` に書く):
+
+```text
+# eval compare baseline prompt
+次の設計書をレビューし、問題点を列挙してください。各指摘に深刻度 (high/mid/low)、該当行、理由、代案を付けてください。
+
+ファイルは読まず、ツールも使わず、以下の本文だけを根拠に回答してください（左の数字は行番号です）。
+# end eval compare baseline prompt
+```
+
+**C2. 実行 (新しいセッション)** — 課金のある実行なので、ユーザーが推定コストを見て承認してから始める。推定は、ケース × 構成 × 試行の回数と、過去の結果の総トークン・USD (どの結果ファイルの値かを書く) から出し、`<model>` と構成ごとの `<budget>` と一緒に示す。試行ごとに、ケースごとに `deep` → `standard` → `direct` → `baseline` の順で1回ずつ起動する (`<trial>` は 1 から。時間帯の偏りを構成の間で散らすため)。どれも新しいセッションで、前の試行の文脈を持ち越さない。
+
+```bash
+cd "<run>/input" && claude -p --model <model> --output-format stream-json --verbose --plugin-dir ./plugin --max-budget-usd <budget> < "<run>/raw/prompt-<case>-<config>.md" > "<run>/local/<case>-<config>-t<trial>.jsonl"
+cd "<base>/input" && claude -p --model <model> --output-format stream-json --verbose --tools "" --no-session-persistence --max-budget-usd <budget> < "<base>/raw/prompt-<case>-baseline.md" > "<base>/local/<case>-baseline-t<trial>.jsonl"
+```
+
+- `<model>` は全構成で同じ値 (既定 `opus`)。`<budget>` は構成ごとの1試行の USD の上限で、ユーザーが承認した値にする。上限で止まった試行は失敗として記録する。`compare.tsv` で `direct` が対象外のケースは、`direct` を起動しない
+- 1回に数分から十数分かかる。手順1b と同じく、バックグラウンドで実行して終了を待つ。user 設定・hook・他のプラグインは変えずにそのまま読み込ませる (単体モデルも同じ。`--tools ""` でツールは使えない)
+- 抽出は手順1b の `# eval extract:` のブロックを、`<run>` を各 run に、`<case>` を `<case>-<config>` (単体モデルは `<case>-baseline`) に置き換えて使う。`<base>/input/` には `plugin/` が無いので、aidd のプラグインの検査はせず、読み込まれたプラグインの一覧だけを記録する
+
+**C3. 凍結と照合 (メイン)** — 全試行の実行と抽出が終わったら、2つの run それぞれに手順1c の `# eval freeze:` と手順2 の `# eval verify:` を使う。SHA256SUMS の sha256 は2つとも、採点の前にユーザーへの途中報告と結果に書く。照合が両方通るまで、キーと過去の結果を読まない。
+
+**C4. 採点 (メイン)** — 対象は各試行の最終報告 (設計レビューの構成は `## 最終報告`、単体モデルは回答全体)。シードは手順2と同じく、キーの一致判定基準で意味的に照合する。キー外の指摘は手順4と同じく判定エージェント2体で分類する。全構成・全試行のキー外指摘を同じ論点ごとにまとめて渡し、判定エージェントには構成の名前と出た試行を渡さない (どの構成の指摘かで判定が偏らないようにするため)。論点の分類を、その論点に当たる各試行の指摘に当てはめる。指標:
+
+| 指標 | 定義 |
+|---|---|
+| コア検出率・拡張検出率・深刻度一致・デコイ誤検出 | 手順3と同じ (arbiter の最終報告を、各構成の最終報告と読み替える) |
+| 安全上重要な見逃し | 上の定義による見逃しの件数と、見逃したシードの ID |
+| 最終報告の指摘件数 | high/mid/low 別。同じケースの `baseline` との差も書く |
+| ノイズ率・誤検出 | 手順3・4と同じ |
+| キー外で正当 | 手順4で「正当」と確定した件数 |
+| 経路 | 実行担当の `## 経路` (dispatch した agent、refuter・arbiter・security-reviewer の起動、ショートカットの有無)。構成どおりでない経路 (`direct` で dispatch した、`deep` で arbiter を起動しなかった など) は、その試行に注記する |
+| 待ち時間 | meta の `duration_ms` |
+| 総費用 | meta の `total_cost_usd` と、モデル別の使用量のトークンの合計。agent 別の `total_tokens` も書く |
+
+**C5. 提案 (実行の前に固定した規則)** — ケースを100行未満と100行以上に分けて判定する。軽い構成 (`standard`・`direct`・`baseline`) を「既定を軽量化してよい候補」にするのは、そのケース群の全ケース・全試行で次をすべて満たすときだけ。1つでも満たさなければ「既定を維持」とする。
+
+1. 安全上重要なシードごとに、見逃した試行の数が `deep` 以下 (`deep` も見逃したシードは、`deep` より多く見逃さなければよい)
+2. コア検出が、どの試行も `deep` の最小値以上
+3. デコイ誤検出が、どの試行も `deep` の最大値以下
+
+指摘件数・ノイズ率・費用・待ち時間は、候補の中から選ぶ材料にだけ使い、上の3つを満たさない構成を候補にする理由にしない。提案には当てはまる条件 (実測したモデル・版・比べたケース・この固定プロンプト・試行数) を書き、ほかのケースやモデルに一般化しない。
+
+**C6. 結果の保存** — `tests/eval/results/YYYY-MM-DD-compare.md` に保存する (同日に再実行したら `-2` などの連番)。`<run>/raw/` を `tests/eval/results/<run-id>/review/` に、`<base>/raw/` を `tests/eval/results/<run-id>/baseline/` にコピーし、それぞれで `shasum -a 256 -c SHA256SUMS` が通ることと、SHA256SUMS の sha256 が C3 で記録した値と同じことを確かめる。`local/` はコミットしない。記載内容:
+
+- 測定条件の表: 手順5の項目に加え、`<model>`・構成ごとの `<budget>`・2つの SHA256SUMS の sha256・`compare.tsv`
+- 構成ごと・ケースごと・試行ごとの指標の表と、3試行の最小〜最大 (平均だけにしない)。失敗した試行・構成どおりでない経路も消さずに書く
+- 安全上重要な見逃しの表 (シードごと・構成ごと・試行ごと) と、最終報告の指摘件数の増減の表を分ける
+- C5 の規則による提案と、提案が当てはまる条件。過去の比較 (`2026-11-07-baseline.md`・`2026-11-22-crosscut-comparison.md`) と違う条件 (実行の仕方・偽指摘の有無・モデル・版)
+- 未測定の項目とそろえきれなかった条件
+- コストの表: 構成ごとと採点を分け、評価全体の合計も示す。列はトークンと USD に分け、合計の行は既知の分の合計と不明の項目名を書く
+
+**C7. 報告** — 指標の表・安全上重要な見逃しの表・提案・コストの表・未測定の項目を示す。提案は design-review の既定や構成の変更ではないことを添える。
 
 ## 注意
 
