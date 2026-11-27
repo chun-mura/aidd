@@ -927,6 +927,159 @@ printf '%s\n' 'promoted' >> "$fake/tests/eval/keys/demo.md"
 eval_verify_fails changed-key 'the keys changed after staging'
 chmod -R u+w "$eval_tmp"
 
+# eval compare (#130): design-review deep / standard / direct and a single-model baseline on the
+# same cases and keys. The deep regression eval stays as it is, no configuration is removed by the
+# result alone, the safety-relevant-miss rule and the proposal rule are fixed before the runs, and
+# misses are kept apart from finding counts.
+grep -F -- '既存の deep 回帰評価 (手順1〜6) を置き換えない' "$eval_command"
+grep -F -- '比較の結果だけで構成を削除しない' "$eval_command"
+grep -F -- '**安全上重要な見逃し**' "$eval_command"
+grep -F -- '件数が増えたことを検出の改善とも見逃しの埋め合わせとも数えない' "$eval_command"
+grep -F -- '試行は、各ケース・各構成で3試行以上' "$eval_command"
+grep -F -- '予備測定では C5 の提案を出さず' "$eval_command"
+grep -F -- 'YYYY-MM-DD-compare-prelim.md' "$eval_command"
+grep -F -- '比較からはキーへ昇格しない' "$eval_command"
+grep -F -- '判定エージェントには構成の名前と出た試行を渡さない' "$eval_command"
+grep -F -- '**C5. 提案 (実行の前に固定した規則)**' "$eval_command"
+grep -F -- '3試行の最小〜最大 (平均だけにしない)' "$eval_command"
+grep -F -- 'claude -p --model <model> --output-format stream-json --verbose --plugin-dir ./plugin --max-budget-usd <budget>' "$eval_command"
+grep -F -- 'claude -p --model <model> --output-format stream-json --verbose --tools "" --no-session-persistence --max-budget-usd <budget>' "$eval_command"
+grep -F -- '[ ! -e "<run>/local/<case>-<config>-t<trial>.jsonl" ] && cd "<run>/input"' "$eval_command"
+grep -F -- '[ ! -e "<base>/local/<case>-baseline-t<trial>.jsonl" ] && cd "<base>/input"' "$eval_command"
+grep -F -- '欠けた組が1つでもあれば凍結しない' "$eval_command"
+grep -F -- '`deep` の最小値・最大値・見逃しの数にも、軽い構成の判定にも入れない' "$eval_command"
+# Run the compare staging block on the fake repository after the #129 staging: per-config prompts
+# without the mixed findings, direct only below 100 lines, a baseline run holding only the cases and
+# the prior baseline wording with numbered lines, and each guard stopping for its own reason. The
+# reused extract, freeze and verify then work on the baseline run, which has no input/plugin.
+cmp_tmp="$eval_tmp/compare"
+mkdir -p "$cmp_tmp"
+eval_block '# eval compare staging:' '# end eval compare staging' "$cmp_tmp/compare.tpl"
+git -C "$fake" checkout -q -- tests/eval/keys/demo.md
+fake_case long "$(seq 1 99 | sed 's/^/line /')" '| PL-G1 | mid | cases/long.md:2 | x | y |'
+git -C "$fake" add -A tests/eval/cases tests/eval/planted tests/eval/keys
+git -C "$fake" -c user.name=t -c user.email=t@example.com commit -qm long
+cmp_stage() {  # cmp_stage <name> <run> <base> <cases>
+  mkdir -p "$2" "$3"
+  eval_fill "$cmp_tmp/compare.tpl" "$cmp_tmp/compare-$1.sh" "$2" "$4"
+  sed -i.bak "s|<base>|$3|g" "$cmp_tmp/compare-$1.sh"
+  PATH="$eval_tmp/bin:$PATH" bash "$cmp_tmp/compare-$1.sh" 2> "$cmp_tmp/compare-$1.err"
+}
+cmp_stage_fails() {  # cmp_stage_fails <name> <run> <base> <cases> <expected stderr>
+  if cmp_stage "$1" "$2" "$3" "$4"; then
+    echo "eval compare staging did not stop: $1" >&2
+    exit 1
+  fi
+  if ! grep -qF -- "$5" "$cmp_tmp/compare-$1.err"; then
+    echo "eval compare staging $1 stopped for another reason: $(cat "$cmp_tmp/compare-$1.err")" >&2
+    exit 1
+  fi
+}
+cmp_run="$cmp_tmp/run" cmp_base="$cmp_tmp/base"
+cmp_stage_fails notstaged "$cmp_tmp/run-empty" "$cmp_tmp/base-empty" demo 'is not staged by the eval staging block'
+cmp_stage_fails badname "$cmp_tmp/run-empty" "$cmp_tmp/base-empty" '../keys' 'bad case name: ../keys'
+eval_stage cmp "$cmp_run" 'demo long'
+cmp_stage_fails insiderun "$cmp_run" "$cmp_run/base" 'demo long' 'inside the repository or the run'
+cmp_stage_fails insiderepo "$cmp_run" "$fake/base-inside" 'demo long' 'inside the repository or the run'
+printf '%s\n' 'changed' >> "$fake/skills/design-review/SKILL.md"
+cmp_stage_fails dirty "$cmp_run" "$cmp_tmp/base-dirty" 'demo long' 'the compared assets have uncommitted changes'
+git -C "$fake" checkout -q -- skills/design-review/SKILL.md
+cmp_stage ok "$cmp_run" "$cmp_base" 'demo long'
+for f in demo-deep demo-standard demo-direct long-deep long-standard; do
+  [ -s "$cmp_run/raw/prompt-$f.md" ]
+done
+[ ! -e "$cmp_run/raw/prompt-long-direct.md" ]
+grep -Fx "$(printf 'long\t100\tdirect\t対象外 (100行以上)')" "$cmp_run/raw/compare.tsv"
+grep -Fx "$(printf 'demo\t2\tdirect\tprompt-demo-direct.md')" "$cmp_run/raw/compare.tsv"
+grep -F 'cases/demo.md' "$cmp_run/raw/prompt-demo-deep.md"
+grep -F '構成: `--depth=deep` で適用する' "$cmp_run/raw/prompt-demo-deep.md"
+grep -F '構成: `--depth=standard` で適用する (既定の深さ' "$cmp_run/raw/prompt-demo-standard.md"
+grep -F '小規模対象ショートカットを使う' "$cmp_run/raw/prompt-demo-direct.md"
+if grep -qF -e '<case>' -e '<config>' -e '<rule>' -e 'tests/eval/' -e 'PL-' -e '混ぜる指摘' "$cmp_run"/raw/prompt-demo-*.md; then
+  echo "eval compare prompt kept a placeholder, names tests/eval/ or carries the mixed findings" >&2
+  exit 1
+fi
+if grep -qF '# eval compare' "$cmp_run/raw/prompt-demo.md"; then
+  echo "the regression executor prompt picked up a compare prompt" >&2
+  exit 1
+fi
+[ "$(cd "$cmp_base/input" && find . ! -type d | LC_ALL=C sort | tr '\n' ' ')" = "./cases/demo.md ./cases/long.md " ]
+base_prompt="$cmp_base/raw/prompt-demo-baseline.md"
+grep -Fx '次の設計書をレビューし、問題点を列挙してください。各指摘に深刻度 (high/mid/low)、該当行、理由、代案を付けてください。' "$base_prompt"
+grep -Fx "$(printf '1\t# case')" "$base_prompt"
+grep -Fx "$(printf '2\tCASE_TEXT')" "$base_prompt"
+grep -Fx "$(printf '100\tline 99')" "$cmp_base/raw/prompt-long-baseline.md"
+if grep -rqF -e KEY_SENTINEL -e RESULT_SENTINEL -e PLANTED_HEADER -e "$fake" "$cmp_base" "$cmp_run"/raw/prompt-*-*.md; then
+  echo "eval compare staging leaked a key, a result, the planted header or the repository path" >&2
+  exit 1
+fi
+if grep -rqF '# eval compare' "$cmp_base"; then
+  echo "the baseline prompt kept the eval marker lines" >&2
+  exit 1
+fi
+cmp -s "$cmp_run/raw/keys.sha256" "$cmp_base/raw/keys.sha256"
+grep -F ' ./cases/long.md' "$cmp_base/raw/input.sha256"
+grep -F '| aidd version | 9.9.9 |' "$cmp_base/raw/conditions.md"
+cmp_stage_fails again "$cmp_run" "$cmp_tmp/base-again" 'demo long' 'the comparison prompts already exist'
+cmp_run2="$cmp_tmp/run2"
+eval_stage cmp2 "$cmp_run2" demo
+cmp_stage_fails baseexists "$cmp_run2" "$cmp_base" demo 'input/ or raw/ already exists'
+cmp_stage_fails notcase "$cmp_run2" "$cmp_tmp/base-notcase" long 'case long is not staged'
+cmp_stage_fails empty "$cmp_run2" "$cmp_tmp/base-empty2" '' 'no cases'
+git init -q "$cmp_tmp/wt"
+cmp_stage_fails baseworktree "$cmp_run2" "$cmp_tmp/wt/base" demo 'the baseline input is inside a git work tree'
+cmp_run3="$cmp_tmp/run3"
+eval_stage cmp3 "$cmp_run3" demo
+: > "$cmp_run3/raw/SHA256SUMS"
+cmp_stage_fails frozen "$cmp_run3" "$cmp_tmp/base-frozen" demo 'is already frozen'
+# A run staged from uncommitted assets, or at another commit, must not pass once the tree is clean.
+printf '%s\n' 'dirty reviewer' > "$fake/agents/reviewer.md"
+cmp_run4="$cmp_tmp/run4"
+eval_stage cmp4 "$cmp_run4" demo
+git -C "$fake" checkout -q -- agents/reviewer.md
+cmp_stage_fails plugindiff "$cmp_run4" "$cmp_tmp/base-plugindiff" demo 'the staged plugin/agents/reviewer.md differs from agents/reviewer.md'
+cmp_run5="$cmp_tmp/run5"
+eval_stage cmp5 "$cmp_run5" demo
+printf '%s\n' 'other' > "$fake/other.txt"
+git -C "$fake" add other.txt
+git -C "$fake" -c user.name=t -c user.email=t@example.com commit -qm other
+cmp_stage_fails othercommit "$cmp_run5" "$cmp_tmp/base-othercommit" demo 'was staged at another commit'
+# The baseline prompt embeds the case text, so a planted ID or tests/eval/ in the case stops there.
+fake_case leakpath 'see tests/eval/keys' '| PL-K1 | mid | cases/leakpath.md:2 | x | y |'
+fake_case leakid 'see PL-Z9' '| PL-K2 | mid | cases/leakid.md:2 | x | y |'
+git -C "$fake" add -A tests/eval/cases tests/eval/planted tests/eval/keys
+git -C "$fake" -c user.name=t -c user.email=t@example.com commit -qm leak
+cmp_run6="$cmp_tmp/run6" cmp_run7="$cmp_tmp/run7"
+eval_stage cmp6 "$cmp_run6" leakpath
+cmp_stage_fails baseleakpath "$cmp_run6" "$cmp_tmp/base-leakpath" leakpath 'a baseline prompt names tests/eval/ or shows a planted ID'
+eval_stage cmp7 "$cmp_run7" leakid
+cmp_stage_fails baseleakid "$cmp_run7" "$cmp_tmp/base-leakid" leakid 'a baseline prompt names tests/eval/ or shows a planted ID'
+# The baseline run goes through the reused extract (no staged aidd to check), freeze and verify.
+cmp_base_real=$(cd "$cmp_base" && pwd -P)
+python3 - "$cmp_base/local/demo-baseline-t1.jsonl" "$cmp_base_real" <<'PYEOF'
+import json, sys
+out, run = sys.argv[1:3]
+lines = [
+    {"type": "system", "subtype": "init", "session_id": "S-B", "model": "model-main", "cwd": run + "/input",
+     "tools": [], "plugins": [{"name": "aidd", "path": "/elsewhere/aidd", "source": "aidd@aidd", "version": "0.1.0"}]},
+    {"type": "result", "subtype": "success", "is_error": False, "session_id": "S-B", "result": "BASELINE_ANSWER",
+     "total_cost_usd": 0.1, "duration_ms": 10, "num_turns": 1, "modelUsage": {}},
+]
+with open(out, "w") as f:
+    for m in lines:
+        f.write(json.dumps(m) + "\n")
+PYEOF
+eval_extract "$cmp_base" demo-baseline 1
+grep -F '検出なし' "$cmp_base/raw/demo-baseline-t1.meta.md"
+grep -Fx 'BASELINE_ANSWER' "$cmp_base/raw/demo-baseline-t1.md"
+eval_fill "$eval_tmp/freeze.tpl" "$cmp_tmp/freeze.sh" "$cmp_base"
+bash "$cmp_tmp/freeze.sh" > "$cmp_tmp/freeze.out"
+cmp_sums=$(sed -n 's/^eval freeze: SHA256SUMS sha256 //p' "$cmp_tmp/freeze.out")
+[ "${#cmp_sums}" -eq 64 ]
+eval_fill "$eval_tmp/verify.tpl" "$cmp_tmp/verify.sh" "$cmp_base" demo "$cmp_sums"
+bash "$cmp_tmp/verify.sh" > /dev/null
+chmod -R u+w "$cmp_tmp"
+
 # eval impl (#131): the implementation review comparison reuses the #129 separation, keeps the
 # eligibility rules as they are, and runs both methods on the same frozen cases, keys and rubric.
 impl_rubric="$repo_root/tests/eval/impl/rubric.md"
