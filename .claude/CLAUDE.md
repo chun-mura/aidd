@@ -31,8 +31,8 @@ after the shebang, and the `commands`/`skills`/`agents`/`hooks` declarations in 
 — including just editing an existing command's `description` — requires `python3 scripts/generate-asset-index.py`
 in the same commit, or CI fails.
 
-The separate `contract-tests` job runs all ten scripts below on both `ubuntu-latest` and `macos-latest`
-with Python 3.12. Its OS × script matrix reports 20 independent results, has a 10-minute limit per job,
+The separate `contract-tests` job runs all eleven scripts below on both `ubuntu-latest` and `macos-latest`
+with Python 3.12. Its OS × script matrix reports 22 independent results, has a 10-minute limit per job,
 and uses `fail-fast: false` so a failed test does not cancel the other combinations. A script's nonzero
 exit fails its job. Each job uses a fresh temporary root for HOME, TMPDIR, CLAUDE_CONFIG_DIR and
 AIDD_TEST_STATE_DIR, unsets CLAUDE_PROJECT_DIR, ignores global/system Git configuration, and removes
@@ -54,6 +54,7 @@ bash tests/codex-agents-contract-test.sh # Codex TOML stays generated from agent
 bash tests/incident-retro-memory-test.sh # runs incident-retro's auto memory listing snippet on a fake memory dir and checks that candidates counts the imported observations only once merged
 bash tests/learnings-test.sh             # scripts/learnings.py: ledger check rejects/passes, add is off by default, candidates counting
 bash tests/issue-outcome-test.sh         # scripts/issue-outcome.py: outcome.json rejections one by one; issue-implement stop-point markers match the script enums
+bash tests/assurance/acceptance-test.sh  # examples/assurance/acceptance: approved digest, criteria-test traceability, correct impl passes, each wrong impl fails exactly its criteria
 ```
 
 For local runs, isolate HOME, CLAUDE_CONFIG_DIR and AIDD_TEST_STATE_DIR as CI does; unset
@@ -68,8 +69,8 @@ prompt files; `hook-contract`, `hook-log` and `session-start` execute the script
 `hook-log-test.sh`), `skills/review-loop/SKILL.md`, `templates/design-perspectives.md.template`,
 `templates/CLAUDE.md.template`, `templates/aidd-hook-log.sh`, `hooks/hooks.json`, `hooks/scripts/*.sh`,
 `scripts/generate-asset-index.py`, `scripts/generate-codex-agents.py`, `scripts/install-codex-agents.sh`, `scripts/learnings.py`, `scripts/issue-outcome.py`,
-`.codex/agents/*.toml`, or any command/skill/agent frontmatter, run the matching test script — a wording
-change can silently break the contract. CI runs these ten scripts automatically; still run the matching
+`.codex/agents/*.toml`, `examples/assurance/acceptance/*`, or any command/skill/agent frontmatter, run the matching test script — a wording
+change can silently break the contract. CI runs these eleven scripts automatically; still run the matching
 tests locally before committing. When adding a test script, update the workflow matrix and this list together.
 After editing `agents/*.md`, run `python3 scripts/generate-codex-agents.py`.
 
