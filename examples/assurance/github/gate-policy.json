@@ -1,0 +1,10 @@
+{
+  "required_checks": [
+    {
+      "name": "aidd-verify",
+      "app_id": 15368,
+      "same_run": true
+    }
+  ],
+  "require_report": true
+}

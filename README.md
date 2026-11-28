@@ -204,6 +204,7 @@ Claude Code に入れた aidd と、この Cursor 用プラグインは併用し
 | [保証条件と責任分担](docs/assurance/contract.md) | 安全性・成果物の正しさを主張ごとに説明するとき。主張ID (`AC-PROC-*` 手順遵守・`AC-PRIV-*` 権限制限・`AC-SPEC-*` 仕様適合)、状態と期限付き例外、責任分担、明示選択の保証構成の採用条件。通常の利用は対象外 |
 | [重要な状態遷移の形式検証](docs/assurance/formal-methods.md) | 状態遷移の不変条件を `AC-SPEC-002` の証拠にするか決めるとき。TLA+ (TLC) の小さな例と反例、実装トレースとの対応の検査、有限範囲の探索の限界、再検証の条件、適用の判断基準 |
 | [受け入れ基準と重要性質の検証](docs/assurance/acceptance.md) | `AC-SPEC-001` の証拠を作るとき。原要件から実装と独立に受け入れ基準を作り保護する条件、例・境界・性質・障害の試験の使い分けと限界、承認者を実装者から分ける導入手順。架空アプリの例 (`examples/assurance/acceptance/`) |
+| [公開ゲートの参照構成](docs/assurance/release-gate.md) | `AC-PROC-001`・`AC-PRIV-008` の証拠を作るとき。必須検査の失敗・未実行・skipped・古い SHA を成功と数えない判定、検証の定義と受け入れ基準を PR から分ける配置、bypass を空にした ruleset、workflow の最小権限、実測が要る項目。例 (`examples/assurance/github/`) |
 
 ## 依存プラグインの互換方針
 
