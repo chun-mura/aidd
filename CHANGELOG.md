@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.107.0 (2026-11-28)
+
+- `issue-implement`: テスト観点 (`aidd:test-perspectives`) とコードレビュー (`superpowers:requesting-code-review` か `/aidd:autonomous-review`) を省いた実行が `done` にならないようにした (#222)。#133 の `/aidd:eval develop` の直行レーンのケースで、非対話の実行が2試行とも両方の Skill を起動せず `aidd:reviewer` を直接 dispatch しただけで `done` になったため。stream-json を読むと、どちらの試行も完了報告に「予算を抑えるため / 予算の都合で起動せず」と書いていた。`claude -p --max-budget-usd` を付けるとモデルの文脈に `USD budget: $0/$<上限>` が入ることを確かめた。0.95.0 の測定 (3/3 起動) との手順の文言の違いは無く (issue-implement と test-perspectives の SKILL.md は同じ)、上限は 10 USD と 4 USD で違った。直す前の版 (0.106.0) を 4 USD で2試行動かすと、1試行はコードレビューを、もう1試行は両方を飛ばして `done` になり、後者は「予算を考えて」と書いた。手順の 4 の冒頭に、この2つはレーンに関わらず省かず、差分の小ささや表示された予算は理由にならないこと、実行できなければ `blocked/required_check_not_run` で止めることを書いた。`aidd:reviewer` などの agent の直接の dispatch はコードレビューに数えない。`outcome.json` を `schema_version` 3 にし、`done` の `completion` に `test_perspectives` と `code_review` (どちらも `ran` だけ) を足し、`artifacts.test_perspectives` (観点のファイル) の無い `done` を拒否する (#223 の `security_review` と同じ仕組み)。測定: `tests/eval/results/2026-11-28-issue-implement-skipped-steps.md`
+
 ## 0.106.0 (2026-11-28)
 
 - `issue-implement`: 認可・信頼境界の変更で必要な `/security-review` が最後まで実行されないまま `done` を書けないようにした (#223)。#133 の `/aidd:eval develop` の設計レーン (認可の追加) の試行で、`/security-review` が権限で拒否されたのに `done` になり、outcome からは監査済みと読み違えうるため (`tests/eval/results/2026-11-28-develop.md`)。`outcome.json` を `schema_version` 2 にし、`done` の `completion` に `security_review` (`ran` か `not_required`) を必須にした。それ以外の値・欠落は `scripts/issue-outcome.py` が拒否し、理由に使うべき reason を示す。新しい reason `required_check_not_run` を足し、5 の `/security-review` の項に、当たるのに実行が終わらなかったとき (権限で拒否・エラー・autonomous-review が未実行と記録し自分でも実行しなかった・予算や時間を理由に省いた) は完了にせず `blocked/required_check_not_run` で止めると書いた。認可の追加・変更を理由に設計レーンにした変更は常に当たる。`ran` / `not_required` の値の正しさはスクリプトでは確かめられない (自己申告)。`tests/issue-outcome-test.sh` で固定した。設計: `docs/superpowers/specs/2026-11-28-issue-implement-outcome-design.md`

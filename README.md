@@ -126,7 +126,7 @@ Claude Code に入れた aidd と、この Cursor 用プラグインは併用し
 | [`design-sync/`](skills/design-sync/SKILL.md) | 設計書と実装の乖離を検知し、status を最新化する | `/aidd:design-sync` | `$aidd:design-sync` | `/design-sync` |
 | [`doctor/`](skills/doctor/SKILL.md) | aidd/superpowers の導入状態・版の整合・hooks・Codex custom agents・利用側の sandbox 設定を診断する (`--hooks` で hook の動作も確かめる) | `/aidd:doctor` | `$aidd:doctor` | `/doctor` |
 | [`infra-audit/`](skills/infra-audit/SKILL.md) | 利用側プロジェクトの静的解析・重複コード検出・多OS CI の導入状況を診断する | `/aidd:infra-audit` | `$aidd:infra-audit` | `/infra-audit` |
-| [`issue-implement/`](skills/issue-implement/SKILL.md) | issue 1本を着手ゲートから完了報告まで進める入口 (実装の中身は superpowers と既存資産に委ね、push・PR作成はしない。止まるたびに終了状態を `.aidd/issue-implement/<実行ID>/outcome.json` に残す。必要な監査が終わっていなければ `done` にしない) | `/aidd:issue-implement` | `$aidd:issue-implement` | `/issue-implement` |
+| [`issue-implement/`](skills/issue-implement/SKILL.md) | issue 1本を着手ゲートから完了報告まで進める入口 (実装の中身は superpowers と既存資産に委ね、push・PR作成はしない。止まるたびに終了状態を `.aidd/issue-implement/<実行ID>/outcome.json` に残す。テスト観点・コードレビュー・必要な監査が終わっていなければ `done` にしない) | `/aidd:issue-implement` | `$aidd:issue-implement` | `/issue-implement` |
 | [`test-perspectives/`](skills/test-perspectives/SKILL.md) | 実装対象・変更差分からテスト観点を洗い出し、BVA/ECP 適用フラグを付ける (手法の導出は stdd) | `/aidd:test-perspectives` | `$aidd:test-perspectives` | `/test-perspectives` |
 
 ### Agents (サブエージェント定義)

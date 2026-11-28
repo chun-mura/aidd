@@ -10,7 +10,7 @@ Design: docs/superpowers/specs/2026-11-28-issue-implement-outcome-design.md
 """
 import argparse, errno, json, os, re, secrets, stat, subprocess, sys, time
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 RUN_PARENTS = (".aidd", "issue-implement")
 RUN_ID = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{8}$")
 ISSUE = re.compile(r"^[1-9][0-9]*$")
@@ -22,7 +22,7 @@ BODY_KEYS = ("issue", "status", "reason", "questions", "completion", "artifacts"
 DOC_KEYS = ("schema_version", "run_id") + BODY_KEYS
 COMPLETION = {"verification": "passed", "undecided_rows": 0, "untracked_deferred": 0}
 # Steps a done run must state. A step that was required but did not run is blocked/required_check_not_run.
-CHECKS = {"security_review": ("ran", "not_required")}
+CHECKS = {"test_perspectives": ("ran",), "code_review": ("ran",), "security_review": ("ran", "not_required")}
 ARTIFACT_KEYS = ("design_doc", "test_perspectives")
 MAX_OPTIONS = 4
 LIMITS = {"question": 1000, "label": 80, "effect": 400}
@@ -147,6 +147,8 @@ def check_body(data, top):
                 if not isinstance(completion[key], str) or completion[key] not in allowed:
                     errors.append(f"completion.{key} is not one of " + "/".join(allowed)
                                   + " (a required step that did not run is blocked/required_check_not_run)")
+        if isinstance(artifacts, dict) and artifacts.get("test_perspectives") is None:
+            errors.append("artifacts.test_perspectives must name the perspectives file when status is done")
     elif completion is not None:
         errors.append(f"completion must be null when status is {status}")
     key_errors = _keys(artifacts, ARTIFACT_KEYS, "artifacts")
