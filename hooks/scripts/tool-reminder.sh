@@ -360,10 +360,20 @@ def added_paths(sub, args, directory):
         # magic pathspecs, and words the shell may still expand into another path ($X, `...`, ~, {a,b})
         if p.startswith(":") or re.search(r"[$\x60~{}]", p):
             return top, None
-        rel = os.path.relpath(os.path.realpath(os.path.join(directory, os.path.expanduser(p))), root)
+        # .. folds by the words, as git folds a pathspec: a symbolic link is staged as the link
+        # itself, so the path it points to says nothing (src/link.sh -> docs/x.md is not docs).
+        rel = os.path.relpath(os.path.normpath(os.path.join(os.path.realpath(directory), p)), root)
         if rel == "." or rel == ".." or rel.startswith(".." + os.sep):
             return top, None
-        paths.append(rel.replace(os.sep, "/"))
+        rel = rel.replace(os.sep, "/")
+        if rel == "docs":
+            rel = "docs/"  # the directory itself: everything it stages is under docs/
+        # Outside docs/, a directory (bundle.md/) or a glob may stage files of any name.
+        full = os.path.join(root, rel)
+        if not rel.startswith("docs/") and (
+                re.search(r"[*?\[]", p) or (os.path.isdir(full) and not os.path.islink(full))):
+            return top, None
+        paths.append(rel)
     # An add that names nothing (git add -p / -i) may stage anything.
     return top, (paths or None)
 

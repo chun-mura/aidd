@@ -511,6 +511,17 @@ tp_shown "$add_repo" 'git add :/docs && git commit -m x'
 # The path is judged after .. and . fold, so docs/../src is code and ./docs is docs.
 tp_shown "$add_repo" 'git add docs/../src/app.sh && git commit -m x'
 tp_quiet "$add_repo" 'git add ./docs/x.md && git commit -m x'
+# A symbolic link is staged as the link: one in src/ pointing into docs/ is code.
+ln -s ../docs/x.md "$add_repo/src/link.sh"
+tp_shown "$add_repo" 'git add src/link.sh && git commit -m x'
+rm "$add_repo/src/link.sh"
+# Outside docs/, a directory or a glob may stage files of any name; inside docs/ it stays docs.
+mkdir -p "$add_repo/bundle.md"
+echo code > "$add_repo/bundle.md/app.sh"
+tp_shown "$add_repo" 'git add bundle.md && git commit -m x'
+tp_shown "$add_repo" "git add '*.md' && git commit -m x"
+tp_quiet "$add_repo" "git add docs/ 'docs/*.md' && git commit -m x"
+rm -r "$add_repo/bundle.md"
 # Words the shell may still expand name another path; an add naming nothing may stage anything.
 tp_shown "$add_repo" 'git add "docs/$X" && git commit -m x'
 tp_shown "$add_repo" 'git add docs/$(echo x.md) && git commit -m x'

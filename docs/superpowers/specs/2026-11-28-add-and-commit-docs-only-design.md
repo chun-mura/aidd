@@ -31,8 +31,8 @@ status: draft
 
 **add のパス** (既存の `scan(args, *ADD_OPTIONS)` の positionals を使う):
 - `--` は区切りとして除く
-- 各パスを add のディレクトリ (`simple_commands` が追跡する `cd` と `git -C` を反映済み) から解決し (`realpath` で `..`・`.`・シンボリックリンクを畳み込む)、`git rev-parse --show-toplevel` からの相対パスにして判定する (staged の `--no-relative` の出力と同じ形)。`docs/../src/app.sh` はコード、`./docs/x.md` は文書になる
-- glob は文字のまま判定する (`*.md` は `.md` のファイルにしか当たらないので、`DOCS_ONLY` での当たり方は正しい)。ディレクトリ (`docs/`) は `^docs/` で判定する
+- 各パスを add のディレクトリ (`simple_commands` が追跡する `cd` と `git -C` を反映済み) から解決し、`git rev-parse --show-toplevel` からの相対パスにして判定する (staged の `--no-relative` の出力と同じ形)。`..`・`.` は git の pathspec と同じく字句として畳み込み (`docs/../src/app.sh` はコード、`./docs/x.md` は文書)、シンボリックリンクは解決しない (git がステージするのはリンクそのもので、`src/link.sh → docs/x.md` はコード)。add のディレクトリだけは `realpath` で物理パスにする (top が物理パスで返るため)
+- `docs/` の外では、ディレクトリ (`bundle.md/` のように名前が文書でも) と glob (`*.md` は `bundle.md/app.sh` にも当たる) は、どの名前のファイルをステージするか分からないので不明にする。`docs/` の中のディレクトリ・glob は、何をステージしても `^docs/` に当たるので文書として扱う
 - `DOCS_ONLY` の既存の粗さ (`docs/` 配下は拡張子を問わず文書) をそのまま引き継ぐ。add の判定を staged より厳しくも緩くもしない
 
 **不明** (この add があれば、同じリポジトリの commit では通知を出す):
