@@ -1,0 +1,42 @@
+# Recorded TLC output for: run-tlc.sh <dir> Publish.tla PublishDefect.cfg
+# Run 2026-11-28 with AIDD_FORMAL_JAVA=docker (TLC2 Version 2.19 of 08 August 2024, rev 5a47802 = tla2tools v1.7.4).
+# Header lines with the host, pid and random seed are left out. tests/assurance/formal-test.sh re-derives it.
+Error: Invariant SafePublish is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ pending = [p1 |-> "none", p2 |-> "none"]
+/\ approved = [a1 |-> FALSE, a2 |-> FALSE]
+/\ published = [a1 |-> FALSE, a2 |-> FALSE]
+/\ verified = [a1 |-> FALSE, a2 |-> FALSE]
+
+State 2: <Verify line 36, col 5 to line 38, col 49 of module Publish>
+/\ pending = [p1 |-> "none", p2 |-> "none"]
+/\ approved = [a1 |-> FALSE, a2 |-> FALSE]
+/\ published = [a1 |-> FALSE, a2 |-> FALSE]
+/\ verified = [a1 |-> TRUE, a2 |-> FALSE]
+
+State 3: <Approve line 41, col 5 to line 43, col 49 of module Publish>
+/\ pending = [p1 |-> "none", p2 |-> "none"]
+/\ approved = [a1 |-> TRUE, a2 |-> FALSE]
+/\ published = [a1 |-> FALSE, a2 |-> FALSE]
+/\ verified = [a1 |-> TRUE, a2 |-> FALSE]
+
+State 4: <Check line 60, col 5 to line 63, col 50 of module Publish>
+/\ pending = [p1 |-> "a1", p2 |-> "none"]
+/\ approved = [a1 |-> TRUE, a2 |-> FALSE]
+/\ published = [a1 |-> FALSE, a2 |-> FALSE]
+/\ verified = [a1 |-> TRUE, a2 |-> FALSE]
+
+State 5: <Revoke line 47, col 5 to line 50, col 38 of module Publish>
+/\ pending = [p1 |-> "a1", p2 |-> "none"]
+/\ approved = [a1 |-> FALSE, a2 |-> FALSE]
+/\ published = [a1 |-> FALSE, a2 |-> FALSE]
+/\ verified = [a1 |-> TRUE, a2 |-> FALSE]
+
+State 6: <Publish line 67, col 5 to line 72, col 39 of module Publish>
+/\ pending = [p1 |-> "none", p2 |-> "none"]
+/\ approved = [a1 |-> FALSE, a2 |-> FALSE]
+/\ published = [a1 |-> TRUE, a2 |-> FALSE]
+/\ verified = [a1 |-> TRUE, a2 |-> FALSE]
+
+96 states generated, 40 distinct states found, 23 states left on queue.
