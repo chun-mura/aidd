@@ -13,6 +13,7 @@ aidd プラグインの運用を振り返り、資産の追加・削除・見直
 **1. 利用実績の確認**
 
 `~/.claude/aidd/usage.json` の `command_counts` と `last_seen` を読み、コマンドごとの利用回数と最終利用日を一覧にする。
+`model_counts` は `command_counts` のうち、モデル (サブエージェントを含む) が Skill ツールで起動した回数である (利用者が打った回数は両者の差。`model_counts` を記録し始める前の回数は区別できない)。モデルから起動できる skill (`test-perspectives`・`design-doc`・`design-review`・`autonomous-review`) は、モデルの起動と利用者の起動を分けて示す。`model_counts` には、ほかの skill の手順 (`issue-implement`・`autonomous-review`) や hook の通知 (`session-start.sh`・`tool-reminder.sh`) に従った起動も入るので、モデルの起動が多いことだけでは起動しすぎと判断しない。多いものは「モデルの起動が多い」と示し、ほかの skill の手順に従った起動か、頼まれていない場面での起動かを利用者に確かめてから、description を絞る候補にする。
 `last_seen` を確認し、記録がない、または最終使用が90日以上前のコマンドがあれば「見直し候補」または「削除候補」として提示する (使われていない資産の陳腐化検出。`command_counts` 単独では累積回数しか分からず「長期間未使用」は判定できないため `last_seen` を基準にする)。
 
 **2. hooks/skills の摩擦点の確認**

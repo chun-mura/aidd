@@ -1110,6 +1110,8 @@ import json, sys
 data = json.load(open(sys.argv[1]))
 assert data["command_counts"]["design-review"] == 2
 assert "prompt_log" not in data
+# A typed command is the user's start, not the model's (#204).
+assert data["model_counts"] == {}, data
 PYEOF
 
 # The Skill tool names the command exactly, so the key is read, not pattern-matched.
@@ -1122,7 +1124,27 @@ data = json.load(open(sys.argv[1]))
 assert data["command_counts"]["adr"] == 1
 assert "retro" not in data["command_counts"]
 assert "adr" in data["last_seen"]
+# The Skill tool is only the model's path, so it is also counted as a model start (#204).
+assert data["model_counts"] == {"adr": 1}, data["model_counts"]
 PYEOF
+
+# A usage.json written before model_counts existed (or holding a broken value) gets the key
+# on the next Skill-path event; the existing counts and timestamps are kept (#204).
+mkdir -p "$tmp_dir/legacy"
+for legacy_extra in '' ', "model_counts": "broken"'; do
+  printf '{"command_counts": {"retro": 4, "adr": 2}, "last_seen": {"retro": "2026-01-01T00:00:00+00:00"}%s}' \
+    "$legacy_extra" > "$tmp_dir/legacy/usage.json"
+  printf '%s' '{"hook_event_name":"PreToolUse","tool_name":"Skill","tool_input":{"skill":"aidd:adr"}}' | \
+    AIDD_TEST_STATE_DIR="$tmp_dir/legacy" bash "$usage_log"
+  python3 - "$tmp_dir/legacy/usage.json" <<'PYEOF'
+import json, sys
+data = json.load(open(sys.argv[1]))
+assert data["command_counts"] == {"retro": 4, "adr": 3}, data
+assert data["last_seen"]["retro"] == "2026-01-01T00:00:00+00:00", data
+assert "adr" in data["last_seen"], data
+assert data["model_counts"] == {"adr": 1}, data
+PYEOF
+done
 
 # Free text that merely mentions a command is not an invocation. Counting it made one run
 # register four times (parent prompt, Agent dispatch, subagent Skill call, task notification).
