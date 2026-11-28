@@ -147,6 +147,13 @@ ja_shown 'gh pr create --head docs-only --title "通知を直す" --body-file -'
 ja_shown 'gh pr create --head docs-only --title "通知を直す" --body-file notes/missing.md'
 ja_shown 'gh pr create --head docs-only --title "通知を直す" --body-file notes'
 ja_shown 'gh pr create --head docs-only --title "通知を直す" --body-file /dev/zero'
+# A path the shell would still expand names another file, even if a file of that literal name exists.
+cp "$repo/notes/ja.md" "$repo/notes/\${BODY}"
+cp "$repo/notes/ja.md" "$repo/notes/\$BODY"
+ja_shown 'gh pr create --head docs-only --title 通知 --body-file "notes/${BODY}"'
+ja_shown 'gh pr create --head docs-only --title 通知 --body-file "notes/$BODY"'
+ja_shown 'gh pr create --head docs-only --title 通知 --body-file "notes/$(echo x)"'
+ja_shown 'gh pr create --head docs-only --title 通知 --body-file notes/*.md'
 mkfifo "$repo/notes/fifo"
 ja_shown 'gh pr create --head docs-only --title "通知を直す" --body-file notes/fifo'
 ja_shown $'gh pr create --head docs-only --title "通知を直す" --body "$(cat <<\'EOF\'\nEnglish body\nEOF\n)"'

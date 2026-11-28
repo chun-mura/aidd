@@ -1232,7 +1232,8 @@ def gh_text_options(args):
 
 
 def body_file_is_japanese(value, directory, deadline):
-    if value == "-" or time.monotonic() > deadline:
+    # A path the shell may still expand ($VAR, ${...}, $(...), backquotes, globs) names another file.
+    if value == "-" or re.search(r"[$\x60*?\[]", value) or time.monotonic() > deadline:
         return False
     path = os.path.join(directory, os.path.expanduser(value))
     try:
