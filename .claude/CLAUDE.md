@@ -31,8 +31,8 @@ after the shebang, and the `commands`/`skills`/`agents`/`hooks` declarations in 
 — including just editing an existing command's `description` — requires `python3 scripts/generate-asset-index.py`
 in the same commit, or CI fails.
 
-The separate `contract-tests` job runs all fourteen scripts below on both `ubuntu-latest` and `macos-latest`
-with Python 3.12. Its OS × script matrix reports 28 independent results, has a 10-minute limit per job,
+The separate `contract-tests` job runs all fifteen scripts below on both `ubuntu-latest` and `macos-latest`
+with Python 3.12. Its OS × script matrix reports 30 independent results, has a 10-minute limit per job,
 and uses `fail-fast: false` so a failed test does not cancel the other combinations. A script's nonzero
 exit fails its job. Each job uses a fresh temporary root for HOME, TMPDIR, CLAUDE_CONFIG_DIR and
 AIDD_TEST_STATE_DIR, unsets CLAUDE_PROJECT_DIR, ignores global/system Git configuration, and removes
@@ -55,6 +55,7 @@ bash tests/incident-retro-memory-test.sh # runs incident-retro's auto memory lis
 bash tests/learnings-test.sh             # scripts/learnings.py: ledger check rejects/passes, add is off by default, candidates counting
 bash tests/issue-outcome-test.sh         # scripts/issue-outcome.py: outcome.json rejections one by one; issue-implement stop-point markers match the script enums
 bash tests/assurance/acceptance-test.sh  # examples/assurance/acceptance: approved digest, criteria-test traceability, correct impl passes, each wrong impl fails exactly its criteria
+bash tests/assurance/boundary-suite.sh  # combined and adversarial probes of gate.py, verify_evidence.py and check_run_record.py (tests/assurance/boundary-cases/), plus truncated inputs at every byte offset must fail closed
 bash tests/assurance/release-gate-test.sh  # examples/assurance/github: gate.py verdicts on check-run fixtures, static checks of the gate workflow/ruleset/policy (stdlib YAML subset in tests/assurance/workflow_lint.py)
 bash tests/assurance/runtime-record-test.sh  # examples/assurance/runtime: check_run_record.py verdicts and reason codes on fixture run records (limits.json, teardown leftovers) and squid.conf rules on a captured stage config; fail-closed on unreadable input
 bash tests/assurance/evidence-test.sh   # examples/assurance/evidence: verify_evidence.py verdicts on fake gh attestation verify output; provenance.yml signs only in a job that runs no project code
@@ -72,8 +73,8 @@ prompt files; `hook-contract`, `hook-log` and `session-start` execute the script
 `hook-log-test.sh`), `skills/review-loop/SKILL.md`, `templates/design-perspectives.md.template`,
 `templates/CLAUDE.md.template`, `templates/aidd-hook-log.sh`, `hooks/hooks.json`, `hooks/scripts/*.sh`,
 `scripts/generate-asset-index.py`, `scripts/generate-codex-agents.py`, `scripts/install-codex-agents.sh`, `scripts/learnings.py`, `scripts/issue-outcome.py`,
-`.codex/agents/*.toml`, `examples/assurance/acceptance/*`, `examples/assurance/github/*`, `examples/assurance/evidence/*`, `examples/assurance/runtime/*`, `tests/assurance/fixtures/runtime-*`, `tests/assurance/workflow_lint.py`, or any command/skill/agent frontmatter, run the matching test script — a wording
-change can silently break the contract. CI runs these fourteen scripts automatically; still run the matching
+`.codex/agents/*.toml`, `examples/assurance/acceptance/*`, `examples/assurance/github/*`, `examples/assurance/evidence/*`, `examples/assurance/runtime/*`, `tests/assurance/fixtures/runtime-*`, `tests/assurance/boundary-cases/*`, `tests/assurance/boundary-suite.sh`, `tests/assurance/workflow_lint.py`, or any command/skill/agent frontmatter, run the matching test script — a wording
+change can silently break the contract. CI runs these fifteen scripts automatically; still run the matching
 tests locally before committing. When adding a test script, update the workflow matrix and this list together.
 After editing `agents/*.md`, run `python3 scripts/generate-codex-agents.py`.
 
