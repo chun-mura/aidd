@@ -37,7 +37,9 @@ status: draft
 
 **不明** (この add があれば、同じリポジトリの commit では通知を出す):
 - 名指ししたパスだけに add を留めるオプション (`-n -v -f -i -p -e -N` と、その長い形・`--refresh`・`--ignore-errors`・`--ignore-missing`・`--renormalize`・`--sparse`・`--chmod` など) 以外を含む add。`-A`・`-u`・`--pathspec-from-file` と、git が受け付ける省略形 (`--pathspec-from-fi`・`--al`) もここに入る (`-A` などはふだん `deny_unsafe_git` が拒否するが、`AIDD_DISABLE_GIT_SAFETY=1` では拒否されない)
-- `docs/` の外で、ディスクに無いパス (削除したディレクトリを add すると、その中のコードの削除をステージする)
+- `docs/` の外で、ディスクに無いパス、または index にそのパスの下の項目があるパス (削除したディレクトリを add すると、同じ名前のファイルに置き換えていても、その中のコードの削除をステージする)。index は `git ls-files -z --cached -- ':(top,literal)<path>'` で1回だけ見る
+- サブコマンドの前に、パスの照合を変えうる git のオプション (`--icase-pathspecs`・`--glob-pathspecs` など `pathspecs` を含むもの、`-c`、`--config-env`) がある add
+- 受け入れる残り: 大文字小文字を区別しないファイルシステム (macOS の既定) で、`git add docs/x` が実際には `DOCS/x` を指す場合は見分けない (`DOCS_ONLY` も大文字小文字を区別する。staged の判定と同じ扱い)
 - `:` で始まる magic pathspec
 - シェルがまだ展開する文字 (`$`・バッククォート・`~`・`{}`) を含むパス。hook が見るのは展開前の文字列で、`git add "docs/$X"` や `docs/{a.md,../src.sh}` は展開後に docs の外を指しうる
 - パスを1つも名指ししない add (`git add -p`・`-i` など)。何でもステージしうる

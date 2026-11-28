@@ -522,8 +522,21 @@ tp_shown "$add_repo" 'git add bundle.md && git commit -m x'
 tp_shown "$add_repo" "git add '*.md' && git commit -m x"
 tp_quiet "$add_repo" "git add docs/ 'docs/*.md' && git commit -m x"
 rm -r "$add_repo/bundle.md"
-# A path gone from the disk may be a removed directory, whose add stages deleted code.
+# A path gone from the disk may be a removed directory, whose add stages deleted code; so may a
+# tracked directory replaced by a file of the same name.
 tp_shown "$add_repo" 'git add bundle.md && git commit -m x'
+mkdir -p "$add_repo/kit.md"
+echo code > "$add_repo/kit.md/app.sh"
+git -C "$add_repo" add kit.md/app.sh
+git -C "$add_repo" commit -qm 'chore: kit'
+rm -r "$add_repo/kit.md"
+echo doc > "$add_repo/kit.md"
+tp_shown "$add_repo" 'git add kit.md && git commit -m x'
+rm "$add_repo/kit.md"
+git -C "$add_repo" restore kit.md/app.sh
+# Global git options before add can change how the paths match.
+tp_shown "$add_repo" 'git --icase-pathspecs add notes.md && git commit -m x'
+tp_shown "$add_repo" 'git -c core.ignorecase=true add notes.md && git commit -m x'
 # Options other than those that keep the add to the named paths, abbreviations included.
 printf 'src/app.sh\n' > "$add_repo/paths.txt"
 tp_shown "$add_repo" 'git add --pathspec-from-fi paths.txt && git commit -m x'

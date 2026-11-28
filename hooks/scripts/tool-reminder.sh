@@ -347,13 +347,16 @@ ADD_NAMED_ONLY = {"--dry-run", "--verbose", "--force", "--interactive", "--patch
                   "--sparse", "--chmod"}
 
 
-def added_paths(sub, args, directory):
+def added_paths(git_options, args, directory):
     """(top, paths) for a git add: the paths it names, relative to the repository top, or None when
     they cannot be read (no names, magic pathspec, outside the repository or the whole of it). #197:
     an add before the commit in the same command has not run yet when the commit is judged."""
     top = git(directory, "rev-parse", "--show-toplevel")
     if not top:
         return None, None
+    # git --icase-pathspecs / --glob-pathspecs / -c ... change how the paths match.
+    if any("pathspecs" in o or o in ("-c", "--config-env") or o.startswith("--config-env=") for o in git_options):
+        return top, None
     shorts, longs, positionals = scan(args, *ADD_OPTIONS)
     # Only options that keep the add to the named paths; anything else, an abbreviation that git
     # accepts (--pathspec-from-fi) included, cannot be read.
@@ -375,12 +378,17 @@ def added_paths(sub, args, directory):
         rel = rel.replace(os.sep, "/")
         if rel == "docs":
             rel = "docs/"  # the directory itself: everything it stages is under docs/
-        # Outside docs/, a directory (bundle.md/), a glob, or a path gone from the disk (a removed
-        # directory stages the deletion of its files) may stage files of any name.
+        # Outside docs/, a directory (bundle.md/), a glob, a path gone from the disk, or a path with
+        # index entries under it (a removed directory, even one replaced by a file of that name,
+        # stages the deletion of its files) may stage files of any name.
         full = os.path.join(root, rel)
-        if not rel.startswith("docs/") and (re.search(r"[*?\[]", p) or not os.path.lexists(full)
-                                            or (os.path.isdir(full) and not os.path.islink(full))):
-            return top, None
+        if not rel.startswith("docs/"):
+            if re.search(r"[*?\[]", p) or not os.path.lexists(full) or (
+                    os.path.isdir(full) and not os.path.islink(full)):
+                return top, None
+            tracked = git(top, "ls-files", "-z", "--cached", "--", ":(top,literal)" + rel)
+            if tracked is None or any(t and t != rel for t in tracked.split("\0")):
+                return top, None
         paths.append(rel)
     # An add that names nothing (git add -p / -i) may stage anything.
     return top, (paths or None)
@@ -1344,7 +1352,8 @@ for argv, directory in simple_commands(command):
             if parsed["sub"] == "commit":
                 remind_test_perspectives(parsed["dir"], pending_adds)
             elif parsed["sub"] == "add":
-                pending_adds.append(added_paths(parsed["sub"], parsed["args"], parsed["dir"]))
+                git_options = argv[1:len(argv) - len(parsed["args"]) - 1]  # the words before "add"
+                pending_adds.append(added_paths(git_options, parsed["args"], parsed["dir"]))
             if parsed["sub"] in ("add", "commit"):
                 ledger_calls.append((parsed["dir"], parsed["sub"], parsed["args"]))
         elif hook_event == "PostToolUse" and parsed["sub"] == "push":
