@@ -1383,6 +1383,182 @@ fi
 grep -F 'the keys changed after staging' "$impl_tmp/verify.err"
 chmod -R u+w "$impl_tmp"
 
+# eval branch (#132): Agent 4 / 5 / 6 are measured on their own unseen cases, with keys frozen and
+# committed before any run, denominators kept apart from the core ones, launches judged from the
+# actual dispatch, and an unreachable source never scored as confirmed.
+grep -F -- 'コアと拡張の分母を混ぜない' "$eval_command"
+grep -F -- '到達できない外部資料を確認済みと採点しない' "$eval_command"
+grep -F -- '確認済み・反証ありは、その主張に出典 URL があり、かつ tools の記録で source-verifier の Web 呼び出しが1件以上成功している場合だけ一致に数える' "$eval_command"
+grep -F -- '到達不能の誤採点' "$eval_command"
+grep -F -- '起動の判定は実行担当の `## 経路` (自己申告) ではなく' "$eval_command"
+grep -F -- 'この評価の数字は手順3のコア検出率・拡張検出率に足さず' "$eval_command"
+# The real branch assets: every variant has its case and key, the key states the expected launch of
+# Agent 4 / 5 / 6, a case never shows the answers, and freeze.sha256 matches the current files, the
+# prompt and the staging block (a key changed after the freeze fails here).
+branch_dir="$repo_root/tests/eval/branch"
+while IFS=$'\t' read -r v c p f; do
+  [ -f "$branch_dir/cases/$c.md" ] && [ -f "$branch_dir/keys/$c.md" ]
+  [ "$p" = - ] || [ -f "$branch_dir/perspectives/$p.md" ]
+  grep -qE "^\| $v \| (yes|no) \| (yes|no) \| (yes|no) \|" "$branch_dir/keys/$c.md" \
+    || { echo "branch key $c has no expected launch for $v" >&2; exit 1; }
+  case "$f" in -|--verify-sources) ;; *) echo "branch variant $v has unsupported flags" >&2; exit 1 ;; esac
+done < "$branch_dir/variants.tsv"
+if grep -lF -e 'シード' -e '正解キー' -e 'デコイ' -e 'tests/eval/' "$branch_dir"/cases/*.md "$branch_dir"/perspectives/*.md; then
+  echo "a branch case or perspectives file shows the answers" >&2
+  exit 1
+fi
+branch_prompt=$(sed -n '/^# eval branch prompt$/,/^# end eval branch prompt$/p' "$eval_command" | shasum -a 256 | awk '{print $1}')
+branch_staging=$(sed -n '/^# eval branch staging:/,/^# end eval branch staging$/p' "$eval_command" | shasum -a 256 | awk '{print $1}')
+(cd "$branch_dir" && { find cases keys variants.tsv perspectives -type f | LC_ALL=C sort | while read -r f; do shasum -a 256 "$f"; done
+  printf '%s  %s\n' "$branch_prompt" prompt "$branch_staging" staging; }) > "$doctor_tmp/branch-manifest"
+cmp -s "$doctor_tmp/branch-manifest" "$branch_dir/freeze.sha256" \
+  || { echo "tests/eval/branch/freeze.sha256 is stale: the cases, keys, prompt or staging block changed after the freeze" >&2; exit 1; }
+# Run the branch blocks on a fake repository: staging stops until the cases are frozen and
+# committed, copies .aidd/design-perspectives.md only for its variant, never shows a key or the
+# variant name, and the tools block records the actual dispatch and web reachability.
+br_tmp="$doctor_tmp/eval-branch"
+mkdir -p "$br_tmp"
+sed -n '/^# eval branch freeze-cases:/,/^# end eval branch freeze-cases$/p' "$eval_command" > "$br_tmp/freeze-cases.tpl"
+sed -n '/^# eval branch staging:/,/^# end eval branch staging$/p' "$eval_command" > "$br_tmp/stage.tpl"
+sed -n '/^# eval branch tools:/,/^PY$/p' "$eval_command" > "$br_tmp/tools.tpl"
+[ -s "$br_tmp/freeze-cases.tpl" ] && [ -s "$br_tmp/stage.tpl" ] && [ -s "$br_tmp/tools.tpl" ]
+fake3="$br_tmp/repo"
+fb="$fake3/tests/eval/branch"
+mkdir -p "$fake3/.claude-plugin" "$fake3/agents" "$fake3/skills/design-review" "$fake3/skills/eval" \
+  "$fake3/tests/eval/keys" "$fake3/tests/eval/results" "$fb/cases" "$fb/keys" "$fb/perspectives"
+printf '%s\n' '{"name": "aidd", "version": "9.9.9"}' > "$fake3/.claude-plugin/plugin.json"
+printf '%s\n' 'reviewer' > "$fake3/agents/reviewer.md"
+printf '%s\n' 'design-review' > "$fake3/skills/design-review/SKILL.md"
+cp "$eval_command" "$fake3/skills/eval/SKILL.md"
+printf '%s\n' 'DESIGN_KEY_SENTINEL' > "$fake3/tests/eval/keys/x.md"
+printf '%s\n' 'RESULT_SENTINEL' > "$fake3/tests/eval/results/old.md"
+printf '%s\n' '# case' 'CASE_TEXT' > "$fb/cases/demo.md"
+printf '%s\n' '# perspectives' '- PERSPECTIVE_SENTINEL_LINE must be checked' > "$fb/perspectives/rules.md"
+printf '%s\n' 'KEY_SENTINEL' '| plain | no | no | no | x |' '| withrules | yes | no | no | x |' '| flagged | no | yes | no | x |' > "$fb/keys/demo.md"
+printf 'plain\tdemo\t-\t-\nwithrules\tdemo\trules\t-\nflagged\tdemo\t-\t--verify-sources\n' > "$fb/variants.tsv"
+git -C "$fake3" init -q
+git -C "$fake3" add -A
+git -C "$fake3" -c user.name=t -c user.email=t@example.com commit -qm init
+br_fill() {  # br_fill <template> <out> <run> <variant> [trial]
+  sed -e "s|<repo>|$fake3|g" -e "s|<run>|$3|g" -e "s|<variant>|$4|g" -e "s|<trial>|${5-1}|g" "$1" > "$2"
+}
+br_stage() {  # br_stage <name> <run> <variant>
+  mkdir -p "$2"
+  br_fill "$br_tmp/stage.tpl" "$br_tmp/stage-$1.sh" "$2" "$3"
+  PATH="$eval_tmp/bin:$PATH" bash "$br_tmp/stage-$1.sh" 2> "$br_tmp/stage-$1.err"
+}
+br_stage_fails() {  # br_stage_fails <name> <run> <variant> <expected stderr>
+  if br_stage "$1" "$2" "$3"; then
+    echo "eval branch staging did not stop: $1" >&2
+    exit 1
+  fi
+  if ! grep -qF -- "$4" "$br_tmp/stage-$1.err"; then
+    echo "eval branch staging $1 stopped for another reason: $(cat "$br_tmp/stage-$1.err")" >&2
+    exit 1
+  fi
+}
+br_stage_fails notfrozen "$br_tmp/run-notfrozen" plain 'the cases are not frozen'
+br_fill "$br_tmp/freeze-cases.tpl" "$br_tmp/freeze-cases.sh" - -
+bash "$br_tmp/freeze-cases.sh" > "$br_tmp/freeze-cases.out"
+grep -E '^eval branch freeze-cases: freeze.sha256 sha256 [0-9a-f]{64}$' "$br_tmp/freeze-cases.out"
+grep -F ' perspectives/rules.md' "$fb/freeze.sha256"
+grep -E '^[0-9a-f]{64}  prompt$' "$fb/freeze.sha256"
+if bash "$br_tmp/freeze-cases.sh" 2> "$br_tmp/freeze-cases.err"; then
+  echo "eval branch freeze-cases overwrote freeze.sha256" >&2
+  exit 1
+fi
+br_stage_fails uncommitted "$br_tmp/run-uncommitted" plain 'freeze.sha256 is not committed'
+git -C "$fake3" add tests/eval/branch/freeze.sha256
+git -C "$fake3" -c user.name=t -c user.email=t@example.com commit -qm freeze
+br_plain="$br_tmp/run-plain"
+br_stage plain "$br_plain" plain
+[ ! -e "$br_plain/input/.aidd" ]
+grep -F 'cases/demo.md' "$br_plain/raw/prompt-plain.md"
+grep -F -- '`--depth=standard`' "$br_plain/raw/prompt-plain.md"
+br_rules="$br_tmp/run-rules"
+br_stage withrules "$br_rules" withrules
+cmp -s "$fb/perspectives/rules.md" "$br_rules/input/.aidd/design-perspectives.md"
+br_verify="$br_tmp/run-verify"
+br_stage flagged "$br_verify" flagged
+grep -F -- '`--depth=standard --verify-sources`' "$br_verify/raw/prompt-flagged.md"
+if grep -rqF -e KEY_SENTINEL -e DESIGN_KEY_SENTINEL -e RESULT_SENTINEL -e '# eval branch prompt' -e withrules -e "$fake3" \
+    "$br_plain/input" "$br_plain/raw/prompt-plain.md" "$br_rules/input" "$br_rules/raw/prompt-withrules.md"; then
+  echo "eval branch staging leaked a key, a result, the prompt marker, the variant name or the repository path" >&2
+  exit 1
+fi
+grep -F ' branch/keys/demo.md' "$br_rules/raw/keys.sha256"
+cmp -s "$fb/freeze.sha256" "$br_rules/raw/freeze.sha256"
+grep -F "| 凍結したコミット | $(git -C "$fake3" rev-parse HEAD) |" "$br_rules/raw/conditions.md"
+br_stage_fails again "$br_plain" plain 'input/ or raw/ already exists'
+br_stage_fails inside "$fake3/run-inside" plain 'the run directory is inside the repository'
+br_stage_fails badname "$br_tmp/run-badname" '../keys' 'bad variant name'
+br_stage_fails novariant "$br_tmp/run-novariant" nosuch 'no single row for nosuch'
+cp "$fb/keys/demo.md" "$br_tmp/key.orig"
+printf '%s\n' 'changed' >> "$fb/keys/demo.md"
+git -C "$fake3" -c user.name=t -c user.email=t@example.com commit -qam 'key without a new freeze'
+br_stage_fails keychanged "$br_tmp/run-keychanged" plain 'differ from freeze.sha256'
+cp "$br_tmp/key.orig" "$fb/keys/demo.md"
+git -C "$fake3" -c user.name=t -c user.email=t@example.com commit -qam 'restore the frozen key'
+printf '\n' >> "$fake3/agents/reviewer.md"
+br_stage_fails dirty "$br_tmp/run-dirty" plain 'the evaluated assets have uncommitted changes'
+git -C "$fake3" checkout -q -- agents/reviewer.md
+printf 'badflags\tdemo\t-\t--security\n' >> "$fb/variants.tsv"
+br_stage_fails badflags "$br_tmp/run-badflags" badflags 'unsupported flags: --security'
+git -C "$fake3" checkout -q -- tests/eval/branch/variants.tsv
+# The tools block reads the actual dispatch: a reviewer given the project perspectives is Agent 4,
+# a source-verifier whose every web call failed is "実行不能", and its reply (the SubagentHandback
+# message of a backgrounded agent, not the launch notice) is kept as it was.
+br_jsonl() {  # br_jsonl <run> <variant> <web result is_error>
+  python3 - "$1/local/$2-t1.jsonl" "$(cd "$1" && pwd -P)" "$3" <<'PYEOF'
+import json, sys
+out, run, web_error = sys.argv[1], sys.argv[2], sys.argv[3] == "1"
+def use(i, name, args, parent=None):
+    return {"type": "assistant", "parent_tool_use_id": parent, "message": {"content": [{"type": "tool_use", "id": i, "name": name, "input": args}]}}
+def res(i, text, err=False, parent=None):
+    return {"type": "user", "parent_tool_use_id": parent, "message": {"content": [{"type": "tool_result", "tool_use_id": i, "is_error": err, "content": [{"type": "text", "text": text}]}]}}
+lines = [
+    use("a1", "Agent", {"subagent_type": "aidd:reviewer", "prompt": "review cases/demo.md: structure"}),
+    use("a4", "Agent", {"subagent_type": "aidd:reviewer", "prompt": "PERSPECTIVE_SENTINEL_LINE must be checked"}),
+    use("a5", "Agent", {"subagent_type": "aidd:source-verifier", "prompt": "cases/demo.md"}),
+    use("w1", "WebFetch", {"url": "https://docs.example.invalid/x", "prompt": "p"}, "a5"),
+    res("w1", "fetch failed: " + run + "/input", web_error, "a5"),
+    use("h5", "SubagentHandback", {"message": "V1 確認済み " + run + "/input/cases/demo.md"}, "a5"),
+    res("a5", "Async agent launched successfully. LAUNCH_NOTICE"),
+    res("a1", "ok"),
+]
+with open(out, "w") as f:
+    for line in lines:
+        f.write(json.dumps(line, ensure_ascii=False) + "\n")
+PYEOF
+}
+br_jsonl "$br_rules" withrules 1
+br_fill "$br_tmp/tools.tpl" "$br_tmp/tools-rules.sh" "$br_rules" withrules
+bash "$br_tmp/tools-rules.sh" > "$br_tmp/tools-rules.out"
+br_tools="$br_rules/raw/withrules-t1.tools.md"
+grep -F '| Agent 4 (プロジェクト固有観点を渡した reviewer) | yes (1) |' "$br_tools"
+grep -F '| Agent 5 (source-verifier) | yes (1) |' "$br_tools"
+grep -F '| Agent 6 (security-reviewer) | no (0) |' "$br_tools"
+grep -F '| reviewer の dispatch 数 | 2 |' "$br_tools"
+grep -F '| source-verifier の Web 到達 | 実行不能 (成功 0 / 呼び出し 1) |' "$br_tools"
+grep -F 'V1 確認済み [input]/cases/demo.md' "$br_tools"
+if grep -qF LAUNCH_NOTICE "$br_tools"; then
+  echo "eval branch tools took the launch notice of a backgrounded agent as its reply" >&2
+  exit 1
+fi
+if grep -qF "$(cd "$br_rules" && pwd -P)" "$br_tools"; then
+  echo "eval branch tools kept an absolute path" >&2
+  exit 1
+fi
+if bash "$br_tmp/tools-rules.sh" 2> /dev/null; then
+  echo "eval branch tools overwrote a record" >&2
+  exit 1
+fi
+br_jsonl "$br_plain" plain 0
+br_fill "$br_tmp/tools.tpl" "$br_tmp/tools-plain.sh" "$br_plain" plain
+bash "$br_tmp/tools-plain.sh" > /dev/null
+grep -F '| Agent 4 (プロジェクト固有観点を渡した reviewer) | no (0) |' "$br_plain/raw/plain-t1.tools.md"
+grep -F '| source-verifier の Web 到達 | 到達あり (成功 1 / 呼び出し 1) |' "$br_plain/raw/plain-t1.tools.md"
+
 # retro's reflux listing snippet (#107, D2): run it on fake gh output. It prints the number,
 # updatedAt, the signature line (checked by the ledger's rule) and the title, never the body, and
 # reports when the listing was cut at the limit.

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.102.0 (2026-11-28)
+
+- `eval`: `/aidd:eval branch` を足した (#132)。design-review の条件付きの agent (Agent 4 プロジェクト固有観点・Agent 5 `--verify-sources` の source-verifier・Agent 6 security-reviewer) は、手順1〜6のケースでは起動条件の片側しか測れず (security ケースは信頼境界を跨ぐので、機微情報の保存だけで起動するかは分からない)、Agent 4・5 は評価の対象外だったため。未見ケース3つ (機微情報をキャッシュとログに保存するだけの社内バッチ、非機微な社内バッチ、版を固定した一次資料で正誤が決まる主張と到達できない参照を持つ設計) を、変種4つ (観点ファイルの有無、`--verify-sources` の有無) で `tests/eval/branch/` に置いた。正解キーは `freeze.sha256` (ケース・観点・変種・キー・固定プロンプト・準備のブロックのハッシュ) をコミットしてから実行し、準備のブロックが凍結と未コミットの変更を確かめる。起動は実行担当の自己申告ではなく stream-json の実際の dispatch で判定し、source-verifier の Web 呼び出しの成否を記録する。確認済み・反証ありは、出典 URL があり Web 呼び出しが1件以上成功した場合だけ一致に数え、到達できない資料を確認済み・反証ありとしたら「到達不能の誤採点」として失敗に数える。数字は手順3のコア検出率・拡張検出率に足さない。#129 の抽出の検査に `tests/eval/branch/keys` への参照を足した。運用ルール6の対象のプロンプトは変えていない
+- `eval branch` の初回の結果を `tests/eval/results/2026-11-28-branch.md` に保存した (#132、各変種2試行・参考値)。Agent 4・5・6 の起動は8試行すべてで期待どおり (機微情報の保存だけで Agent 6 が起動 2/2、非機微な内部処理で起動しない 6/6)。Agent 4 のシードは観点つきで 4/4、観点なしで 0/4。source-verifier は3つの主張を2試行とも正しく判定し、到達できない参照を確認済みにしなかった。費用は合計 8.39 USD。初版の記録のブロックがバックグラウンドの agent の返答を取れなかったので直した
+
 ## 0.101.0 (2026-11-28)
 
 - `autonomous-review`: Codex の read-only サンドボックスが起動しないまま `codex exec` の出力をレビュー成立と数えないようにした (#217)。#193 の実測 (ADR 0003、`tests/eval/results/2026-11-28-codex-sandbox-container.md`) で、Docker の既定の seccomp や ubuntu-24.04 の AppArmor の userns 制限でサンドボックスが起動しなくても `codex exec` は exit 0 で終わり、ツールの失敗を受けたモデルが契約どおりの JSON を返せばそれが `-o` のファイルに入ると分かったため。ラウンドごとに `codex exec` の前に、モデルを呼ばない事前確認のブロック (新しい節「サンドボックスの事前確認」) を実行する。リポジトリの外の空の一時ディレクトリに乱数を書いたファイルを置き、`codex sandbox -P :read-only -C <dir> -- cat <file>` が exit 0 でその乱数だけを出すこと、`codex sandbox -P :read-only -C <dir> -- sh -c ': > <dir>/w'` が0以外で終わり `w` が作られないことを確かめる (Bash の timeout 10000ms)。通らない・`-P` の無い版では `codex exec` を起動せず `human_required` (`review_incomplete`)。「起動失敗の検出」の説明を「`-o` のファイルの形だけでは判断できない」に改め、独立レビューの成立条件の `read_only_snapshot` にこの事前確認を加えた。事前確認はその時点で起動することだけを示すと `residual_risks` に書く。既定の挙動 (read-only、失敗は `human_required`、同一モデルへの黙ったフォールバック禁止) は変えていない。codex-cli 0.163.0 (macOS) で、ブロックが `sandbox check: ok` を出すこと、サンドボックスが起動しない環境 (入れ子の Seatbelt) では失敗することを確かめた

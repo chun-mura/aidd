@@ -1,13 +1,13 @@
 ---
 name: eval
-description: design-review パイプラインをゴールデンセットで評価し、検出率・誤棄却率を測定する。impl を付けると、実装レビューを同種 (claude -p) と異種 (codex exec) で同じ欠陥セットに対して比べる。compare を付けると、design-review の deep・standard・小規模の直接レビューと単体モデルを同じケースとキーで比べる
-argument-hint: [ケース名 (structure / data-error / security / crosscut)。省略時は全ケース] | impl [ケース名 (tests/eval/impl/cases/ の名前)。省略時は全ケース] | compare [ケース名 (tests/eval/cases/ の名前)。省略時は全ケース]
+description: design-review パイプラインをゴールデンセットで評価し、検出率・誤棄却率を測定する。impl を付けると、実装レビューを同種 (claude -p) と異種 (codex exec) で同じ欠陥セットに対して比べる。compare を付けると、design-review の deep・standard・小規模の直接レビューと単体モデルを同じケースとキーで比べる。branch を付けると、design-review の条件付きの agent (プロジェクト固有観点・外部情報の検証・セキュリティ) の起動と判定を未見ケースで測る
+argument-hint: [ケース名 (structure / data-error / security / crosscut)。省略時は全ケース] | impl [ケース名 (tests/eval/impl/cases/ の名前)。省略時は全ケース] | compare [ケース名 (tests/eval/cases/ の名前)。省略時は全ケース] | branch [変種名 (tests/eval/branch/variants.tsv の1列目)。省略時は全変種]
 disable-model-invocation: true
 ---
 
 **パスと引数と質問の扱い**: この文書の相対パスは、この SKILL.md があるディレクトリを起点にする。`$ARGUMENTS` が文字のまま残っている場合（Codex・Cursor など）は、この skill を呼び出したメッセージのうち skill 名以外の部分を `$ARGUMENTS` とみなす。`AskUserQuestion` と書かれた箇所は、ユーザーに質問するツールがあればそれを使い、無ければ質問を書いて作業を止め、回答を待つ。回答が無いまま推測で進めない。
 
-対象ケース: $ARGUMENTS (未指定なら `tests/eval/cases/` 配下の全 `.md`)。先頭が `impl` なら、この下の design-review の手順ではなく、末尾の「実装レビューの比較 (同種・異種)」を行う。先頭が `compare` なら、末尾の「design-review の構成比較 (deep・standard・直接・単体モデル)」を行う
+対象ケース: $ARGUMENTS (未指定なら `tests/eval/cases/` 配下の全 `.md`)。先頭が `impl` なら、この下の design-review の手順ではなく、末尾の「実装レビューの比較 (同種・異種)」を行う。先頭が `compare` なら、末尾の「design-review の構成比較 (deep・standard・直接・単体モデル)」を、先頭が `branch` なら、末尾の「design-review の条件分岐の評価 (Agent 4・5・6)」を行う
 
 design-review パイプラインの精度を、欠陥を意図的に埋め込んだ設計書 (ゴールデンセット) で測定してください。このコマンドは aidd プラグインリポジトリ自身で実行する前提 (`tests/eval/` が存在すること。なければその旨を報告して終了)。
 
@@ -223,7 +223,7 @@ for line in lines:
         reasons = []
         if repo.casefold() in folded or repo_arg.casefold() in folded:
             reasons.append("元リポジトリのパス")
-        if any(k in folded for k in ("tests/eval/keys", "tests/eval/results", "tests/eval/impl/keys", "tests/eval/impl/rubric")):
+        if any(k in folded for k in ("tests/eval/keys", "tests/eval/results", "tests/eval/impl/keys", "tests/eval/branch/keys", "tests/eval/impl/rubric")):
             reasons.append("keys・results")
         if any(os.path.join(p, d).casefold() in folded for p in (run, run_arg) for d in ("raw", "local")):
             reasons.append("run の raw・local")
@@ -979,6 +979,336 @@ direct: `--depth=standard` で適用し、小規模対象ショートカット�
 - コストの表: 構成ごとと採点を分け、評価全体の合計も示す。列はトークンと USD に分け、合計の行は既知の分の合計と不明の項目名を書く
 
 **C7. 報告** — 指標の表・安全上重要な見逃しの表・提案・コストの表・未測定の項目を示す。提案は design-review の既定や構成の変更ではないことを添える。
+
+## design-review の条件分岐の評価 (Agent 4・5・6)
+
+`/aidd:eval branch [変種名]` で行う。design-review が条件で起動する Agent 4 (プロジェクト固有観点)・Agent 5 (`--verify-sources` の source-verifier)・Agent 6 (security-reviewer) を、手順1〜6のケースとは別の未見ケース (`tests/eval/branch/`) で測る。測るのは、起動すべきときに起動し、起動すべきでないときに起動しないか (機微情報の保存だけで Agent 6 が起動するか、非機微な内部処理で過剰に起動しないか、`.aidd/design-perspectives.md` の有無で Agent 4 が分かれるか)、起動した agent が担当の欠陥を最終報告に残したか、source-verifier が外部の主張を正しく判定し、到達できない資料を確認済みにしないか。
+
+素材は `tests/eval/branch/`: `cases/<ケース>.md` (設計書)、`perspectives/<名前>.md` (Agent 4 用の `.aidd/design-perspectives.md` の中身)、`variants.tsv` (変種ごとに `変種名<TAB>ケース<TAB>観点 (無ければ -)<TAB>フラグ (- か --verify-sources)`)、`keys/<ケース>.md` (変種ごとの起動の期待・シード・外部情報の主張の期待判定)、`freeze.sha256`。
+
+- **コアと拡張の分母を混ぜない**。この評価の数字は手順3のコア検出率・拡張検出率に足さず、手順1〜6の結果ファイルにも書かない。キーの「コアシード」はこの評価の中での分母で、拡張シードは別に数える。ケースごと・変種ごとの分母を書き、合算した率だけにしない
+- **到達できない外部資料を確認済みと採点しない** (B5 の規則)
+- 分離は「分離と汚染ガード」と同じ。手順1b の抽出・1c の凍結・2 の照合のブロックをそのまま使い、「分離の限界」もそのまま当てはまる。偽指摘は使わない
+- 試行は既定で各変種1試行。率は参考値として書き、1回の結果で design-review を変えない (「注意」のとおり再実行で再現を確かめる)
+- 分岐評価からはキーへ昇格しない。キー外の指摘は件数と内容を記録するだけにする
+
+**B1. ケースの確認と凍結 (ユーザー)** — 初めて実行する前と、`tests/eval/branch/` のケース・観点・変種・キー、下の固定プロンプトか B2 の準備のブロックを変えたときに行う。本実行とは別のセッションで行う。
+
+1. 各ケース・観点・`variants.tsv`・キーをユーザーに示し、確認を AskUserQuestion で求める。外部情報の主張は、キーに書いた版を固定した一次資料で期待判定を確かめてから示す
+2. 承認されたら、次のブロックの `<repo>` を置き換えて実行する。`tests/eval/branch/freeze.sha256` (ケース・観点・`variants.tsv`・キーのハッシュと、固定プロンプトと B2 の準備のブロックのハッシュ) を書き、その sha256 を表示する。既にあれば止まる。作り直すのは、ユーザーが新しい版を承認したときだけで、そのときはユーザーが古いファイルを消す
+3. ユーザーが `freeze.sha256` をコミットする。準備 (B2) は、`freeze.sha256` がコミットされていない、今のファイルと一致しない、評価する資産に未コミットの変更がある、のどれかなら止まる。キーはレビューの実行より前のこのコミットで固定される
+
+```bash
+# eval branch freeze-cases: after the user approved the cases, perspectives, variants and keys, write tests/eval/branch/freeze.sha256
+repo='<repo>'
+set -euo pipefail
+fail() { echo "eval branch freeze-cases: $*" >&2; exit 1; }
+br="$repo/tests/eval/branch"
+[ -d "$br/cases" ] && [ -d "$br/keys" ] && [ -f "$br/variants.tsv" ] || fail "no cases, keys or variants.tsv"
+[ ! -e "$br/freeze.sha256" ] || fail "freeze.sha256 already exists; only the user removes it, after approving a new version"
+if [ -n "$(find "$br" ! -type f ! -type d)" ]; then fail "a symbolic link or a special file under tests/eval/branch"; fi
+while IFS=$'\t' read -r v c p f; do
+  for n in "$v" "$c"; do
+    case "$n" in ''|*[!abcdefghijklmnopqrstuvwxyz0123456789-]*) fail "bad variant or case name: $n" ;; esac
+  done
+  [ -f "$br/cases/$c.md" ] && [ -f "$br/keys/$c.md" ] || fail "variant $v lacks its case or key"
+  [ "$p" = - ] || [ -f "$br/perspectives/$p.md" ] || fail "variant $v lacks its perspectives"
+  case "$f" in -|--verify-sources) ;; *) fail "variant $v has unsupported flags: $f" ;; esac
+  grep -qF "| $v |" "$br/keys/$c.md" || fail "the key of $c has no expectation for $v"
+done < "$br/variants.tsv"
+prompt=$(sed -n '/^# eval branch prompt$/,/^# end eval branch prompt$/p' "$repo/skills/eval/SKILL.md" | shasum -a 256 | awk '{print $1}')
+staging=$(sed -n '/^# eval branch staging:/,/^# end eval branch staging$/p' "$repo/skills/eval/SKILL.md" | shasum -a 256 | awk '{print $1}')
+(cd "$br" && { find cases keys variants.tsv $( [ -d perspectives ] && echo perspectives ) -type f | LC_ALL=C sort | while read -r f; do shasum -a 256 "$f"; done
+  printf '%s  %s\n' "$prompt" prompt "$staging" staging; }) > "$br/freeze.sha256.tmp"
+mv "$br/freeze.sha256.tmp" "$br/freeze.sha256"
+echo "eval branch freeze-cases: freeze.sha256 sha256 $(shasum -a 256 "$br/freeze.sha256" | awk '{print $1}')"
+# end eval branch freeze-cases
+```
+
+**B2. 準備 (メイン)** — 変種ごとに新しい run ディレクトリを作り (`mktemp -d "${TMPDIR:-/tmp}/aidd-eval-branch.XXXXXX"` など。変種の間で `input/` を共有しない。`.aidd/` の有無が変種で違うため)、次のブロックの `<repo>`・`<run>`・`<variant>` を置き換えて実行する。
+
+ブロックがすること: 凍結を確かめ、`input/` にケースと plugin (`.claude-plugin/plugin.json`・`agents/`・`skills/design-review/`)、観点がある変種では `.aidd/design-perspectives.md` だけをコピーする。次のどれかに当たれば止まる。
+
+- 変種名が英小文字・数字・`-` 以外を含む、`variants.tsv` に変種が1行だけ無い、ケース・キー・観点が無い、フラグが `-`・`--verify-sources` 以外
+- 凍結 (B1 の 3) が確かめられない、`tests/eval/branch/`・`skills/eval/SKILL.md`・`skills/design-review/`・`agents/`・`.claude-plugin/plugin.json` に未コミットの変更がある
+- run ディレクトリが元リポジトリの中にある、`input/` か `raw/` が既にある、`input/` がどこかの Git の作業ツリーの中にある
+- `input/` のファイルが許可した一覧と完全に一致しない、コピー元と内容が違う、名前が `.git`・`keys`・`results` のものがある、内容が `tests/eval/keys/`・`tests/eval/results/`・`tests/eval/branch/keys/` のどれかのファイルと同じ
+- `input/` かプロンプトに元リポジトリの絶対パスがある、プロンプトに `tests/eval/`・変種名・置き換え忘れの `<case>`・`<flags>` が残っている
+
+`raw/` には、固定プロンプトの `<case>`・`<flags>` を置き換えたもの (`prompt-<変種>.md`)・入力のハッシュ (`input.sha256`)・キーのハッシュ (`keys.sha256`、`tests/eval/` からの相対パス)・凍結のマニフェストの写し (`freeze.sha256`)・測定条件 (`conditions.md`) を書く。
+
+```bash
+# eval branch staging: copy one frozen variant into <run>/input, write its prompt and hashes into <run>/raw, and check the separation
+repo='<repo>'; run='<run>'; variant='<variant>'
+set -euo pipefail
+fail() { echo "eval branch staging: $*" >&2; exit 1; }
+case "$variant" in ''|*[!abcdefghijklmnopqrstuvwxyz0123456789-]*) fail "bad variant name: $variant" ;; esac
+repo_given=$repo
+repo=$(cd "$repo" && pwd -P); run=$(cd "$run" && pwd -P)
+case "$run/" in "$repo/"*) fail "the run directory is inside the repository" ;; esac
+in="$run/input"; raw="$run/raw"; br="$repo/tests/eval/branch"
+if [ -e "$in" ] || [ -e "$raw" ]; then fail "input/ or raw/ already exists in $run"; fi
+[ -f "$br/variants.tsv" ] || fail "no tests/eval/branch/variants.tsv"
+rows=$(awk -F '\t' -v v="$variant" '$1 == v' "$br/variants.tsv")
+[ -n "$rows" ] && [ "$(printf '%s\n' "$rows" | wc -l | tr -d ' ')" = 1 ] || fail "no single row for $variant in variants.tsv"
+IFS=$'\t' read -r _ case persp flags <<< "$rows"
+case "$case" in ''|*[!abcdefghijklmnopqrstuvwxyz0123456789-]*) fail "bad case name: $case" ;; esac
+case "$persp" in -) ;; ''|*[!abcdefghijklmnopqrstuvwxyz0123456789-]*) fail "bad perspectives name: $persp" ;; esac
+case "$flags" in -) flags= ;; --verify-sources) flags=' --verify-sources' ;; *) fail "unsupported flags: $flags" ;; esac
+[ -f "$br/cases/$case.md" ] && [ -f "$br/keys/$case.md" ] || fail "no case or key for $variant"
+[ "$persp" = - ] || [ -f "$br/perspectives/$persp.md" ] || fail "no perspectives $persp for $variant"
+[ -f "$br/freeze.sha256" ] || fail "the cases are not frozen (no tests/eval/branch/freeze.sha256)"
+prompt_sha=$(sed -n '/^# eval branch prompt$/,/^# end eval branch prompt$/p' "$repo/skills/eval/SKILL.md" | shasum -a 256 | awk '{print $1}')
+staging_sha=$(sed -n '/^# eval branch staging:/,/^# end eval branch staging$/p' "$repo/skills/eval/SKILL.md" | shasum -a 256 | awk '{print $1}')
+(cd "$br" && { find cases keys variants.tsv $( [ -d perspectives ] && echo perspectives ) -type f | LC_ALL=C sort | while read -r f; do shasum -a 256 "$f"; done
+  printf '%s  %s\n' "$prompt_sha" prompt "$staging_sha" staging; }) > "$run/manifest"
+cmp -s "$run/manifest" "$br/freeze.sha256" || fail "the cases, perspectives, variants, keys, prompt or staging block differ from freeze.sha256"
+git -C "$repo" ls-files --error-unmatch tests/eval/branch/freeze.sha256 > /dev/null 2>&1 || fail "freeze.sha256 is not committed"
+[ -z "$(git -C "$repo" status --porcelain -- tests/eval/branch skills/eval/SKILL.md skills/design-review agents .claude-plugin/plugin.json)" ] \
+  || fail "the evaluated assets have uncommitted changes"
+mkdir -p "$in/cases" "$in/plugin/.claude-plugin" "$raw" "$run/local"
+if env -u GIT_DIR -u GIT_WORK_TREE git -C "$in" rev-parse --git-dir > /dev/null 2>&1; then fail "input is inside a git work tree"; fi
+cp "$br/cases/$case.md" "$in/cases/$case.md"
+printf 'cases/%s.md\ttests/eval/branch/cases/%s.md\n' "$case" "$case" > "$run/allowed"
+cp "$repo/.claude-plugin/plugin.json" "$in/plugin/.claude-plugin/plugin.json"
+cp -R "$repo/agents" "$in/plugin/agents"
+mkdir -p "$in/plugin/skills"
+cp -R "$repo/skills/design-review" "$in/plugin/skills/design-review"
+(cd "$repo" && find .claude-plugin/plugin.json agents skills/design-review -type f) \
+  | while read -r f; do printf 'plugin/%s\t%s\n' "$f" "$f"; done >> "$run/allowed"
+if [ "$persp" != - ]; then
+  mkdir -p "$in/.aidd"
+  cp "$br/perspectives/$persp.md" "$in/.aidd/design-perspectives.md"
+  printf '.aidd/design-perspectives.md\ttests/eval/branch/perspectives/%s.md\n' "$persp" >> "$run/allowed"
+fi
+if [ -n "$(find "$in" \( -iname .git -o -iname keys -o -iname results \))" ]; then fail "input has a .git, keys or results entry"; fi
+(cd "$in" && find . ! -type d | sed 's|^\./||' | LC_ALL=C sort) > "$run/found"
+cut -f1 "$run/allowed" | LC_ALL=C sort > "$run/expected"
+cmp -s "$run/found" "$run/expected" || fail "input holds files outside the allowed list"
+while IFS=$'\t' read -r dst src; do
+  cmp -s "$in/$dst" "$repo/$src" || fail "$dst differs from $src"
+done < "$run/allowed"
+(cd "$repo/tests/eval" && for d in keys results branch/keys; do
+  if [ -d "$d" ]; then find "$d" -type f -size +0; fi
+done | while read -r f; do shasum -a 256 "$f"; done) | awk '{print $1}' | LC_ALL=C sort -u > "$run/forbidden"
+(cd "$in" && find . -type f | while read -r f; do shasum -a 256 "$f"; done) | awk '{print $1}' | LC_ALL=C sort -u > "$run/inhash"
+if [ -n "$(comm -12 "$run/forbidden" "$run/inhash")" ]; then fail "input has the same content as a key or a result"; fi
+prompt="$raw/prompt-$variant.md"
+sed -n '/^# eval branch prompt$/,/^# end eval branch prompt$/p' "$repo/skills/eval/SKILL.md" | sed '1d;$d' \
+  | sed -e "s/<case>/$case/g" -e "s/<flags>/$flags/g" > "$prompt"
+[ -s "$prompt" ] || fail "skills/eval/SKILL.md has no branch prompt"
+case "$repo_given" in /*) ;; *) repo_given=$repo ;; esac
+if grep -rqiF -e "$repo" -e "$repo_given" "$in" "$raw"; then fail "the repository path appears in the input or the prompt"; fi
+if grep -qF -e 'tests/eval/' -e '<case>' -e '<flags>' "$prompt"; then fail "the prompt names tests/eval/ or keeps a placeholder"; fi
+if [ "$variant" != "$case" ] && grep -qF -- "$variant" "$prompt"; then fail "the prompt shows the variant name"; fi
+(cd "$in" && find . -type f | LC_ALL=C sort | while read -r f; do shasum -a 256 "$f"; done) > "$raw/input.sha256"
+(cd "$repo/tests/eval" && shasum -a 256 "branch/keys/$case.md") > "$raw/keys.sha256"
+cp "$br/freeze.sha256" "$raw/freeze.sha256"
+version=$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["version"])' "$repo/.claude-plugin/plugin.json" 2>/dev/null) || version=不明
+sha=$(git -C "$repo" rev-parse HEAD 2>/dev/null) || sha=不明
+frozen=$(git -C "$repo" log -1 --format=%H -- tests/eval/branch/freeze.sha256 2>/dev/null) || frozen=
+cli=$(claude --version 2>/dev/null < /dev/null) || cli=
+{
+  printf '| 項目 | 値 |\n|---|---|\n'
+  printf '| aidd version | %s |\n' "$version"
+  printf '| git SHA | %s |\n' "$sha"
+  printf '| 凍結したコミット | %s |\n' "${frozen:-不明}"
+  printf '| freeze.sha256 の sha256 | %s |\n' "$(shasum -a 256 "$br/freeze.sha256" | awk '{print $1}')"
+  printf '| CLI (準備時) | %s |\n' "${cli:-不明}"
+  printf '| 変種 | %s (ケース %s、観点 %s、フラグ %s) |\n' "$variant" "$case" "$persp" "${flags:- -}"
+  printf '| 準備日時 (UTC) | %s |\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+} > "$raw/conditions.md"
+rm -f "$run/manifest" "$run/allowed" "$run/expected" "$run/found" "$run/forbidden" "$run/inhash"
+echo "eval branch staging: ok ($run)"
+# end eval branch staging
+```
+
+実行担当の固定プロンプト (上のブロックが先頭と末尾の行を除き、`<case>` をケース名に、`<flags>` を変種のフラグ (無ければ空) に置き換えて `raw/prompt-<変種>.md` に書く。変種名・期待する起動は書かない。ここを変えたら B1 の凍結からやり直す):
+
+```text
+# eval branch prompt
+あなたは aidd の design-review を評価する実行担当です。採点は、あなたの実行が終わった後に別の工程で行います。作業ディレクトリの中のファイルだけを使い、親ディレクトリや作業ディレクトリの外の絶対パスを開かないでください (Web の検索・取得は、design-review の手順が求める場合に使ってよい)。
+
+1. `plugin/skills/design-review/SKILL.md` を読み、対象 `cases/<case>.md` に `--depth=standard<flags>` で適用する。対象が1ファイル・100行未満でも、小規模対象ショートカットは使わず、並列 dispatch する。`--security` と `--no-security` は付けない。どの条件付きの agent を起動するかは、design-review の条件どおりに判断する (作業ディレクトリは対象プロジェクトのルートとして扱う)。
+2. 各 agent への dispatch では、対象ケースのパスと担当観点だけを渡し、「このファイルだけをレビューする」と明示する。
+3. ユーザーには質問しない (答えは返らない)。判断が要るところは、判断と理由を出力に書いて進める。
+4. 最後に、次の見出しをこの順ですべて含む Markdown を最終回答にする。中身が無い節には「なし」、取れない値には「不明」と書く。
+   - `## 経路` (dispatch した agent ごとに、どの観点の agent として起動したか。条件付きの agent それぞれについて、起動したか・しなかったかと、その理由)
+   - `## reviewer の生指摘` (agent ごとに、深刻度・引用箇所・指摘・代案)
+   - `## source-verifier の判定` (起動した場合だけ。agent の返答を書き換えずに)
+   - `## refuter の判定` (指摘ごとに、反証成立/反証失敗と根拠)
+   - `## 最終報告` (design-review がユーザーに返す最終の報告の全文と、high/mid/low 別の件数)
+   - `## security-reviewer の起動` (yes/no と理由)
+# end eval branch prompt
+```
+
+**B3. 実行 (新しい実行担当)** — 変種ごと・試行ごとに新しいセッションを1つ起動する。課金のある実行なので、ユーザーが推定コストを見て承認してから始める (`<budget>` は1試行の USD の上限で、ユーザーが承認した値)。
+
+```bash
+[ ! -e "<run>/local/<variant>-t<trial>.jsonl" ] && cd "<run>/input" && claude -p --output-format stream-json --verbose --plugin-dir ./plugin --max-budget-usd <budget> < "<run>/raw/prompt-<variant>.md" > "<run>/local/<variant>-t<trial>.jsonl"
+```
+
+- 手順1b と同じく、バックグラウンドで実行して終了を待つ。user 設定・hook・他のプラグインは変えずにそのまま読み込ませる。上限で止まった試行は失敗として記録する
+- Web に出られない環境 (サンドボックスの通信の制限など) で動かした場合も、そのまま記録する。source-verifier の到達の可否は下の記録で採点する
+- 実行のたびに、手順1b の `# eval extract:` のブロックを `<case>` を `<variant>` に置き換えて使い、続けて次のブロックで、実際に dispatch された agent・Web の呼び出しの成否・source-verifier の返答を `raw/<variant>-t<trial>.tools.md` に書く (`<run>`・`<variant>`・`<trial>`・`<repo>` を置き換える)。起動の判定は実行担当の `## 経路` (自己申告) ではなく、この記録で行う
+
+```bash
+# eval branch tools: <run>/local/<variant>-t<trial>.jsonl -> <run>/raw/<variant>-t<trial>.tools.md (dispatched agents, web calls and the source-verifier reply)
+python3 -I - '<run>' '<variant>' '<trial>' '<repo>' <<'PY'
+import json, os, re, sys
+
+run_arg, variant, trial, repo_arg = sys.argv[1:5]
+if not re.fullmatch(r"[a-z0-9-]+", variant) or not re.fullmatch(r"[0-9]+", trial):
+    sys.exit(f"eval branch tools: bad variant or trial: {variant!r} {trial!r}")
+run, repo = os.path.realpath(run_arg), os.path.realpath(repo_arg)
+staged = os.path.join(run, "input")
+stem = f"{variant}-t{trial}"
+subs = sorted({(staged, "[input]"), (os.path.join(run_arg, "input"), "[input]"), (run, "[run]"), (run_arg, "[run]"),
+               (repo, "[repo]"), (repo_arg, "[repo]"), (os.path.expanduser("~"), "~")}, key=lambda s: -len(s[0]))
+
+
+def clean(value):
+    text = str(value)
+    for path, name in subs:
+        if len(path) > 1:
+            text = re.sub(re.escape(path), lambda _: name, text, flags=re.IGNORECASE)
+    return text
+
+
+def cell(value):
+    return "不明" if value is None or value == "" else clean(value).replace("|", "\\|").replace("\n", " ")
+
+
+def text_of(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(c.get("text", "") for c in content if isinstance(c, dict) and c.get("type") == "text")
+    return ""
+
+
+markers = []
+try:
+    with open(os.path.join(staged, ".aidd", "design-perspectives.md"), encoding="utf-8") as f:
+        markers = [s for s in (line.strip().lstrip("-# ").strip() for line in f) if len(s) >= 12]
+except OSError:
+    pass
+uses, results, handbacks = {}, {}, {}
+try:
+    with open(os.path.join(run, "local", stem + ".jsonl"), encoding="utf-8") as f:
+        lines = f.readlines()
+except OSError:
+    sys.exit(f"eval branch tools: no local/{stem}.jsonl")
+for line in lines:
+    try:
+        m = json.loads(line)
+    except ValueError:
+        continue
+    message = m.get("message") if isinstance(m, dict) else None
+    content = message.get("content") if isinstance(message, dict) else None
+    for c in content if isinstance(content, list) else []:
+        if not isinstance(c, dict):
+            continue
+        if c.get("type") == "tool_use":
+            args = c.get("input") if isinstance(c.get("input"), dict) else {}
+            uses[c.get("id")] = (c.get("name"), args, m.get("parent_tool_use_id"))
+            if c.get("name") == "SubagentHandback" and m.get("parent_tool_use_id"):
+                handbacks[m.get("parent_tool_use_id")] = str(args.get("message") or "")
+        elif c.get("type") == "tool_result":
+            results[c.get("tool_use_id")] = (bool(c.get("is_error")), text_of(c.get("content")))
+agents = {i: a for i, (n, a, _) in uses.items() if n in ("Agent", "Task")}
+kind = {i: str(a.get("subagent_type") or "不明") for i, a in agents.items()}
+
+
+def reply(i):
+    # A backgrounded agent returns only a launch notice as its tool result; its report is the SubagentHandback message.
+    if i in handbacks:
+        return handbacks[i]
+    res = results.get(i)
+    return None if res is None or res[0] else res[1]
+
+
+def is_kind(i, name):
+    return kind.get(i, "").split(":")[-1] == name
+
+
+def perspective(args):
+    prompt = str(args.get("prompt") or "")
+    return "design-perspectives" in prompt or any(s in prompt for s in markers)
+
+
+a4 = [i for i in agents if is_kind(i, "reviewer") and perspective(agents[i])]
+a5 = [i for i in agents if is_kind(i, "source-verifier")]
+a6 = [i for i in agents if is_kind(i, "security-reviewer")]
+web = [(i, n, a, p) for i, (n, a, p) in uses.items() if n in ("WebSearch", "WebFetch")]
+web_ok = [w for w in web if w[0] in results and not results[w[0]][0]]
+web_a5 = [w for w in web if w[3] in a5]
+web_a5_ok = [w for w in web_a5 if w in web_ok]
+if not a5:
+    reach = "起動なし"
+elif web_a5_ok:
+    reach = f"到達あり (成功 {len(web_a5_ok)} / 呼び出し {len(web_a5)})"
+else:
+    reach = f"実行不能 (成功 0 / 呼び出し {len(web_a5)})"
+out = [f"# 起動と Web の記録: {variant} 試行 {trial}", "", "| 項目 | 値 |", "|---|---|",
+       f"| Agent 4 (プロジェクト固有観点を渡した reviewer) | {'yes' if a4 else 'no'} ({len(a4)}) |",
+       f"| Agent 5 (source-verifier) | {'yes' if a5 else 'no'} ({len(a5)}) |",
+       f"| Agent 6 (security-reviewer) | {'yes' if a6 else 'no'} ({len(a6)}) |",
+       f"| reviewer の dispatch 数 | {sum(1 for i in agents if is_kind(i, 'reviewer'))} |",
+       f"| source-verifier の Web 到達 | {reach} |",
+       "", "## dispatch した agent", "", "| tool_use_id | subagent_type | 呼んだ側 | プロジェクト固有観点 | 返答 |", "|---|---|---|---|---|"]
+for i, a in agents.items():
+    parent = uses[i][2]
+    res = results.get(i)
+    out.append(f"| {cell(i)} | {cell(kind[i])} | {cell(kind.get(parent, 'メイン') if parent else 'メイン')} | "
+               f"{'yes' if is_kind(i, 'reviewer') and perspective(a) else 'no'} | "
+               f"{'あり' if i in handbacks else ('なし' if res is None else ('エラー' if res[0] else 'あり (tool result)'))} |")
+if not agents:
+    out.append("| なし | | | | |")
+out += ["", "## Web の呼び出し", "", "| tool | 呼んだ側 | 入力 | 結果 |", "|---|---|---|---|"]
+for i, n, a, p in web:
+    res = results.get(i)
+    target = a.get("url") or a.get("query") or json.dumps(a, ensure_ascii=False)
+    out.append(f"| {n} | {cell(kind.get(p, 'メイン') if p else 'メイン')} | {cell(str(target)[:200])} | "
+               f"{'結果なし' if res is None else ('エラー: ' + cell(res[1][:160]) if res[0] else '成功')} |")
+if not web:
+    out.append("| なし | | | |")
+out += ["", "## source-verifier の返答", ""]
+for i in a5:
+    text = reply(i)
+    out += [f"### {cell(i)}", "", clean(text).rstrip() if text else "返答なし", ""]
+if not a5:
+    out.append("起動なし")
+with open(os.path.join(run, "raw", stem + ".tools.md"), "x", encoding="utf-8") as f:
+    f.write("\n".join(out).rstrip("\n") + "\n")
+print(f"eval branch tools: {stem}: A4={'yes' if a4 else 'no'} A5={'yes' if a5 else 'no'} A6={'yes' if a6 else 'no'} web={reach}")
+PY
+```
+
+**B4. 凍結と照合 (メイン)** — 変種ごとに、その変種の全試行の実行と記録が終わったら、手順1c の `# eval freeze:` のブロックで run を凍結し、表示された SHA256SUMS の sha256 を採点の前にユーザーへの途中報告と結果に書く。手順2 の `# eval verify:` のブロックで照合する (キーの照合を含む)。凍結の前に、各試行に `raw/<variant>-t<trial>.md`・`.meta.md`・`.tools.md` がそろっていることを確かめる。照合が通るまで `tests/eval/branch/keys/` と過去の結果を読まない。
+
+**B5. 採点 (メイン)** — 照合の後にキーを読む。材料は凍結した `raw/` の最終回答・meta・tools だけ。
+
+| 指標 | 定義 |
+|---|---|
+| 起動判定 | 変種ごと・Agent 4/5/6 ごとに、tools の記録 (実際の dispatch) をキーの「起動の期待」と比べ、一致・過剰起動・起動漏れのどれかにする。Agent 4 は、プロジェクト固有観点 (`.aidd/design-perspectives.md` の文言) を渡した reviewer の dispatch があれば起動とする。実行担当の `## 経路` が dispatch と食い違えば「自己申告の食い違い」として別に記す |
+| 分岐シードの検出 | キーのコアシードのうち最終報告に残った数 / コアシードの数を、ケースと変種ごとに書く。Agent 4 のシード (キーで観点つきの変種だけに数えると書いたもの) は観点つきの変種の分母にだけ入れ、観点なしの変種で検出されたら「観点なしでの検出」として記録する。拡張シードは別の列にする。手順3の指標には足さない |
+| 深刻度一致・デコイ | 手順3と同じ (最終報告で数える) |
+| 外部情報の判定 | 主張ごとに、source-verifier の返答 (tools の記録) の判定をキーの期待判定と比べる。**確認済み・反証ありは、その主張に出典 URL があり、かつ tools の記録で source-verifier の Web 呼び出しが1件以上成功している場合だけ一致に数える**。それ以外の確認済み・反証ありは「根拠なし」とし、一致に数えない。期待判定が未確認 (到達不能・一次資料なし) の主張を確認済み・反証ありとしたら「到達不能の誤採点」とし、失敗に数える。source-verifier が起動したのに Web 呼び出しが1件も成功していなければ、その試行を「実行不能」と記録し、未確認以外の判定はすべて根拠なしとする (実行不能は design-review の誤りとは数えないが、正誤は「未測定」と書く) |
+| コスト | meta の `total_cost_usd` とモデル別の使用量。agent 別の `total_tokens` |
+
+キー外の指摘は件数と内容だけを記録し、手順4の判定エージェントは使わない (分岐評価では昇格しないため)。
+
+**B6. 結果の保存** — `tests/eval/results/YYYY-MM-DD-branch.md` に保存する (同日に再実行したら `-2` などの連番)。各変種の run の `raw/` を `tests/eval/results/<run-id>/<variant>/` にコピーし、そこで `shasum -a 256 -c SHA256SUMS` が通ること、SHA256SUMS の sha256 が B4 で記録した値と同じことを確かめる。`local/` はコミットしない。記載内容:
+
+- 測定条件の表: 手順5の項目に加え、凍結したコミット・`freeze.sha256` の sha256・変種ごとの SHA256SUMS の sha256・`<budget>`・Web に出られたか (実行した環境の通信の制限)
+- 起動判定の表 (変種 × Agent 4/5/6 の期待・実際・判定・自己申告)
+- 分岐シードの検出の表 (ケース・変種ごとの分母を書く。コアと拡張を分ける)
+- 外部情報の判定の表 (主張ごとの期待・実際・出典・Web 到達・判定)。実行不能の試行は消さずに書く
+- 未測定の項目とケースの限界 (変種と試行の数、ケースが1つずつであること、Web の到達が環境に依存すること)
+- コストの表 (変種ごとと合計。採点のメインの分は取れなければ「不明」)
+
+**B7. 報告** — 起動判定・外部情報の判定・分岐シードの検出・コストの表を示す。起動漏れ・過剰起動・到達不能の誤採点があれば、どの段 (実行担当の判定・agent の返答) で起きたかを生出力から1行で付記する。結果は design-review の変更の根拠にする前に、再実行で再現を確かめる。
 
 ## 注意
 
