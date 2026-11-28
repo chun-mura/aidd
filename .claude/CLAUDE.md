@@ -110,7 +110,10 @@ the skill's `name:` frontmatter.
   acts as a deny under `claude -p`, so a gate would keep non-interactive hosts stuck (#196). They only
   create new files (design-review writes nothing), so the reason other skills stay user-only — not
   letting the model start edits to existing canonical text on its own — does not apply. Their
-  `description` says when not to use them. They keep `openai.yaml` (Codex unchanged, unmeasured).
+  `description` says when not to use them. They keep `openai.yaml` with
+  `allow_implicit_invocation: false`: Codex (codex-cli 0.163.0) still follows them from
+  `$aidd:issue-implement` by reading their SKILL.md (#205,
+  `tests/eval/results/2026-11-28-codex-design-skills.md`).
   `tests/command-contract-test.sh` holds the allowlist; any other skill with `openai.yaml` must keep
   `disable-model-invocation: true`. Design: `docs/superpowers/specs/2026-11-28-model-invocable-design-skills-design.md`.
 
