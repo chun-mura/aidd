@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.100.0 (2026-11-28)
+
+- `autonomous-review`: `auto_merge_eligible` の条件を「異種AIレビュー完了」から「独立レビューの成立」に改めた (#134)。`--reviewer codex` を実行名だけで異種と扱い、新しい文脈の独立性とモデルの系列の違いを分けていなかったため。ユーザー決定どおり、同種モデルでも、新しい文脈・対象 SHA の固定・過去の判定を渡さない・読み取り専用のスナップショットの4つがすべてのラウンドで確かめられれば適格にできる。どれかが満たされない・確かめられない run は `human_required` (`review_incomplete`)。`--reviewer claude` (同じセッションの自己レビュー)、高リスク領域、未実行の監査・品質ゲートは今までどおり `human_required`。`state.json` を `schema_version` 6 にし、`review_independence` (4つの条件、`established`、判定者とレビュー担当の `model` / `provider` / `source`、`model_relation`) を足した。モデルと provider は実際に取得した値だけを書く: レビュー担当は `codex exec` の stderr の見出しの `model:` / `provider:` の行 (codex-cli 0.163.0 で確かめた。stderr は毎回 `reviewer-round<N>-stderr.txt` に保存する)、判定者はホストが示すモデル ID。取れなければ `null`、`model_relation` は `unknown`。系列の違いは判定に使わない。#131 の評価記録 (`tests/eval/results/2026-11-25-impl.md`) が支える範囲 (主レビューだけ・小さな Python 差分・「境界」「例外の扱い」) と残存リスクを本文に書き、`--reviewer codex` の run では `residual_risks` に残す。`codex exec` の起動と失敗の判定、push・PR 作成・マージをしない境界は変えていない。設計: `docs/superpowers/specs/2026-11-28-autonomous-review-independence-design.md`
+
 ## 0.99.0 (2026-11-28)
 
 - `usage-log.sh`: モデル (サブエージェントを含む) が Skill ツールで起動した回数を、`usage.json` の `model_counts` にも分けて記録するようにした (#204)。0.95.0 で `test-perspectives`・`design-doc`・`design-review` をモデルから起動できるようにしてから、`command_counts` では利用者が打った回数とモデルが起動した回数が混ざり、`/aidd:retro` で起動しすぎを見分けられなかったため。hook の入力で区別できる: 利用者が打った slash コマンドは UserPromptSubmit だけを通り、PreToolUse(Skill) は通らない (2026-11-14 の設計の R4・R15)。`command_counts` と `last_seen` の意味は変えていない (`model_counts` はその内数)。記録を始める前の回数は区別できない

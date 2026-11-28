@@ -19,7 +19,7 @@
     {
       "kind": "skill",
       "name": "autonomous-review",
-      "description": "Use before opening a PR when the branch's auto-merge eligibility must be judged locally (cross-model review, evidence check, quality gates, risk classification). For an ordinary code review use superpowers:requesting-code-review instead. Not for docs-only changes or someone else's PR. A model-started run asks the user first (skill-gate hook)."
+      "description": "Use before opening a PR when the branch's auto-merge eligibility must be judged locally (independent fresh-context review, evidence check, quality gates, risk classification). For an ordinary code review use superpowers:requesting-code-review instead. Not for docs-only changes or someone else's PR. A model-started run asks the user first (skill-gate hook)."
     },
     {
       "kind": "skill",
