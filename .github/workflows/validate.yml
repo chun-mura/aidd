@@ -38,6 +38,7 @@ jobs:
           - assurance/acceptance-test.sh
           - assurance/evidence-test.sh
           - assurance/release-gate-test.sh
+          - assurance/runtime-record-test.sh
           - autonomous-review-contract-test.sh
           - codex-agents-contract-test.sh
           - command-contract-test.sh
