@@ -19,7 +19,7 @@
 | 項目 | 所在 |
 |---|---|
 | リポジトリ・コミット | `chun-mura/aidd-autopilot` の [`8469893`](https://github.com/chun-mura/aidd-autopilot/commit/8469893) (ブランチ `feat/assurance-isolated-runtime`)。設計と実装の最初のコミットは `994c276`。その後の修正 (`ab1ac87` 以降) を含む |
-| PR | `chun-mura/aidd-autopilot#8` (#7 の上に積む) |
+| PR | `chun-mura/aidd-autopilot#8`。2026-11-28 に main へマージ済み (マージコミット `66822f8`。記録したコミット `8469893` はその祖先) |
 | 設計 | [`docs/superpowers/specs/2026-11-28-assurance-isolated-runtime-design.md`](https://github.com/chun-mura/aidd-autopilot/blob/8469893/docs/superpowers/specs/2026-11-28-assurance-isolated-runtime-design.md)。「実装時の変更」の節が設計からの差分 |
 | 実 Docker の試験記録 | [`docs/verification/2026-11-28-assurance-boundary-docker.md`](https://github.com/chun-mura/aidd-autopilot/blob/8469893/docs/verification/2026-11-28-assurance-boundary-docker.md) |
 | 段階の実行と制限 (HostConfig・teardown・limits.json) | `packages/platform-docker/src/staged-runner.ts`、`packages/platform-docker/src/run-resources.ts` |
@@ -63,7 +63,7 @@ aidd 側の検査: `examples/assurance/runtime/check_run_record.py` は、実行
 | 試験したコード | 本文の表は `ae6ba2889080b09aa30af4018690d72067e0119f` で試験した。追補の再実行に使ったコードの SHA は記録に書かれていない (未確認)。記録の最新版は `8469893` | 検証記録 |
 | git (runner image) | 未取得 | 検証記録 |
 
-**試験結果 (記録 `8469893` の時点)**: `npm run test:docker` は exit 0、8 ファイル成功、51 成功・1 todo (計 52)。追補の再実行の結果。`npm run test:e2e` は 7 試験成功 (本文の記録)。`npm test` は 410 試験成功 (本文の記録。修正前の実行で、追補には件数が無い)。修正後の `npm test` の件数は記録に無いため、ここには書かない (未確認)。
+**試験結果 (記録 `8469893` の時点)**: `npm run test:docker` は exit 0、8 ファイル成功、51 成功・1 todo (計 52)。追補の再実行の結果。`npm run test:e2e` は 7 試験成功 (本文の記録)。`npm test` は、記録の本文では 410 試験成功 (修正前の実行)。修正後は、`main` へ取り込む直前のコミット `4a1fe9d` で、437 試験成功・typecheck 成功を確かめた (2026-11-28、開発の実行による確認で、検証記録には載っていない)。
 
 **版の食い違い**: [runtime-selection.md](runtime-selection.md) と [ADR-0002](../adr/0002-isolated-runtime-orbstack-docker-squid.md) は Claude Code を 2.1.207 としている。これは aidd-autopilot の main `cf660fd` の Dockerfile の版で、参照構成 (`8469893`) の Dockerfile は 2.1.216 に固定されている。対象版は 2.1.216 とし、2.1.207 の記述は main の版として読む。判断は所有者が確認する (未確認)。
 

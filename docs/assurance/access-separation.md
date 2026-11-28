@@ -16,7 +16,7 @@
 
 ## 1. 参照構成の所在
 
-実装は aidd-autopilot の `chun-mura/aidd-autopilot#8` (#7 の上に積む、コミット `8469893` 以降) にある。所在の一覧は [runtime-boundary.md の §1](runtime-boundary.md#1-参照構成の所在) と同じ。資格情報に関わるのは次のファイル。
+実装は aidd-autopilot の `chun-mura/aidd-autopilot#8` (main へマージ済み、記録したコミットは `8469893`) にある。所在の一覧は [runtime-boundary.md の §1](runtime-boundary.md#1-参照構成の所在) と同じ。資格情報に関わるのは次のファイル。
 
 | 役割 | 所在 (aidd-autopilot) |
 |---|---|
