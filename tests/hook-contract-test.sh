@@ -1444,13 +1444,16 @@ printf '%s' "$out" | grep -F 'skill beta:extra-skill'
 if printf '%s' "$out" | grep -qF 'beta:ignored'; then echo "replaced default commands/ was scanned" >&2; exit 1; fi
 # A missing directory, a broken manifest, or a directory with neither manifest nor components does
 # not stop the hook: the readable plugins are still listed, with one line naming the others.
-out=$(overlap_with "$plugins_dir/missing:$plugins_dir/broken:$plugins_dir/not-a-plugin:$plugins_dir/alpha" | context_of)
+# The entries are given relative to the hook's cwd ($project): the hook echoes each entry cut to 200
+# characters and the whole line to 600, so absolute paths under a long TMPDIR would be shortened.
+rel_plugins=../other-plugins
+out=$(overlap_with "$rel_plugins/missing:$rel_plugins/broken:$rel_plugins/not-a-plugin:$rel_plugins/alpha" | context_of)
 printf '%s' "$out" | grep -F 'skill alpha:brainstorm'
 printf '%s' "$out" | grep -F 'agent aidd:reviewer'
 failed_line=$(printf '%s' "$out" | grep -F 'Could not read these AIDD_ASSET_OVERLAP_PLUGINS entries')
-printf '%s' "$failed_line" | grep -F "$plugins_dir/missing (not a directory)"
-printf '%s' "$failed_line" | grep -F "$plugins_dir/broken (JSONDecodeError"
-printf '%s' "$failed_line" | grep -F "$plugins_dir/not-a-plugin (no plugin manifest or components)"
+printf '%s' "$failed_line" | grep -F "$rel_plugins/missing (not a directory)"
+printf '%s' "$failed_line" | grep -F "$rel_plugins/broken (JSONDecodeError"
+printf '%s' "$failed_line" | grep -F "$rel_plugins/not-a-plugin (no plugin manifest or components)"
 # Without aidd's shared reader (a plugin root lacking scripts/), every entry is reported, not dropped.
 AIDD_ASSET_OVERLAP_PLUGINS="$plugins_dir/alpha" CLAUDE_PLUGIN_ROOT="$tmp_dir/fake-plugin" \
   run_write_guard Write file_path "$project/.claude/commands/new-one.md" | context_of | grep -F 'asset_index.py is missing'
@@ -1463,7 +1466,7 @@ long_desc=$(printf 'x%.0s' $(seq 1 300))
 for i in $(seq 1 80); do
   printf -- '---\ndescription: %s\n---\n' "$long_desc" > "$big/commands/c$i.md"
 done
-overlap_with "$big:$plugins_dir/alpha:$plugins_dir/missing" | python3 -c '
+overlap_with "$big:$plugins_dir/alpha:$rel_plugins/missing" | python3 -c '
 import json, sys
 c = json.load(sys.stdin)["hookSpecificOutput"]["additionalContext"]
 assert len(c) < 10000, len(c)
@@ -1552,11 +1555,11 @@ for i, name in enumerate(names):
     open(f"{sys.argv[1]}/p{i}/commands/c.md", "w").write("---\ndescription: bad\n---\n")
 PYEOF
 for i in 0 1 2 3 4 5 6 7; do
-  out=$(overlap_with "$bad_names/p$i:$plugins_dir/alpha" | context_of)
+  out=$(overlap_with "$rel_plugins/bad-names/p$i:$plugins_dir/alpha" | context_of)
   printf '%s' "$out" | grep -F 'skill alpha:brainstorm'
   if printf '%s' "$out" | grep -qF -e 'IMPORTANT' -e ':c: bad'; then echo "plugin p$i with an invalid name was listed" >&2; exit 1; fi
   if [ "$i" = 7 ]; then reason='.claude-plugin/plugin.json has no name'; else reason='plugin name breaks the plugins-reference naming rule'; fi
-  printf '%s' "$out" | grep -F "$bad_names/p$i (ValueError: $reason)"
+  printf '%s' "$out" | grep -F "$rel_plugins/bad-names/p$i (ValueError: $reason)"
 done
 
 # YAML block scalars (| and >, with chomping indicators) are read as the indented lines that follow,
