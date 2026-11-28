@@ -104,6 +104,15 @@ the skill's `name:` frontmatter.
   (Cursor: refuses the model's SKILL.md read). It keeps `openai.yaml`. Do not copy this to another
   skill without measuring the gate for it; the measurements are in
   `docs/superpowers/specs/2026-11-14-autonomous-review-auto-invocation-design.md`.
+- Second exception: `test-perspectives`, `design-doc` and `design-review` have no
+  `disable-model-invocation` and no gate. `issue-implement`, `autonomous-review`, and the
+  `session-start.sh` / `tool-reminder.sh` nudges tell the model to run them, and a gate's `ask`
+  acts as a deny under `claude -p`, so a gate would keep non-interactive hosts stuck (#196). They only
+  create new files (design-review writes nothing), so the reason other skills stay user-only — not
+  letting the model start edits to existing canonical text on its own — does not apply. Their
+  `description` says when not to use them. They keep `openai.yaml` (Codex unchanged, unmeasured).
+  `tests/command-contract-test.sh` holds the allowlist; any other skill with `openai.yaml` must keep
+  `disable-model-invocation: true`. Design: `docs/superpowers/specs/2026-11-28-model-invocable-design-skills-design.md`.
 
 ## Architecture: how the asset types relate
 
@@ -115,7 +124,8 @@ the skill's `name:` frontmatter.
 - **User-invoked skills** (`skills/design-review/`, `skills/eval/`, `skills/autonomous-review/`, `skills/issue-split/`, `skills/issue-select/`, `skills/retro/`, `skills/asset-audit/`, `skills/incident-retro/`, `skills/adr/`, `skills/design-doc/`, `skills/design-sync/`, `skills/doctor/`, `skills/infra-audit/`, `skills/issue-implement/`, `skills/test-perspectives/`) are the same kind of entry point,
   already moved so Codex (`$aidd:<name>`) and Cursor (`/<name>`) can run them. They carry
   `disable-model-invocation: true` and Codex `allow_implicit_invocation: false`, except
-  `autonomous-review` (model-invocable behind `skill-gate.sh`, see above).
+  `autonomous-review` (model-invocable behind `skill-gate.sh`) and `test-perspectives` /
+  `design-doc` / `design-review` (model-invocable without a gate), see above.
 - **Auto-trigger skills** (`skills/adr-recall/` and the others) fire based on their `description`
   frontmatter matching the situation. They hold *reusable* judgment logic that would otherwise be
   duplicated across commands.

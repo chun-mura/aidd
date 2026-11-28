@@ -1,0 +1,13 @@
+21c940890ff7425b4129fa28c981c03b8117fc835aedb4623a964a01a0660d43  ./cases/crosscut.md
+692db6cfea53d54ac8637fa2aec667b5b02c970059b522639523e8e56e548dcc  ./cases/data-error.md
+bd462fa48bf4f3d5722866b02f1888f3c96e77ef10822d696cf46a5965c87e0b  ./cases/security.md
+fb7fd788ef648bce93f412c9fb17fcc187c1d21f757ccfa6cf568e0558119a14  ./cases/structure.md
+8b3959d75ddfbde2c2f9a336c63d51df0536d8e946d79516ac4c7c9e1895ffc7  ./plugin/.claude-plugin/plugin.json
+c15da882edc215d34124ad363b9acac33808c06651cd996ae3aa9f43bc6a14bc  ./plugin/agents/design-arbiter.md
+73b7681b45ef04ce91ed3ead8320acee5410bf161e12091bb33654dde928851c  ./plugin/agents/refuter.md
+d12d380bbb584e131e6c01c5f9dc88ab905b062fe161de2d01e5b740edb568dd  ./plugin/agents/reviewer.md
+e6d5d5df08139637c62277b7c9eb3f5db561a8080b20a5829a92b933c3e9f407  ./plugin/agents/scout.md
+8bb8c4d8072475988ad31c24c1dce749fc5f5944c3948fd0a284380a83b847f8  ./plugin/agents/security-reviewer.md
+aadf8d070df065a961f79e6a32dd0c5d675e4319f8fef36d8a9137b8a7fbedc7  ./plugin/agents/source-verifier.md
+37b1bd7518c5d2572a594a8697fb9c89e4af9b94e77bb970f44dcca0bfb269eb  ./plugin/skills/design-review/SKILL.md
+a1499d95abd8447558c535fe5554adcc3c9b988a0a39264a6283d430effe1e94  ./plugin/skills/design-review/agents/openai.yaml

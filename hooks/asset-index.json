@@ -24,12 +24,12 @@
     {
       "kind": "skill",
       "name": "design-doc",
-      "description": "要件から設計書を生成し docs/design/ に保存する"
+      "description": "Use when issue-implement's lane check puts a change in the design lane and no design document exists yet. Not when superpowers:brainstorming already produced the spec, and not for direct-lane changes."
     },
     {
       "kind": "skill",
       "name": "design-review",
-      "description": "設計ドキュメントや実装方針を多観点でレビューする"
+      "description": "Use to review a design document written by design-doc before implementing it (the issue-implement design lane), or when the user asks for a multi-agent design review. Starts several reviewer agents: not for code diffs (autonomous-review, requesting-code-review), specs from superpowers:brainstorming unless asked, questions about a document, or inside a subagent dispatched to review."
     },
     {
       "kind": "skill",
@@ -104,7 +104,7 @@
     {
       "kind": "skill",
       "name": "test-perspectives",
-      "description": "実装対象・変更差分からテスト観点を洗い出す"
+      "description": "Use before implementing a non-trivial change, once a design doc or an issue fixes what to build, to list test perspectives with priorities. Not when perspectives were already produced for this change, for docs-only or trivial changes, or after implementation is complete; not for deriving concrete cases (stdd) or judging an existing suite."
     },
     {
       "kind": "agent",
