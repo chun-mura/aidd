@@ -146,13 +146,18 @@ aidd 側の検査: `examples/assurance/runtime/check_run_record.py` は、実行
 python3 examples/assurance/runtime/check_run_record.py --limits <run>/limits.json [--squid-conf <stage>/squid.conf]
 ```
 
-標準出力は1行の JSON (`{"verdict": "pass" | "fail", "reasons": [...]}`)。終了コードは pass が 0、fail が 1。読めない・解析できない入力は fail (`invalid-input:…`) にする。検査項目は次のとおり。
+標準出力は1行の JSON (`{"verdict": "pass" | "fail", "reasons": [...], "info": [...]}`)。終了コードは pass が 0、fail が 1。判定は `reasons` だけで決まる。`info` は判定に使わない記録で、タイムアウト・OOM・非0終了と teardown の状態を並べて示す (例: `stage-timed-out:agent`、`teardown:clean`)。読めない・解析できない入力は fail (`invalid-input:…`) にする。検査項目は次のとおり。
 
-- 段階ごと: `ReadonlyRootfs`、`CapDrop` が ALL、`no-new-privileges`、`Memory` > 0 かつ `MemorySwap` = `Memory`、`NanoCpus` > 0、`PidsLimit` > 0、tmpfs の size、seed と ingest は `NetworkMode` が none、他の段階は host と bridge でない、`CapAdd` は agent の SETUID・SETGID だけ、`Env` と `Config` を記録していない
+- 結果 (`outcome`): `succeeded` なら5段階すべてが必要 (欠落は `stage-missing:<段階>`、agent の欠落は `stage-agent-missing`)。`blocked`・`failed` なら記録された段階は seed→deps→agent→ingest→publish の先頭からの連続でなければならず、途中の欠落は `stage-gap:<段階>` (agent の欠落は `stage-agent-missing`)。未知の `outcome` は `invalid-input:outcome` で、全段階を要求する
+- 段階ごと: `ReadonlyRootfs`、`CapDrop` が ALL、`no-new-privileges`、`Privileged` が無い、`PidMode`・`IpcMode`・`UsernsMode` が host でない、`Memory` > 0 かつ `MemorySwap` = `Memory`、`NanoCpus` > 0、`PidsLimit` > 0。`Memory`・`NanoCpus`・`PidsLimit` は `effective` の値と一致する (`limits-mismatch`)。`Env` と `Config` を記録していない。`CapAdd` は agent の SETUID・SETGID だけ
+- tmpfs: 段階ごとに決まったパスだけを持つ (`/tmp` は全段階、HOME の `/home/workflow` は seed・deps・agent、`/claude-config` は agent、`/scratch` は ingest、`/home/coordinator` は publish)。各パスの size があり、フラグと key=value が `effective` と `staged-runner.ts` の定義どおり (`/scratch` の size は束の上限から計算する)。欠落は `tmpfs-missing`、余分は `tmpfs-unexpected`、不一致は `tmpfs-mismatch`
+- `NetworkMode`: 前後の空白と大文字小文字を正規化してから判定する。seed と ingest は none。他の段階は空・host・bridge・default・`container:*` でない
 - teardown: containers・volumes・networks がすべて 0
-- squid (任意): `CONNECT` を要求し、443 だけを許し、`dstdomain -n`、IP 直指定の拒否が許可より前、私設網の拒否が許可より前 (必要な範囲を含む)、既定の拒否が最後、`via off`・`forwarded_for delete`
+- squid (任意): aidd-autopilot の生成器 (`image/proxy/generate-squid-conf.sh`) が出す ACL 定義と一致する。固定の ACL (SSL_ports、CONNECT、manager、connect_authority、ip_literal_host、private_dst の4行) は値まで一致させ、既知の名前以外の ACL は拒否する。`allowed_dst` は `dstdomain -n` の実ホスト名だけ (TLD だけの `.com` は不可、他の型は不可)。`http_access allow` は `allow allowed_dst` の1行だけ。拒否は `!CONNECT`・`!SSL_ports`・`!connect_authority`・`ip_literal_host`・`private_dst` が許可より前、既定の拒否が最後、`via off`・`forwarded_for delete`
 
-試験 (`tests/assurance/runtime-record-test.sh`) は、架空の記録 (`tests/assurance/fixtures/runtime-record-cases.json`、30 件) と、aidd-autopilot の生成器の出力を取り込んだ squid の設定 (`tests/assurance/fixtures/runtime-squid-stage.conf`) で検査する。**この検査が通っても、実 run の記録が正しいことにはならない**。実 run の `limits.json` はこの文書の証拠に含まれていない (未確認)。
+この検査は記録の中身が自己整合していることを見るだけで、記録が改ざんされていないことや、実際に起動された容器がこの記録と同じだったことは示さない。また、現在の `staged-runner.ts` は `Privileged`・`PidMode`・`IpcMode`・`UsernsMode` を `limits.json` に記録しない (`pick` の対象外)。そのため、それらの項目は記録に含まれた場合にだけ効く (未確認: 実 run の記録に含まれるか)。
+
+試験 (`tests/assurance/runtime-record-test.sh`) は、架空の記録 (`tests/assurance/fixtures/runtime-record-cases.json`、61 件) と、aidd-autopilot の生成器の出力を取り込んだ squid の設定 (`tests/assurance/fixtures/runtime-squid-stage.conf`) で検査する。**この検査が通っても、実 run の記録が正しいことにはならない**。実 run の `limits.json` はこの文書の証拠に含まれていない (未確認)。
 
 ## 6. 前提と信頼する構成要素
 

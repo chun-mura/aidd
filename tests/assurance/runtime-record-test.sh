@@ -43,6 +43,7 @@ def run_checker(limits_path, squid_path=None):
     proc = subprocess.run(cmd, capture_output=True, text=True)
     return proc.returncode, json.loads(proc.stdout)
 
+failures = []
 for n, case in enumerate(spec["cases"]):
     record = copy.deepcopy(spec["base"])
     apply_patch(record, case["patch"])
@@ -62,9 +63,13 @@ for n, case in enumerate(spec["cases"]):
     code, out = run_checker(limits_path, squid_path)
     want_code = 0 if case["verdict"] == "pass" else 1
     if (code, out["verdict"], sorted(out["reasons"])) != (want_code, case["verdict"], sorted(case["reasons"])):
-        sys.exit("%s: got exit %d %s %s, want exit %d %s %s" % (
+        failures.append("%s: got exit %d %s %s, want exit %d %s %s" % (
             case["id"], code, out["verdict"], sorted(out["reasons"]),
             want_code, case["verdict"], sorted(case["reasons"])))
+    if "info" in case and sorted(out.get("info", [])) != sorted(case["info"]):
+        failures.append("%s: got info %s, want %s" % (case["id"], sorted(out.get("info", [])), sorted(case["info"])))
+if failures:
+    sys.exit("\n".join(failures))
 print("run record fixtures: %d cases ok" % len(spec["cases"]))
 PY
 
