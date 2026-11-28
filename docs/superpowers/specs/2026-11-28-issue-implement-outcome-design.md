@@ -68,7 +68,7 @@ python3 -I <issue-outcome.py> check <file> [--issue N]  # ホスト用: 検証�
 
 | キー | 型 | 値 |
 |---|---|---|
-| `schema_version` | number | `2` だけ (#223 で `completion.security_review` を足して 1 から上げた) |
+| `schema_version` | number | `3` だけ (#223 で `completion.security_review` を足して 2 に、#222 で `test_perspectives`・`code_review` を足して 3 に上げた) |
 | `run_id` | string | `YYYYMMDDTHHMMSSZ-<8桁の16進>`。run-dir の名前と同じ |
 | `issue` | string \| null | 対象 issue の番号 (`^[1-9][0-9]*$`)。取得できなければ `null` |
 | `status` | string | `done` / `needs_input` / `blocked` |
@@ -76,7 +76,7 @@ python3 -I <issue-outcome.py> check <file> [--issue N]  # ホスト用: 検証�
 | `questions` | array | `needs_input` のときだけ1件以上。ほかは空配列 |
 | `questions[].kind` | string | `spec_choice` (仕様の選択) / `approval` (起票・棄却などの承認) |
 | `questions[].options` | array | 2〜4件。各 `{label, effect}` |
-| `completion` | object \| null | `done` のときだけ `{"verification": "passed", "undecided_rows": 0, "untracked_deferred": 0, "security_review": "ran" \| "not_required"}` (この値以外は拒否)。ほかは `null` |
+| `completion` | object \| null | `done` のときだけ `{"verification": "passed", "undecided_rows": 0, "untracked_deferred": 0, "test_perspectives": "ran", "code_review": "ran", "security_review": "ran" \| "not_required"}` (この値以外は拒否。あわせて `artifacts.test_perspectives` が `null` の `done` も拒否する)。ほかは `null` |
 | `artifacts` | object | キーは `design_doc` と `test_perspectives` の2つだけ。値は `null` か、トップからの相対パスで実在する通常のファイル (途中を含めシンボリックリンクをたどらない) |
 
 `write` / `check` が拒否する条件 (契約テストで1件ずつ確かめる):
@@ -98,7 +98,7 @@ python3 -I <issue-outcome.py> check <file> [--issue N]  # ホスト用: 検証�
 | 3 design-doc が規模超過を報告し issue-split を提案 | blocked | `split_proposed` |
 | 3・5 review-loop が上限まで回しても収束しない | blocked | `review_unconverged` |
 | 5 監査の新しいセッションを起動した run のあと | blocked | `audit_session_launched` |
-| 5 必要な `/security-review` が最後まで実行されなかった (拒否・エラー・未実施) | blocked | `required_check_not_run` |
+| 4・5 必要な工程 (テスト観点・コードレビュー・該当する差分の `/security-review`) が最後まで実行されなかった (拒否・エラー・未実施) | blocked | `required_check_not_run` |
 | 6 deferred の起票・棄却の承認待ち | needs_input | `approval` |
 | 6 検証が通らず、systematic-debugging でもこの実行の中で直せない | blocked | `verification_failed` |
 | 7 「未判断」の行が残る | needs_input (`spec_choice` か `approval`)。人に上げる質問の形にできないときだけ blocked | `undecided_rows` |
@@ -122,8 +122,9 @@ python3 -I <issue-outcome.py> check <file> [--issue N]  # ホスト用: 検証�
 |---|---|
 | `write` の検証に通らない | ファイルを書かず終了コード1。model は理由を見て直して書き直す。直せなければ完了報告に「outcome を書けなかった」と理由を書く |
 | `start`・`write` の実行の失敗 | 終了コード2。完了報告に書く。ホストからは outcome が無い = 異常終了に見える |
-| model が誤って `done` を書く | `completion` の4つの値を明示しないと `done` は書けない。値が実態と違うかはスクリプトでは判断できないので、SKILL.md で5・6・7の確認結果から書くと定める |
+| model が誤って `done` を書く | `completion` の6つの値を明示しないと `done` は書けない。値が実態と違うかはスクリプトでは判断できないので、SKILL.md で5・6・7の確認結果から書くと定める |
 | 必要な監査が実行できないまま `done` を書く (#223) | `completion.security_review` は `ran` か `not_required` だけを受け付ける。拒否された・エラーで終わった・未実施の監査を `ran` と書けば通るので、値の正しさは SKILL.md の定義 (5 の項に当たるか、最後まで実行したか) に頼る。#133 の試行では、`/security-review` が権限で拒否されても `done` が書けた (`tests/eval/results/2026-11-28-develop.md`) |
+| テスト観点・コードレビューを省いて `done` を書く (#222) | `completion.test_perspectives`・`code_review` は `ran` だけを受け付け、`artifacts.test_perspectives` の無い `done` を拒否する。観点のファイルは実在を確かめるが、レビューの実行は自己申告。#133 の直行レーンの試行は、表示された予算を理由に両方を省いて `done` を書いた (`tests/eval/results/2026-11-28-issue-implement-skipped-steps.md`) |
 | 質問の文が前の会話に依存する | スキーマでは検出できない。SKILL.md に「issue と outcome だけで読める文にする」と書く |
 
 ## 7. 運用

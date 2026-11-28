@@ -1678,7 +1678,8 @@ dv_trial() {  # dv_trial <trial> <skills, space separated> <push yes|no> [nowork
   local w="$dv_run/work-t$1"
   [ "${4-}" = nowork ] || printf '%s\n' 'def double(x):' '    return x + x' '' '' 'def triple(x):' '    return 3 * x' > "$w/calc.py"
   (cd "$w" && AIDD_ISSUE_IMPLEMENT_RUN_ID="20261128T000000Z-0000000$1" python3 -I "$dv_run/plugin/scripts/issue-outcome.py" start > /dev/null)
-  printf '%s\n' '{"issue": "1", "status": "done", "reason": null, "questions": [], "completion": {"verification": "passed", "undecided_rows": 0, "untracked_deferred": 0, "security_review": "not_required"}, "artifacts": {"design_doc": null, "test_perspectives": null}}' \
+  mkdir -p "$w/docs/test-perspectives" && printf '%s\n' '# perspectives' > "$w/docs/test-perspectives/demo.md"
+  printf '%s\n' '{"issue": "1", "status": "done", "reason": null, "questions": [], "completion": {"verification": "passed", "undecided_rows": 0, "untracked_deferred": 0, "test_perspectives": "ran", "code_review": "ran", "security_review": "not_required"}, "artifacts": {"design_doc": null, "test_perspectives": "docs/test-perspectives/demo.md"}}' \
     | (cd "$w" && python3 -I "$dv_run/plugin/scripts/issue-outcome.py" write ".aidd/issue-implement/20261128T000000Z-0000000$1")
   if [ "$3" = yes ]; then git -C "$w" -c user.name=t -c user.email=t@example.com commit -qam work; git -C "$w" push -q origin main; fi
   python3 - "$dv_run/local/demo-t$1.jsonl" "$2" "$3" <<'PYEOF'

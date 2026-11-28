@@ -1,0 +1,18 @@
+{
+  "schema_version": 2,
+  "run_id": "20261128T085426Z-b50a8344",
+  "issue": "1",
+  "status": "done",
+  "reason": null,
+  "questions": [],
+  "completion": {
+    "verification": "passed",
+    "undecided_rows": 0,
+    "untracked_deferred": 0,
+    "security_review": "not_required"
+  },
+  "artifacts": {
+    "design_doc": null,
+    "test_perspectives": "docs/test-perspectives/2026-11-28-slugify-collapse-hyphens.md"
+  }
+}

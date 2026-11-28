@@ -34,8 +34,9 @@ def new_repo(name):
     os.makedirs(path)
     subprocess.run(["git", "init", "-q", path], check=True)
     os.makedirs(os.path.join(path, "docs"))
-    with open(os.path.join(path, "docs", "design.md"), "w") as f:
-        f.write("x\n")
+    for name in ("design.md", "perspectives.md"):
+        with open(os.path.join(path, "docs", name), "w") as f:
+            f.write("x\n")
     return path
 
 
@@ -64,10 +65,11 @@ assert r.returncode == 2, (r.returncode, r.stderr)
 # --- write: valid documents per status --------------------------------------------------------
 Q = {"question": "Which?", "kind": "spec_choice",
      "options": [{"label": "A", "effect": "does a"}, {"label": "B", "effect": "does b"}]}
-DONE = {"verification": "passed", "undecided_rows": 0, "untracked_deferred": 0, "security_review": "ran"}
+DONE = {"verification": "passed", "undecided_rows": 0, "untracked_deferred": 0,
+        "test_perspectives": "ran", "code_review": "ran", "security_review": "ran"}
 BASES = {
     "done": {"issue": "191", "status": "done", "reason": None, "questions": [], "completion": DONE,
-             "artifacts": {"design_doc": "docs/design.md", "test_perspectives": None}},
+             "artifacts": {"design_doc": "docs/design.md", "test_perspectives": "docs/perspectives.md"}},
     "needs_input": {"issue": "191", "status": "needs_input", "reason": None, "questions": [Q],
                     "completion": None, "artifacts": {"design_doc": None, "test_perspectives": None}},
     "blocked": {"issue": None, "status": "blocked", "reason": "gh_unavailable", "questions": [],
@@ -79,7 +81,7 @@ for status, base in BASES.items():
     assert r.returncode == 0, (status, r.stderr)
     with open(outcome) as f:
         written = json.load(f)
-    assert written["schema_version"] == 2 and written["run_id"] == os.path.basename(run_dir), written
+    assert written["schema_version"] == 3 and written["run_id"] == os.path.basename(run_dir), written
     assert {k: v for k, v in written.items() if k not in ("schema_version", "run_id")} == base, written
     r = run(["check", outcome], tmp)
     assert r.returncode == 0, (status, r.stderr)
@@ -148,6 +150,13 @@ rejects = {
     "done with security_review true": json.dumps(with_("done", completion=dict(DONE, security_review=True))),
     "done with security_review list": json.dumps(with_("done", completion=dict(DONE, security_review=["ran"]))),
     "done with security_review object": json.dumps(with_("done", completion=dict(DONE, security_review={}))),
+    "done without test_perspectives": json.dumps(with_("done", completion={k: v for k, v in DONE.items() if k != "test_perspectives"})),
+    "done with test_perspectives skipped": json.dumps(with_("done", completion=dict(DONE, test_perspectives="skipped"))),
+    "done with test_perspectives not_required": json.dumps(with_("done", completion=dict(DONE, test_perspectives="not_required"))),
+    "done without code_review": json.dumps(with_("done", completion={k: v for k, v in DONE.items() if k != "code_review"})),
+    "done with code_review by agent": json.dumps(with_("done", completion=dict(DONE, code_review="reviewer_agent"))),
+    "done with code_review not_required": json.dumps(with_("done", completion=dict(DONE, code_review="not_required"))),
+    "done without perspectives file": json.dumps(with_("done", artifacts={"design_doc": "docs/design.md", "test_perspectives": None})),
     "needs_input without questions": json.dumps(with_("needs_input", questions=[])),
     "needs_input with reason": json.dumps(with_("needs_input", reason="gh_unavailable")),
     "needs_input with completion": json.dumps(with_("needs_input", completion=DONE)),
@@ -166,12 +175,14 @@ rejects = {
     "long effect": json.dumps(q_with(options=[{"label": "A", "effect": "x" * 401}, {"label": "B", "effect": "2"}])),
     "option extra key": json.dumps(q_with(options=[{"label": "A", "effect": "1", "x": 1}, {"label": "B", "effect": "2"}])),
     "question extra key": json.dumps(q_with(note="x")),
-    "artifacts extra key": json.dumps(with_("done", artifacts={"design_doc": None, "test_perspectives": None, "plan": None})),
-    "artifacts missing key": json.dumps(with_("done", artifacts={"design_doc": None})),
-    "artifact absolute": json.dumps(with_("done", artifacts={"design_doc": "/etc/hosts", "test_perspectives": None})),
-    "artifact dotdot": json.dumps(with_("done", artifacts={"design_doc": "docs/../docs/design.md", "test_perspectives": None})),
-    "artifact missing": json.dumps(with_("done", artifacts={"design_doc": "docs/none.md", "test_perspectives": None})),
-    "artifact directory": json.dumps(with_("done", artifacts={"design_doc": "docs", "test_perspectives": None})),
+    "artifacts extra key": json.dumps(with_("done", artifacts={"design_doc": None, "test_perspectives": "docs/perspectives.md", "plan": None})),
+    "artifacts missing key": json.dumps(with_("done", artifacts={"test_perspectives": "docs/perspectives.md"})),
+    "artifacts not an object": json.dumps(with_("done", artifacts=[])),
+    "completion not an object": json.dumps(with_("done", completion=[])),
+    "artifact absolute": json.dumps(with_("done", artifacts={"design_doc": "/etc/hosts", "test_perspectives": "docs/perspectives.md"})),
+    "artifact dotdot": json.dumps(with_("done", artifacts={"design_doc": "docs/../docs/design.md", "test_perspectives": "docs/perspectives.md"})),
+    "artifact missing": json.dumps(with_("done", artifacts={"design_doc": "docs/none.md", "test_perspectives": "docs/perspectives.md"})),
+    "artifact directory": json.dumps(with_("done", artifacts={"design_doc": "docs", "test_perspectives": "docs/perspectives.md"})),
 }
 for name, raw in rejects.items():
     r = run(["write", run_dir], repo, raw)
@@ -179,6 +190,14 @@ for name, raw in rejects.items():
     assert r.stderr.strip(), name
     with open(outcome, "rb") as f:
         assert f.read() == last_good, name
+# Skipped steps are rejected for that step, not for another reason.
+for change, expected in (
+    ({"completion": dict(DONE, test_perspectives="skipped")}, "completion.test_perspectives"),
+    ({"completion": dict(DONE, code_review="reviewer_agent")}, "completion.code_review"),
+    ({"artifacts": {"design_doc": None, "test_perspectives": None}}, "artifacts.test_perspectives"),
+):
+    r = run(["write", run_dir], repo, json.dumps(with_("done", **change)))
+    assert r.returncode == 1 and expected in r.stderr and "Traceback" not in r.stderr, (expected, r.stderr)
 # A done whose security review did not run points the writer at the blocked reason to use instead.
 r = run(["write", run_dir], repo, json.dumps(with_("done", completion=dict(DONE, security_review="not_run"))))
 assert r.returncode == 1 and "required_check_not_run" in r.stderr, r.stderr
@@ -246,7 +265,7 @@ def check_fixture(name, content, layout=True):
 
 assert check_fixture("good copy", doc).returncode == 0
 for name, bad in {
-    "old schema": dict(doc, schema_version=1),
+    "old schema": dict(doc, schema_version=2),
     "run_id mismatch": dict(doc, run_id="20261128T000000Z-00000000"),
     "missing run_id": {k: v for k, v in doc.items() if k != "run_id"},
     "not utf-8": b'{"issue": "\xff"}',
@@ -311,7 +330,7 @@ assert [n for n in os.listdir(run_dir) if n != "outcome.json"] == [], os.listdir
 # Deep nesting, a NUL in a path and a trailing newline in an ID are rejections, not tracebacks.
 for name, raw in {
     "nested too deeply": "[" * 200000,
-    "NUL in artifact": json.dumps(with_("done", artifacts={"design_doc": "docs/\u0000", "test_perspectives": None})),
+    "NUL in artifact": json.dumps(with_("done", artifacts={"design_doc": "docs/\u0000", "test_perspectives": "docs/perspectives.md"})),
     "newline after issue": json.dumps(with_("done", issue="191\n")),
 }.items():
     r = run(["write", run_dir], repo, raw)
@@ -326,7 +345,7 @@ assert r.returncode == 1 and "secret_key_xyz" not in r.stderr, r.stderr
 os.symlink(os.path.join(repo, "docs", "design.md"), os.path.join(repo, "docs", "link.md"))
 os.symlink(os.path.join(repo, "docs"), os.path.join(repo, "docslink"))
 for path in ("docs/link.md", "docslink/design.md", "docs//design.md", "./docs/design.md"):
-    r = run(["write", run_dir], repo, json.dumps(with_("done", artifacts={"design_doc": path, "test_perspectives": None})))
+    r = run(["write", run_dir], repo, json.dumps(with_("done", artifacts={"design_doc": path, "test_perspectives": "docs/perspectives.md"})))
     assert r.returncode == 1, (path, r.stderr)
 
 # start refuses when .aidd itself is a symlink.
@@ -354,6 +373,7 @@ bodies = {n: head[sections[n]:(sections[order[i + 1]] if i + 1 < len(order) else
           for i, n in enumerate(order)}
 per_section = {
     "1": {("blocked", "gh_unavailable")},
+    "4": {("blocked", "required_check_not_run")},
     "2": {("needs_input", "spec_choice")},
     "3": {("blocked", "review_unconverged"), ("blocked", "split_proposed")},
     "5": {("blocked", "review_unconverged"), ("blocked", "audit_session_launched"),
