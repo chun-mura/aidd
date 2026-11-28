@@ -1,0 +1,32 @@
+{
+  "_comment": "Fictional check runs for gate.py. Each run and report overrides the defaults in release-gate-test.sh (target SHA T, app 15368, check suite 100, a passing report on T with the trusted criteria digest). Field names follow the GitHub REST check run object.",
+  "cases": [
+    {"id": "all-passed", "runs": [{}], "report": {}, "verdict": "pass", "reasons": []},
+    {"id": "failure", "runs": [{"conclusion": "failure"}], "report": {"failed": ["AT-PAY-01"]}, "verdict": "fail", "reasons": ["not-success:aidd-verify:failure", "report-failed"]},
+    {"id": "skipped", "runs": [{"conclusion": "skipped"}], "report": null, "verdict": "fail", "reasons": ["missing-report", "not-success:aidd-verify:skipped"]},
+    {"id": "neutral", "runs": [{"conclusion": "neutral"}], "report": {}, "verdict": "fail", "reasons": ["not-success:aidd-verify:neutral"]},
+    {"id": "timed-out", "runs": [{"conclusion": "timed_out"}], "report": null, "verdict": "fail", "reasons": ["missing-report", "not-success:aidd-verify:timed_out"]},
+    {"id": "cancelled", "runs": [{"conclusion": "cancelled"}], "report": null, "verdict": "fail", "reasons": ["missing-report", "not-success:aidd-verify:cancelled"]},
+    {"id": "action-required", "runs": [{"conclusion": "action_required"}], "report": {}, "verdict": "fail", "reasons": ["not-success:aidd-verify:action_required"]},
+    {"id": "stale-conclusion", "runs": [{"conclusion": "stale"}], "report": {}, "verdict": "fail", "reasons": ["not-success:aidd-verify:stale"]},
+    {"id": "startup-failure", "runs": [{"conclusion": "startup_failure"}], "report": null, "verdict": "fail", "reasons": ["missing-report", "not-success:aidd-verify:startup_failure"]},
+    {"id": "completed-without-conclusion", "runs": [{"conclusion": null}], "report": {}, "verdict": "fail", "reasons": ["not-success:aidd-verify:None"]},
+    {"id": "in-progress", "runs": [{"status": "in_progress", "conclusion": null}], "report": null, "verdict": "fail", "reasons": ["missing-report", "not-completed:aidd-verify:in_progress"]},
+    {"id": "queued", "runs": [{"status": "queued", "conclusion": null}], "report": null, "verdict": "fail", "reasons": ["missing-report", "not-completed:aidd-verify:queued"]},
+    {"id": "never-ran", "runs": [], "report": null, "verdict": "fail", "reasons": ["missing-check:aidd-verify", "missing-report"]},
+    {"id": "only-an-older-sha-passed", "runs": [{"head_sha": "OLD"}], "report": {"target_sha": "OLD"}, "verdict": "fail", "reasons": ["report-sha-mismatch", "stale-sha:aidd-verify"]},
+    {"id": "same-name-from-another-app", "runs": [{"app": {"id": 999999}}], "report": {}, "verdict": "fail", "reasons": ["untrusted-app:aidd-verify"]},
+    {"id": "same-name-from-another-workflow-run", "runs": [{"check_suite": {"id": 200}}], "report": {}, "verdict": "fail", "reasons": ["other-run:aidd-verify"]},
+    {"id": "fake-success-beside-real-failure", "runs": [{"conclusion": "failure", "id": 1}, {"check_suite": {"id": 200}, "id": 2, "started_at": "2026-11-28T00:10:00Z"}, {"app": {"id": 999999}, "id": 3, "started_at": "2026-11-28T00:11:00Z"}], "report": {}, "verdict": "fail", "reasons": ["not-success:aidd-verify:failure"]},
+    {"id": "rerun-passed-after-failure", "runs": [{"conclusion": "failure", "id": 1, "started_at": "2026-11-28T00:00:00Z"}, {"id": 2, "started_at": "2026-11-28T00:05:00Z"}], "report": {}, "verdict": "pass", "reasons": []},
+    {"id": "rerun-failed-after-success", "runs": [{"id": 1, "started_at": "2026-11-28T00:00:00Z"}, {"conclusion": "failure", "id": 2, "started_at": "2026-11-28T00:05:00Z"}], "report": {}, "verdict": "fail", "reasons": ["not-success:aidd-verify:failure"]},
+    {"id": "rerun-queued-after-success", "runs": [{"id": 1, "started_at": "2026-11-28T00:00:00Z"}, {"status": "queued", "conclusion": null, "id": 2, "started_at": null}], "report": {}, "verdict": "fail", "reasons": ["not-completed:aidd-verify:queued"]},
+    {"id": "no-report", "runs": [{}], "report": null, "verdict": "fail", "reasons": ["missing-report"]},
+    {"id": "report-for-another-sha", "runs": [{}], "report": {"target_sha": "OLD"}, "verdict": "fail", "reasons": ["report-sha-mismatch"]},
+    {"id": "report-against-changed-criteria", "runs": [{}], "report": {"criteria_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"}, "verdict": "fail", "reasons": ["report-criteria-mismatch"]},
+    {"id": "report-with-failed-criteria", "runs": [{}], "report": {"failed": ["AT-AUTHZ-01"]}, "verdict": "fail", "reasons": ["report-failed"]},
+    {"id": "report-with-nothing-passed", "runs": [{}], "report": {"passed": []}, "verdict": "fail", "reasons": ["report-invalid"]},
+    {"id": "report-with-unknown-schema", "runs": [{}], "report": {"schema": "something-else/v1"}, "verdict": "fail", "reasons": ["report-invalid"]},
+    {"id": "report-not-json", "runs": [{}], "report": "RAW:{not json", "verdict": "fail", "reasons": ["report-invalid"]}
+  ]
+}

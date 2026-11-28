@@ -1,0 +1,140 @@
+# Reference release gate for AC-PROC-001 and AC-PRIV-008 (docs/assurance/release-gate.md).
+# Example only. It runs nowhere from this repository: place it in a protected policy repository,
+# replace the placeholders, and require it with ruleset.json after the repository owner approves.
+#
+# Trust split:
+#   - this workflow, gate.py and gate-policy.json come from the policy repository at POLICY_SHA;
+#   - the acceptance criteria come from the base commit of the protected branch (BASE_SHA);
+#   - only the implementation comes from the change under test (TARGET_SHA), and only the
+#     verify job runs it, with a read-only token and no secrets.
+name: verification-gate
+
+on:
+  pull_request:
+    branches: [main]
+  merge_group:
+    types: [checks_requested]
+
+permissions: {}
+
+env:
+  POLICY_REPO: example-org/assurance-policy             # placeholder: the protected policy repository
+  POLICY_SHA: "0000000000000000000000000000000000000000" # placeholder: the approved policy commit
+  POLICY_DIR: examples/assurance/github
+  CRITERIA_DIR: assurance/acceptance                     # owner-approved criteria in the target repository
+  IMPL_DIR: src
+  IMPL: app:make_service
+  TARGET_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+  BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+
+jobs:
+  verify:
+    name: aidd-verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the criteria from the protected base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.BASE_SHA }}
+          path: trusted
+          persist-credentials: false
+
+      - name: Check the owner-approved criteria digest before any change code runs
+        shell: bash
+        run: |
+          cd "trusted/$CRITERIA_DIR"
+          sha256sum --check --strict approved.sha256
+
+      - name: Check out the change under test (untrusted)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          path: change
+          persist-credentials: false
+
+      - name: Run the trusted acceptance tests against the change
+        shell: bash
+        run: |
+          digest="sha256:$(sha256sum "trusted/$CRITERIA_DIR/approved.sha256" | cut -d' ' -f1)"
+          status=0
+          (cd "trusted/$CRITERIA_DIR" &&
+            PYTHONPATH="$GITHUB_WORKSPACE/change/$IMPL_DIR" python3 -B acceptance_test.py --impl "$IMPL" --json) \
+            >"$RUNNER_TEMP/result.json" || status=$?
+          python3 - "$RUNNER_TEMP/result.json" "$digest" >"$RUNNER_TEMP/verify-report.json" <<'PY'
+          import json, os, sys
+          result = json.load(open(sys.argv[1], encoding="utf-8"))
+          print(json.dumps({
+              "schema": "aidd-verify-report/v1",
+              "target_sha": os.environ["TARGET_SHA"],
+              "criteria_digest": sys.argv[2],
+              "passed": result["passed"],
+              "failed": result["failed"],
+          }))
+          PY
+          exit "$status"
+
+      - name: Upload the verification report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: verify-report
+          path: ${{ runner.temp }}/verify-report.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+  gate:
+    name: aidd-release-gate
+    needs: [verify]
+    # Never skip the gate: a skipped required check counts as passed on GitHub.
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      checks: read
+      actions: read
+    steps:
+      - name: Check out the gate from the policy repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ env.POLICY_REPO }}
+          ref: ${{ env.POLICY_SHA }}
+          path: policy
+          persist-credentials: false
+
+      - name: Check out the approved criteria digest from the protected base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.BASE_SHA }}
+          path: trusted
+          persist-credentials: false
+
+      - name: Download the verification report
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: verify-report
+          path: report
+
+      - name: Collect the check runs of the target commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$TARGET_SHA/check-runs?per_page=100" \
+            --jq '.check_runs[]' >"$RUNNER_TEMP/check-runs.jsonl"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .check_suite_id >"$RUNNER_TEMP/suite-id"
+
+      - name: Judge the required checks and the report
+        shell: bash
+        run: |
+          python3 -I "policy/$POLICY_DIR/gate.py" \
+            --policy "policy/$POLICY_DIR/gate-policy.json" \
+            --target-sha "$TARGET_SHA" \
+            --check-runs "$RUNNER_TEMP/check-runs.jsonl" \
+            --suite-id "$(cat "$RUNNER_TEMP/suite-id")" \
+            --report report/verify-report.json \
+            --approved "trusted/$CRITERIA_DIR/approved.sha256"
