@@ -1506,7 +1506,8 @@ printf 'badflags\tdemo\t-\t--security\n' >> "$fb/variants.tsv"
 br_stage_fails badflags "$br_tmp/run-badflags" badflags 'unsupported flags: --security'
 git -C "$fake3" checkout -q -- tests/eval/branch/variants.tsv
 # The tools block reads the actual dispatch: a reviewer given the project perspectives is Agent 4,
-# a source-verifier whose every web call failed is "実行不能", and its reply is kept as it was.
+# a source-verifier whose every web call failed is "実行不能", and its reply (the SubagentHandback
+# message of a backgrounded agent, not the launch notice) is kept as it was.
 br_jsonl() {  # br_jsonl <run> <variant> <web result is_error>
   python3 - "$1/local/$2-t1.jsonl" "$(cd "$1" && pwd -P)" "$3" <<'PYEOF'
 import json, sys
@@ -1521,7 +1522,8 @@ lines = [
     use("a5", "Agent", {"subagent_type": "aidd:source-verifier", "prompt": "cases/demo.md"}),
     use("w1", "WebFetch", {"url": "https://docs.example.invalid/x", "prompt": "p"}, "a5"),
     res("w1", "fetch failed: " + run + "/input", web_error, "a5"),
-    res("a5", "V1 確認済み " + run + "/input/cases/demo.md"),
+    use("h5", "SubagentHandback", {"message": "V1 確認済み " + run + "/input/cases/demo.md"}, "a5"),
+    res("a5", "Async agent launched successfully. LAUNCH_NOTICE"),
     res("a1", "ok"),
 ]
 with open(out, "w") as f:
@@ -1539,6 +1541,10 @@ grep -F '| Agent 6 (security-reviewer) | no (0) |' "$br_tools"
 grep -F '| reviewer の dispatch 数 | 2 |' "$br_tools"
 grep -F '| source-verifier の Web 到達 | 実行不能 (成功 0 / 呼び出し 1) |' "$br_tools"
 grep -F 'V1 確認済み [input]/cases/demo.md' "$br_tools"
+if grep -qF LAUNCH_NOTICE "$br_tools"; then
+  echo "eval branch tools took the launch notice of a backgrounded agent as its reply" >&2
+  exit 1
+fi
 if grep -qF "$(cd "$br_rules" && pwd -P)" "$br_tools"; then
   echo "eval branch tools kept an absolute path" >&2
   exit 1

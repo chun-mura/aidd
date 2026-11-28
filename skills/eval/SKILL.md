@@ -1193,7 +1193,7 @@ try:
         markers = [s for s in (line.strip().lstrip("-# ").strip() for line in f) if len(s) >= 12]
 except OSError:
     pass
-uses, results = {}, {}
+uses, results, handbacks = {}, {}, {}
 try:
     with open(os.path.join(run, "local", stem + ".jsonl"), encoding="utf-8") as f:
         lines = f.readlines()
@@ -1212,10 +1212,20 @@ for line in lines:
         if c.get("type") == "tool_use":
             args = c.get("input") if isinstance(c.get("input"), dict) else {}
             uses[c.get("id")] = (c.get("name"), args, m.get("parent_tool_use_id"))
+            if c.get("name") == "SubagentHandback" and m.get("parent_tool_use_id"):
+                handbacks[m.get("parent_tool_use_id")] = str(args.get("message") or "")
         elif c.get("type") == "tool_result":
             results[c.get("tool_use_id")] = (bool(c.get("is_error")), text_of(c.get("content")))
 agents = {i: a for i, (n, a, _) in uses.items() if n in ("Agent", "Task")}
 kind = {i: str(a.get("subagent_type") or "不明") for i, a in agents.items()}
+
+
+def reply(i):
+    # A backgrounded agent returns only a launch notice as its tool result; its report is the SubagentHandback message.
+    if i in handbacks:
+        return handbacks[i]
+    res = results.get(i)
+    return None if res is None or res[0] else res[1]
 
 
 def is_kind(i, name):
@@ -1251,7 +1261,8 @@ for i, a in agents.items():
     parent = uses[i][2]
     res = results.get(i)
     out.append(f"| {cell(i)} | {cell(kind[i])} | {cell(kind.get(parent, 'メイン') if parent else 'メイン')} | "
-               f"{'yes' if is_kind(i, 'reviewer') and perspective(a) else 'no'} | {'なし' if res is None else ('エラー' if res[0] else 'あり')} |")
+               f"{'yes' if is_kind(i, 'reviewer') and perspective(a) else 'no'} | "
+               f"{'あり' if i in handbacks else ('なし' if res is None else ('エラー' if res[0] else 'あり (tool result)'))} |")
 if not agents:
     out.append("| なし | | | | |")
 out += ["", "## Web の呼び出し", "", "| tool | 呼んだ側 | 入力 | 結果 |", "|---|---|---|---|"]
@@ -1264,8 +1275,8 @@ if not web:
     out.append("| なし | | | |")
 out += ["", "## source-verifier の返答", ""]
 for i in a5:
-    res = results.get(i)
-    out += [f"### {cell(i)}", "", clean(res[1]).rstrip() if res else "返答なし", ""]
+    text = reply(i)
+    out += [f"### {cell(i)}", "", clean(text).rstrip() if text else "返答なし", ""]
 if not a5:
     out.append("起動なし")
 with open(os.path.join(run, "raw", stem + ".tools.md"), "x", encoding="utf-8") as f:
