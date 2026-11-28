@@ -1349,7 +1349,7 @@ echo "eval develop freeze-cases: freeze.sha256 sha256 $(shasum -a 256 "$dv/freez
 
 **D2. 準備 (メイン)** — ケースごとに新しい run ディレクトリを作り (`mktemp -d "${TMPDIR:-/tmp}/aidd-eval-develop.XXXXXX"` など)、次のブロックの `<repo>`・`<run>`・`<case>`・`<trials>` (試行の数) を置き換えて実行する。
 
-ブロックがすること: 凍結を確かめ、`input/` にケース (`repo/` と `issue.md`) だけをコピーする (採点まで変えない)。`plugin/` に評価する aidd を HEAD から `git archive` で書き出す。`bin/gh` にスタブを置く。試行ごとに `work-t<試行>/` に `repo/` をコピーして Git の初期コミットを作り、`origin` を `remote-t<試行>.git` (ローカルの bare) にして push しておく。次のどれかに当たれば止まる: ケース名が不正、ケースかキーが無い、凍結が確かめられない (`freeze.sha256` が無い・今のファイルと違う・コミットされていない・`tests/eval/develop/` か `skills/eval/SKILL.md` に未コミットの変更がある)、run ディレクトリが元リポジトリの中にある、`input/` か `raw/` が既にある、`input/` がどこかの Git の作業ツリーの中にある、`input/` か `work-t*/` に受け入れテスト・キーと同じ内容のファイルや `tests/eval/` の文字列がある。
+ブロックがすること: 凍結を確かめ、`input/` にケース (`repo/` と `issue.md`) だけをコピーする (採点まで変えない)。`plugin/` に評価する aidd を HEAD から `git archive` で書き出す。`bin/gh` にスタブを置き、実行担当の Bash が毎回読み込む `env.sh` (`CLAUDE_ENV_FILE`) で、スタブを PATH の先頭にし、GitHub の認証情報を外す (利用者のシェルの設定が PATH の先頭に本物の `gh` を足しても、スタブが先に見つかるようにするため)。試行ごとに `work-t<試行>/` に `repo/` をコピーして Git の初期コミットを作り、`origin` を `remote-t<試行>.git` (ローカルの bare) にして push しておく。次のどれかに当たれば止まる: ケース名が不正、ケースかキーが無い、凍結が確かめられない (`freeze.sha256` が無い・今のファイルと違う・コミットされていない・`tests/eval/develop/` か `skills/eval/SKILL.md` に未コミットの変更がある)、run ディレクトリが元リポジトリの中にある、`input/` か `raw/` が既にある、`input/` がどこかの Git の作業ツリーの中にある、`input/` か `work-t*/` に受け入れテスト・キーと同じ内容のファイルや `tests/eval/` の文字列がある。
 
 `raw/` には、入力のハッシュ (`input.sha256`)・キーと受け入れテストのハッシュ (`keys.sha256`)・凍結のマニフェストの写し (`freeze.sha256`)・試行ごとの初期コミット (`base-t<試行>.txt`) と push 前の refs (`refs-t<試行>.before`)・測定条件 (`conditions.md`) を書く。
 
@@ -1398,6 +1398,13 @@ echo "gh stub: not available in this evaluation: \$*" >&2
 exit 1
 GH
 chmod +x "$run/bin/gh"
+mkdir -p "$run/gh-config"
+cat > "$run/env.sh" <<ENV
+# sourced before every Bash command of the executor (CLAUDE_ENV_FILE): the gh stub first, no GitHub credentials
+export PATH="$run/bin:\$PATH"
+export GH_CONFIG_DIR="$run/gh-config"
+unset GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN
+ENV
 (cd "$dv" && find "keys/$case" -type f | while read -r f; do shasum -a 256 "$f"; done) | awk '{print $1}' | LC_ALL=C sort -u > "$run/forbidden"
 t=1
 while [ "$t" -le "$trials" ]; do
@@ -1440,10 +1447,11 @@ echo "eval develop staging: ok ($run)"
 **D3. 実行 (新しい実行担当)** — 試行ごとに新しいセッションを1つ起動する。課金のある実行なので、ユーザーが推定コストを見て承認してから始める (`<budget>` は1試行の USD の上限)。プロンプトは利用者が打つのと同じ `/aidd:issue-implement 1` だけで、評価であることも受け入れテストも渡さない。
 
 ```bash
-[ ! -e "<run>/local/<case>-t<trial>.jsonl" ] && cd "<run>/work-t<trial>" && PATH="<run>/bin:$PATH" AIDD_EVAL_GH_LOG="<run>/local/<case>-t<trial>.gh.log" claude -p "/aidd:issue-implement 1" --model opus --plugin-dir "<run>/plugin" --output-format stream-json --verbose --max-budget-usd <budget> --permission-mode acceptEdits --allowedTools Bash < /dev/null > "<run>/local/<case>-t<trial>.jsonl"
+[ ! -e "<run>/local/<case>-t<trial>.jsonl" ] && cd "<run>/work-t<trial>" && PATH="<run>/bin:$PATH" CLAUDE_ENV_FILE="<run>/env.sh" GH_CONFIG_DIR="<run>/gh-config" AIDD_EVAL_GH_LOG="<run>/local/<case>-t<trial>.gh.log" claude -p "/aidd:issue-implement 1" --model opus --plugin-dir "<run>/plugin" --output-format stream-json --verbose --max-budget-usd <budget> --permission-mode acceptEdits --allowedTools Bash < /dev/null > "<run>/local/<case>-t<trial>.jsonl"
 ```
 
 - 1回に数分から十数分かかる。バックグラウンドで実行して終了を待つ。上限で止まった試行は失敗した試行として記録し、採点では不合格に数える
+- `CLAUDE_ENV_FILE` を外さない。外すと、実行担当の Bash では利用者のシェルの設定が PATH の先頭に本物の `gh` を足し、スタブが使われない (2026-11-28 の初回の実行で起きた。`origin` が GitHub でないので本物の `gh` は失敗し、何も書き込まなかった)。`GH_CONFIG_DIR` を空のディレクトリにし、トークンの環境変数を外すのは、それでも本物の `gh` が動いた場合に GitHub へ書き込めないようにするため
 - `--permission-mode acceptEdits --allowedTools Bash` は、非対話のホストの形 (`2026-11-28-model-invocable-skills.md`) に合わせたもの。`AskUserQuestion` は使えないので、質問は outcome.json の `needs_input` になる
 
 **D4. 記録 (メイン)** — 実行のたびに、次のブロック (`<run>`・`<case>`・`<trial>`・`<repo>` を置き換える) で、実行担当の最終回答 (`raw/<case>-t<trial>.md`)・測定条件 (`.meta.md`: session・CLI・モデル・permissionMode・所要時間・コスト・読み込まれたプラグインの名前と版・モデル別の使用量)・工程の記録 (`.process.tsv`: 実際に呼ばれた Skill、dispatch された agent、公開に当たる Bash のコマンド)・変更の差分 (`.diff`、初期コミットから作業ツリーまで。未追跡のファイルを含み、`.aidd/issue-implement/` を除く)・outcome.json の写しと `issue-outcome.py check` の結果 (`.outcome.json`・`.outcome-check.txt`)・`gh` のスタブの呼び出し (`.gh.log`)・実行後の `origin` の refs (`.refs`) を `raw/` に書く。絶対パスは `[run]`・`[repo]`・`~` に置き換える。同じ試行の記録は上書きしない。最終回答が無い・エラーで終わった試行は0以外で終わる (記録は残す)。

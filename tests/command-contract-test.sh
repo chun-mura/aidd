@@ -1652,6 +1652,9 @@ dv_real=$(cd "$dv_run" && pwd -P)
 [ ! -e "$dv_run/input/test_acceptance_hidden.py" ] && [ ! -e "$dv_run/work-t1/test_acceptance_hidden.py" ]
 [ "$(git -C "$dv_run/work-t1" rev-parse HEAD)" = "$(cat "$dv_run/raw/base-t1.txt")" ]
 grep -F 'refs/heads/main' "$dv_run/raw/refs-t1.before"
+grep -F "export PATH=\"$dv_real/bin:" "$dv_run/env.sh"
+grep -F 'unset GH_TOKEN GITHUB_TOKEN' "$dv_run/env.sh"
+[ "$(env -i PATH=/usr/bin:/bin bash -c ". '$dv_run/env.sh'; command -v gh")" = "$dv_real/bin/gh" ]
 AIDD_EVAL_GH_LOG="$dv_tmp/gh.log" "$dv_run/bin/gh" issue view 1 --comments | grep -F 'ISSUE_BODY'
 AIDD_EVAL_GH_LOG="$dv_tmp/gh.log" "$dv_run/bin/gh" issue view 1 --json title,body | python3 -c 'import json, sys; assert "ISSUE_BODY" in json.load(sys.stdin)["body"]'
 if AIDD_EVAL_GH_LOG="$dv_tmp/gh.log" "$dv_run/bin/gh" pr create --title x 2> /dev/null; then
