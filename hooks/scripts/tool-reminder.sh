@@ -69,20 +69,20 @@ HEREDOC = re.compile(r"(?<!<)<<(?!<)-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 
 
 def scan_heredocs(text):
-    """Split text into the lines outside heredocs and the heredoc bodies [(delimiter, body)]."""
+    """Split text into the lines outside heredocs and the heredoc bodies [(delimiter, quoted, body)]."""
     lines = text.split("\n")
     kept = []
     bodies = []
     i = 0
     while i < len(lines):
         kept.append(lines[i])
-        delimiters = [m.group(2) for m in HEREDOC.finditer(lines[i])]
+        delimiters = [(m.group(2), bool(m.group(1))) for m in HEREDOC.finditer(lines[i])]
         i += 1
-        for delimiter in delimiters:
+        for delimiter, quoted in delimiters:
             start = i
             while i < len(lines) and lines[i].strip() != delimiter:
                 i += 1
-            bodies.append((delimiter, "\n".join(lines[start:i])))
+            bodies.append((delimiter, quoted, "\n".join(lines[start:i])))
             i += 1
     return "\n".join(kept), bodies
 
@@ -1161,8 +1161,9 @@ PUSH_NUDGE = "aidd: push したブランチに open PR がある場合 (gh pr vi
 # #198: the language nudge is advice, so it stays quiet only when every given title and body is
 # readable and holds kana or kanji (one character is enough: identifiers and commands stay in
 # English). Anything unreadable keeps it. A body file is read only by a hook run with no denial,
-# because a read that hangs (an unresponsive mount) would lose the whole reply, denials included.
-JAPANESE_CHARS = re.compile("[぀-ヿ一-鿿]")
+# because a stat, open or read that hangs (an unresponsive mount) loses the whole reply. That keeps
+# denials; the other notices of such a run are still lost (accepted: rare, and only advice).
+JAPANESE_CHARS = re.compile(r"[぀-ヿ一-鿿]")
 BODY_FILE_LIMIT = 3
 BODY_READ_BYTES = 64 * 1024
 BODY_READ_SECONDS = 1.0
@@ -1174,14 +1175,42 @@ HEREDOC_BODIES = scan_heredocs(command)[1]
 def text_is_japanese(value):
     # The heredoc body was stripped before tokenizing: "$(cat <<'EOF' ... EOF)" left only
     # "$(cat <<'EOF'\n)". Judge every body under that delimiter (one may be a commit message).
+    # An unquoted delimiter expands its body, so a substitution there is unresolved too.
     delimiters = [m.group(2) for m in HEREDOC_SUBSTITUTION.finditer(value)]
     if delimiters:
         if SUBSTITUTION.search(HEREDOC_SUBSTITUTION.sub("", value)):
             return False
-        texts = [body for name, body in HEREDOC_BODIES if name in delimiters]
-        found = {name for name, _ in HEREDOC_BODIES}
-        return all(d in found for d in delimiters) and all(JAPANESE_CHARS.search(t) for t in texts)
+        bodies = [(quoted, body) for name, quoted, body in HEREDOC_BODIES if name in delimiters]
+        found = {name for name, _, _ in HEREDOC_BODIES}
+        return all(d in found for d in delimiters) and all(
+            JAPANESE_CHARS.search(body) and (quoted or not SUBSTITUTION.search(body)) for quoted, body in bodies)
     return not SUBSTITUTION.search(value) and bool(JAPANESE_CHARS.search(value))
+
+
+GH_TEXT_OPTIONS = {"--title": "titles", "-t": "titles", "--body": "bodies", "-b": "bodies",
+                   "--body-file": "files", "-F": "files"}
+
+
+def gh_text_options(args):
+    """The title, body and body-file values, read in order so that a value is never read as an option
+    (--title "-bX" is a title, not a body). Other options are not known here, so a value of theirs that
+    looks like one of these (--label -bX) is still read as one: that can only keep the nudge or add a
+    value to judge."""
+    found = {"titles": [], "bodies": [], "files": []}
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--":
+            break
+        name, sep, attached = arg.partition("=") if arg.startswith("--") else (arg[:2], "", arg[2:])
+        kind = GH_TEXT_OPTIONS.get(name)
+        if kind and (sep or attached):
+            found[kind].append(attached)
+        elif kind and i + 1 < len(args):
+            found[kind].append(args[i + 1])
+            i += 1
+        i += 1
+    return found["titles"], found["bodies"], found["files"]
 
 
 def body_file_is_japanese(value, directory, deadline):
@@ -1212,9 +1241,8 @@ def body_file_is_japanese(value, directory, deadline):
 
 
 def japanese_nudge_needed(action, args, directory):
-    titles = option_values(args, "--title", "-t")
-    texts = titles + option_values(args, "--body", "-b")
-    files = option_values(args, "--body-file", "-F")
+    titles, bodies, files = gh_text_options(args)
+    texts = titles + bodies
     if action == "create" and not (titles and len(texts) + len(files) > len(titles)):
         return True
     if not (texts or files) or denials or len(files) > BODY_FILE_LIMIT:

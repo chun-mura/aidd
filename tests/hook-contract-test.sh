@@ -117,8 +117,13 @@ print(r.stdout, end="")
 ' "$repo" "$1" "$dispatcher") || { echo "hook did not return: $1" >&2; exit 1; }
   printf '%s' "$out"
 }
-ja_shown() { ja_nudge "$1" | grep -Fq 'タイトルと本文は日本語'; }
-ja_quiet() { if ja_shown "$1"; then echo "language nudge shown: $1" >&2; exit 1; fi; }
+# The output is taken first, so a hook that fails or hangs fails the test instead of reading as quiet.
+ja_shown() { local out; out=$(ja_nudge "$1") || exit 1; printf '%s' "$out" | grep -Fq 'タイトルと本文は日本語'; }
+ja_quiet() {
+  local out
+  out=$(ja_nudge "$1") || exit 1
+  if printf '%s' "$out" | grep -Fq 'タイトルと本文は日本語'; then echo "language nudge shown: $1" >&2; exit 1; fi
+}
 mkdir -p "$repo/notes"
 printf '## 概要\n\nhook の判定を直す。SECRET_MARKER_JA\n' > "$repo/notes/ja.md"
 printf '## Summary\n\nFix the hook. SECRET_MARKER_EN\n' > "$repo/notes/en.md"
@@ -147,6 +152,12 @@ ja_shown $'gh pr create --head docs-only --title "通知を直す" --body "$(cat
 ja_shown $'git commit -F - <<\'EOF\'\nfix: english message\nEOF\ngh pr create --head docs-only --title "通知を直す" --body "$(cat <<\'EOF\'\n本文\nEOF\n)"'
 # A heredoc next to another substitution cannot be judged by the heredoc alone.
 ja_shown $'gh pr create --head docs-only --title "通知を直す" --body "$(cat <<\'EOF\'\n本文\nEOF\n) $(cat notes/en.md)"'
+# An unquoted delimiter expands its body: a substitution there is unresolved. A quoted one is literal.
+ja_shown $'gh issue edit 5 --title 通知 --body "$(cat <<EOF\n$(printf 日本語 >&2)\nEOF\n)"'
+ja_quiet $'gh issue edit 5 --title 通知 --body "$(cat <<EOF\n日本語の本文\nEOF\n)"'
+ja_quiet $'gh issue edit 5 --title 通知 --body "$(cat <<\'EOF\'\n本文 $(literal)\nEOF\n)"'
+# A value is never read as an option: --title "-b..." is a title, so the create has no body.
+ja_shown 'gh pr create --head docs-only --title "-b日本語"'
 ja_shown 'gh pr create --head docs-only --title "通知を直す" --body "$(cat notes/ja.md)"'
 ja_shown 'gh pr create --head docs-only --title "通知を直す" --body "`cat notes/ja.md`"'
 # More than three body files: the rest count as unreadable.
