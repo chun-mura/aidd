@@ -474,6 +474,95 @@ hook PreToolUse "$repo" $'npm test # run\ngh pr create --head docs-only' | grep 
 hook PreToolUse "$repo" 'echo "#x"; gh issue create -t t' | grep -F 'タイトルと本文は日本語'
 [ -z "$(hook PreToolUse "$repo" 'echo x # git commit -m x')" ]
 
+# #197: a git add before the commit in the same command has not run yet at PreToolUse. Its named
+# paths count with the staged ones, so a docs-only add-and-commit stays quiet. An add the hook
+# cannot read (no names, magic pathspec, outside the repository) keeps the nudge.
+add_repo="$tmp_dir/add-repo"
+git init -q --template= -b main "$add_repo"
+mkdir -p "$add_repo/docs" "$add_repo/src"
+echo base > "$add_repo/src/app.sh"
+git -C "$add_repo" add src/app.sh
+git -C "$add_repo" commit -qm 'chore: base'
+echo doc > "$add_repo/docs/x.md"
+echo note > "$add_repo/notes.md"
+echo code >> "$add_repo/src/app.sh"
+# The output is taken first, so a hook that fails fails the test instead of reading as quiet.
+tp_shown() {
+  local out
+  out=$(hook PreToolUse "$1" "$2") || exit 1
+  printf '%s' "$out" | grep -Fq '/aidd:test-perspectives' || { echo "nudge not shown: $2" >&2; exit 1; }
+}
+tp_quiet() {
+  local out
+  out=$(hook PreToolUse "$1" "$2") || exit 1
+  if printf '%s' "$out" | grep -Fq '/aidd:test-perspectives'; then echo "nudge shown: $2" >&2; exit 1; fi
+}
+tp_quiet "$add_repo" 'git add docs/x.md && git commit -m x'
+tp_quiet "$add_repo" 'git add docs/x.md notes.md && git commit -F - <<EOF
+docs: x
+EOF'
+tp_quiet "$add_repo" 'cd docs && git add x.md && git commit -m x'
+tp_quiet "$tmp_dir" "git -C $add_repo add notes.md && git -C $add_repo commit -m x"
+tp_shown "$add_repo" 'git add src/app.sh && git commit -m x'
+tp_shown "$add_repo" 'git add docs/x.md src/app.sh && git commit -m x'
+tp_shown "$add_repo" 'git commit -m x && git add docs/x.md'
+tp_shown "$add_repo" 'git add ../outside.md && git commit -m x'
+tp_shown "$add_repo" 'git add :/docs && git commit -m x'
+# The path is judged after .. and . fold, so docs/../src is code and ./docs is docs.
+tp_shown "$add_repo" 'git add docs/../src/app.sh && git commit -m x'
+tp_quiet "$add_repo" 'git add ./docs/x.md && git commit -m x'
+# A symbolic link is staged as the link: one in src/ pointing into docs/ is code.
+ln -s ../docs/x.md "$add_repo/src/link.sh"
+tp_shown "$add_repo" 'git add src/link.sh && git commit -m x'
+rm "$add_repo/src/link.sh"
+# Outside docs/, a directory or a glob may stage files of any name; inside docs/ it stays docs.
+mkdir -p "$add_repo/bundle.md"
+echo code > "$add_repo/bundle.md/app.sh"
+tp_shown "$add_repo" 'git add bundle.md && git commit -m x'
+tp_shown "$add_repo" "git add '*.md' && git commit -m x"
+tp_quiet "$add_repo" "git add docs/ 'docs/*.md' && git commit -m x"
+rm -r "$add_repo/bundle.md"
+# A path gone from the disk may be a removed directory, whose add stages deleted code; so may a
+# tracked directory replaced by a file of the same name.
+tp_shown "$add_repo" 'git add bundle.md && git commit -m x'
+mkdir -p "$add_repo/kit.md"
+echo code > "$add_repo/kit.md/app.sh"
+git -C "$add_repo" add kit.md/app.sh
+git -C "$add_repo" commit -qm 'chore: kit'
+rm -r "$add_repo/kit.md"
+echo doc > "$add_repo/kit.md"
+tp_shown "$add_repo" 'git add kit.md && git commit -m x'
+rm "$add_repo/kit.md"
+git -C "$add_repo" restore kit.md/app.sh
+# Global git options before add can change how the paths match.
+tp_shown "$add_repo" 'git --icase-pathspecs add notes.md && git commit -m x'
+tp_shown "$add_repo" 'git -c core.ignorecase=true add notes.md && git commit -m x'
+# Options other than those that keep the add to the named paths, abbreviations included.
+printf 'src/app.sh\n' > "$add_repo/paths.txt"
+tp_shown "$add_repo" 'git add --pathspec-from-fi paths.txt && git commit -m x'
+tp_shown "$add_repo" 'git add --al notes.md && git commit -m x'
+tp_quiet "$add_repo" 'git add -v --intent-to-add notes.md && git commit -m x'
+rm "$add_repo/paths.txt"
+# Words the shell may still expand name another path; an add naming nothing may stage anything.
+tp_shown "$add_repo" 'git add "docs/$X" && git commit -m x'
+tp_shown "$add_repo" 'git add docs/$(echo x.md) && git commit -m x'
+tp_shown "$add_repo" 'git add ~/x.md && git commit -m x'
+tp_shown "$add_repo" 'git add docs/{x,y}.md && git commit -m x'
+tp_shown "$add_repo" 'git add -p && git commit -m x'
+# A docs add in another repository says nothing about this repository's commit.
+tp_shown "$tmp_dir" "cd $add_repo && git add docs/x.md && cd $repo && git commit -m x"
+out=$(AIDD_DISABLE_GIT_SAFETY=1 hook PreToolUse "$add_repo" 'git add -A && git commit -m x') || exit 1
+printf '%s' "$out" | grep -Fq '/aidd:test-perspectives'
+# Code already staged is still code, whatever the add names.
+git -C "$add_repo" add src/app.sh
+tp_shown "$add_repo" 'git add docs/x.md && git commit -m x'
+git -C "$add_repo" restore --staged src/app.sh
+# Staged docs alone stay quiet as before; an add naming nothing beside them may stage code.
+git -C "$add_repo" add docs/x.md
+tp_quiet "$add_repo" 'git commit -m x'
+tp_shown "$add_repo" 'git add -p && git commit -m x'
+git -C "$add_repo" restore --staged docs/x.md
+
 # Commands that are not git or gh never start python, even when cwd or transcript_path
 # contains "git" / "gh"; a git on a later line of the command still does.
 fake_bin="$tmp_dir/fake-bin"

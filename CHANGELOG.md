@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.97.1 (2026-11-28)
+
+- `tool-reminder.sh`: `git add <文書> && git commit` を1回で実行したときに、test-perspectives の通知を出さないようにした (#197)。PreToolUse の時点では前半の `git add` がまだ動いておらず、staged が空に見えたため、文書だけのコミットの判定を飛ばして通知が出ていた。同じコマンドで commit より前にある、同じリポジトリの `git add` の明示パスを staged と合わせて判定する。パスは add のディレクトリから解決し、`..`・`.` を畳み込む。名指ししない add (`-A`・`-u`・`-p` など)、magic pathspec、シェルが展開する文字 (`$`・バッククォート・`~`・`{}`) を含むパス、リポジトリの外を指すパスがあれば、今までどおり通知を出す。設計: `docs/superpowers/specs/2026-11-28-add-and-commit-docs-only-design.md`
+
 ## 0.97.0 (2026-11-28)
 
 - `tool-reminder.sh`: `gh pr create`・`gh pr edit`・`gh issue create`・`gh issue edit` の「日本語で書くこと」の通知を、渡されたタイトルと本文がすべて日本語なら出さないようにした (#198)。これまでは書く文の言語を見ずに毎回出していたため、日本語で書いた issue・PR でも出て、読み飛ばされる通知になっていた。判定するのは `--title`/`-t`・`--body`/`-b`・`--body-file`/`-F` と、`--body "$(cat <<'EOF' … EOF)"` の heredoc の中身で、かなか漢字を1文字以上含めば日本語とみなす。create ではタイトルと本文の両方が要る。stdin・存在しないファイル・FIFO・解決できないコマンド置換など読めない値があれば、今までどおり出す。本文ファイルは通常ファイルだけを、先頭の 64KiB、3個まで、合計1秒の範囲で読み、中身は出力しない。同じコマンドで拒否が出ている場合はファイルを読まずに通知を出す (読みが止まると hook の出力ごと失われ、拒否も効かなくなるため)。通知は助言で、判定は回避できる (日本語を1文字入れれば英語でも黙る)。設計: `docs/superpowers/specs/2026-11-28-japanese-nudge-language-check-design.md`
