@@ -10,17 +10,19 @@ Design: docs/superpowers/specs/2026-11-28-issue-implement-outcome-design.md
 """
 import argparse, errno, json, os, re, secrets, stat, subprocess, sys, time
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 RUN_PARENTS = (".aidd", "issue-implement")
 RUN_ID = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{8}$")
 ISSUE = re.compile(r"^[1-9][0-9]*$")
 STATUSES = ("done", "needs_input", "blocked")
 REASONS = ("gh_unavailable", "split_proposed", "review_unconverged", "audit_session_launched",
-           "verification_failed", "undecided_rows", "incomplete")
+           "required_check_not_run", "verification_failed", "undecided_rows", "incomplete")
 KINDS = ("spec_choice", "approval")
 BODY_KEYS = ("issue", "status", "reason", "questions", "completion", "artifacts")
 DOC_KEYS = ("schema_version", "run_id") + BODY_KEYS
 COMPLETION = {"verification": "passed", "undecided_rows": 0, "untracked_deferred": 0}
+# Steps a done run must state. A step that was required but did not run is blocked/required_check_not_run.
+CHECKS = {"security_review": ("ran", "not_required")}
 ARTIFACT_KEYS = ("design_doc", "test_perspectives")
 MAX_OPTIONS = 4
 LIMITS = {"question": 1000, "label": 80, "effect": 400}
@@ -136,10 +138,15 @@ def check_body(data, top):
     elif questions:
         errors.append(f"questions must be empty when status is {status}")
     if status == "done":
-        if not isinstance(completion, dict) or _keys(completion, tuple(COMPLETION), "completion"):
-            errors.append("completion must be {verification, undecided_rows, untracked_deferred} when status is done")
-        elif any(type(completion[k]) is not type(v) or completion[k] != v for k, v in COMPLETION.items()):
-            errors.append("completion must be verification=passed, undecided_rows=0, untracked_deferred=0 for done")
+        if not isinstance(completion, dict) or _keys(completion, tuple(COMPLETION) + tuple(CHECKS), "completion"):
+            errors.append("completion must be {" + ", ".join(tuple(COMPLETION) + tuple(CHECKS)) + "} when status is done")
+        else:
+            if any(type(completion[k]) is not type(v) or completion[k] != v for k, v in COMPLETION.items()):
+                errors.append("completion must be verification=passed, undecided_rows=0, untracked_deferred=0 for done")
+            for key, allowed in CHECKS.items():
+                if not isinstance(completion[key], str) or completion[key] not in allowed:
+                    errors.append(f"completion.{key} is not one of " + "/".join(allowed)
+                                  + " (a required step that did not run is blocked/required_check_not_run)")
     elif completion is not None:
         errors.append(f"completion must be null when status is {status}")
     key_errors = _keys(artifacts, ARTIFACT_KEYS, "artifacts")

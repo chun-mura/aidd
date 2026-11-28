@@ -56,14 +56,14 @@ GitHub issue を1本、着手から完了報告まで進めてください。使
 
 ## 5. レビュー
 
-`superpowers:requesting-code-review` でレビューを受け、指摘への対応は `superpowers:receiving-code-review` に、反復の終了条件は `review-loop` skill に従う (上限まで回しても収束せずに止めるときは `outcome: blocked/review_unconverged`)。自動マージ可否の判定まで要るなら、代わりに `/aidd:autonomous-review` を使う (観点別レビューと deferred の追跡を内包するので、下の追加分のうち silent-failure-hunter・/security-review・横展開のレビューは重ねない)。autonomous-review が `/security-review` を未実行と記録した場合は、実装差分の監査が済んでいないものとして、完了報告に未実行として理由ごと書く。未実行の理由が対象の範囲 (作業ツリーの差分だけ、head がチェックアウトされていない) のときだけ、変更をコミットして head をチェックアウトした状態で `/security-review` を実行し、その結果を完了報告に書く (機微情報の保存に当たる差分では、下の `/security-review` の項と同じく、委譲先が除外する種類を残存リスクに書く)。理由が「監査は走ったが、監査した範囲を確かめられない (ブロックの終了コード2)」または「ブロックが1で終わった」のときは、対象の範囲の理由ではないので、自分で `/security-review` を実行し直さない (このセッションの中で実行すると、差分の本文が展開されて文脈に入るため)。対象の範囲の理由で自分で実行した場合も、差分の本文がこのセッションの文脈に入ったことを完了報告の残存リスクに書く。autonomous-review が実行済みと記録した場合は重ねない。
+`superpowers:requesting-code-review` でレビューを受け、指摘への対応は `superpowers:receiving-code-review` に、反復の終了条件は `review-loop` skill に従う (上限まで回しても収束せずに止めるときは `outcome: blocked/review_unconverged`)。自動マージ可否の判定まで要るなら、代わりに `/aidd:autonomous-review` を使う (観点別レビューと deferred の追跡を内包するので、下の追加分のうち silent-failure-hunter・/security-review・横展開のレビューは重ねない)。autonomous-review が `/security-review` を未実行と記録した場合は、実装差分の監査が済んでいないものとして、完了報告に未実行として理由ごと書く。未実行の理由が対象の範囲 (作業ツリーの差分だけ、head がチェックアウトされていない) のときだけ、変更をコミットして head をチェックアウトした状態で `/security-review` を実行し、その結果を完了報告に書く (機微情報の保存に当たる差分では、下の `/security-review` の項と同じく、委譲先が除外する種類を残存リスクに書く)。理由が「監査は走ったが、監査した範囲を確かめられない (ブロックの終了コード2)」または「ブロックが1で終わった」のときは、対象の範囲の理由ではないので、自分で `/security-review` を実行し直さない (このセッションの中で実行すると、差分の本文が展開されて文脈に入るため。監査は済んでいないので、下の `/security-review` の項により完了にしない)。対象の範囲の理由で自分で実行した場合も、差分の本文がこのセッションの文脈に入ったことを完了報告の残存リスクに書く。autonomous-review が実行済みと記録した場合は重ねない。
 
 **監査の新しいセッションを起動した run のあと**: 次のどれかに当たる場合 (autonomous-review の `report.md` の冒頭に、`/security-review` を新しい `claude -p` のセッションで動かしたという利用者への注意がある、`state.json` の `perspective_reviews` の `security` の `reason` が「新しいセッションを起動した」で始まる、このセッションで `security-review run: launching` の行を見た)、そのセッションは利用者と同じ権限で動き、このリポジトリの `.git`・hooks・作業ツリーを書き換えうる。以後このリポジトリでは、テスト・ビルド・`/stdd:mutation-check`・6 の配置の置き直し・git・`gh` (deferred の issue の起票を含む) を含め、コマンドを一切動かさない。起票が要る deferred は完了報告に書いて人に渡す。下の追加分と 6 の検証・配置の照合は、未実行として理由 (監査の新しいセッションを起動したため) を完了報告に書き、7 の完了報告で止まって利用者の確認を待つ (`outcome: blocked/audit_session_launched`)。例外として、8 の outcome の `write` だけは実行してよい (拒否されたときの書き直しを含む。git もネットワークも使わず、リンクをたどらずに実行IDディレクトリにだけ書くため)。
 
 差分の性質に応じて次を足す。該当したのに実行できなかったものは、完了報告に未実行として理由とともに書く。
 
 - **`pr-review-toolkit:silent-failure-hunter`**: 差分に例外捕捉 (`try` / `catch` / `except` / `rescue`)、既定値へのフォールバック、空配列・`null` の返却、再送出しないログ出力のいずれかがある。pr-review-toolkit が未導入なら `aidd:reviewer` に「握り潰されたエラー、沈黙するフォールバック」の観点だけを割り当てて代える
-- **`/security-review`**: 差分が信頼境界を跨ぐ (外部入力、認証・認可、秘密情報、公開エンドポイント、権限設定)、または機微情報 (個人情報・プロンプト・認証情報など) をファイル・ログ・キャッシュに保存する。設計レーンで design-review の security-reviewer が見たのは設計書であり、実装の差分ではないので、`/security-review` の実行済みに数えない。`/security-review` が報告対象から除外する種類 (`/aidd:autonomous-review` の「委譲先が除外する種類」) は、実行しても監査されていないので、機微情報の保存に当たる差分ではその除外を完了報告の残存リスクに書く
+- **`/security-review`**: 差分が信頼境界を跨ぐ (外部入力、認証・認可、秘密情報、公開エンドポイント、権限設定)、または機微情報 (個人情報・プロンプト・認証情報など) をファイル・ログ・キャッシュに保存する。設計レーンで design-review の security-reviewer が見たのは設計書であり、実装の差分ではないので、`/security-review` の実行済みに数えない。`/security-review` が報告対象から除外する種類 (`/aidd:autonomous-review` の「委譲先が除外する種類」) は、実行しても監査されていないので、機微情報の保存に当たる差分ではその除外を完了報告の残存リスクに書く。3 で認可の追加・変更を理由に設計レーンにした変更は、常にこの項に当たる。当たるのに実行が最後まで終わらなかったとき (権限で拒否された、エラーで終わった、autonomous-review が未実行と記録し上の段落の手順でも実行しなかった、予算や時間を理由に省いた) は、監査が済んでいないので完了にしない。完了報告に未実行として理由を書き、`outcome: blocked/required_check_not_run` で止める (人が監査を実行してから完了を判断する)
 - **横展開のレビュー**: 差分が守りの処理 (認可・所有の確認、入力の検証、ログに出す値の形、例外の扱い) を足す・直す・共通の関数に切り出す。`aidd:reviewer` に「同じ形の呼び出し元と兄弟の処理 (同じ種類のエンドポイント・ハンドラ・action) に同じ処理が当たっているか」の観点だけを割り当てる。4-5 は実装者自身の検索で、ここは別の目で漏れを探す。4-5 で deferred に回した箇所は一覧ごと渡し、それ以外の漏れを報告させる
 - **`/stdd:mutation-check`**: 分岐・境界条件を持つロジックを変え、その正しさをテストだけが担保している。stdd が未導入ならスキップし、未実行を完了報告の残存リスクに書く
 
@@ -71,6 +71,7 @@ GitHub issue を1本、着手から完了報告まで進めてください。使
 
 - **deferred**: 今は直さないと判定した指摘は、`review-loop` skill が追跡先として認めるもの (確定した Issue / ADR の番号、または `.aidd/review-dismissed.md` への理由つき追記) に落とすまで完了にしない。issue を起票するのも、棄却一覧に追記するのも人の承認を得てからにする (`outcome: needs_input/approval`)
 - **配置**: 5 の「監査の新しいセッションを起動した run のあと」に当たる場合は行わず、未実行として完了報告に書く。差分の各ファイルを、設計書の「構成と責務」に書かれた配置と照らす。配置から外れたファイルと、設計が別のコンポーネントに割り当てた責務、またはどのコンポーネントにも割り当てていない責務を引き受けたファイルは、設計どおりに置き直すか、設計書の配置と責務を直して理由を完了報告に書く。責務の集中は行数ではなく、この責務の割り当てで判定する。設計書が配置を持たない場合 (直行レーン、配置を書いていない古い設計書) は、差分の周りの既存の構造を配置とみなし、各ファイル・モジュールがすでに担っている責務を割り当てとみなす。外れたものは既存の構造に合わせて置き直すか、外れる理由を完了報告に書く
+- **必要な監査**: 5 の `/security-review` の項に当たる差分では、`/security-review` が最後まで実行されていること (当たらなければこの項は無い)。満たせなければ 5 の印で止める
 - **検証**: 完了を主張する前に `superpowers:verification-before-completion` に従う。5 の「監査の新しいセッションを起動した run のあと」に当たる場合は、検証のコマンドを動かさず、未実行として完了報告に書く (完了を主張しない)。検証が通らず、`superpowers:systematic-debugging` でもこの実行の中で直せないときは、完了を主張せず完了報告で止める (`outcome: blocked/verification_failed`)
 
 ## 7. PR を出す判断は人に残す
@@ -104,9 +105,9 @@ E2E・移行・性能・ロールバックの検証は、原要件か変更の�
 - **渡す JSON**: `{"issue": "<番号>" | null, "status": ..., "reason": ..., "questions": [...], "completion": ..., "artifacts": {"design_doc": <パス> | null, "test_perspectives": <パス> | null}}`。`schema_version` と `run_id` はスクリプトが付ける。パスはリポジトリのトップからの相対パス
 - **質問**: `{"question", "kind", "options": [{"label", "effect"}]}` (選択肢は2〜4件、`effect` は選ぶと何が起きるか)。ホストはセッションを再開せず、回答を issue に足してから最初から実行し直すことがあるので、質問は issue と outcome だけで読める文にする (「上の案」のように会話を指さない)。委譲先の skill (design-doc・brainstorming など) が人に質問するとき、仕様の選択なら 2 の3つ目として `needs_input` (`spec_choice`) を書く。実装の進め方の選択 (計画の実行方式など) は依頼者に渡さず 2 の1つ目として自分で決める
 - **status ごとの組み合わせ**: `reason` は `blocked` のときだけ値を持ち、ほかは `null`。`questions` は `needs_input` のときだけ1件以上、ほかは空配列。`completion` は `done` のときだけ値を持ち、ほかは `null`
-- **done の条件**: `completion` に `{"verification": "passed", "undecided_rows": 0, "untracked_deferred": 0}` を書く。6 の検証の結果、7 の表の「未判断」の行数、追跡先の無い deferred の数を数えた値から書き、満たさなければ done にしない
+- **done の条件**: `completion` に `{"verification": "passed", "undecided_rows": 0, "untracked_deferred": 0, "security_review": "ran" | "not_required"}` を書く。6 の検証の結果、7 の表の「未判断」の行数、追跡先の無い deferred の数を数えた値から書き、満たさなければ done にしない。`security_review` は、5 の `/security-review` の項に当たる差分で、このセッションか autonomous-review が最後まで実行したときだけ `ran`、当たらないときだけ `not_required` と書く。当たるのに実行が終わらなかったなら `ran` と書かず、`blocked/required_check_not_run` を書く (スクリプトは `ran`・`not_required` 以外の値と欠落を拒否するが、値が実態どおりかは確かめられない)
 - **拒否されたら**: 終了コード1は入力が外れている。stderr の理由を見て直して書き直す。直せない、または終了コード2なら、完了報告に「outcome を書けなかった」と理由を書く (ホストからは outcome が無い = 異常終了に見える)
-- 止まる理由が複数あるときは、最初に止まった停止点の値を書く
+- 止まる理由が複数あるときは、最初に止まった停止点の値を書く。監査の新しいセッションを起動した run は、その後コマンドを実行できないので、ほかの理由があっても `audit_session_launched` を書く
 
 | 停止点 | 印 |
 |---|---|
@@ -115,6 +116,7 @@ E2E・移行・性能・ロールバックの検証は、原要件か変更の�
 | 3・5 review-loop が上限まで回しても収束しない | `outcome: blocked/review_unconverged` |
 | 3 規模超過で issue-split を提案 | `outcome: blocked/split_proposed` |
 | 5 監査の新しいセッションを起動した run のあと | `outcome: blocked/audit_session_launched` |
+| 5 必要な `/security-review` が最後まで実行されなかった | `outcome: blocked/required_check_not_run` |
 | 6 deferred の起票・棄却の承認待ち | `outcome: needs_input/approval` |
 | 6 検証が通らず、この実行の中で直せない | `outcome: blocked/verification_failed` |
 | 7 「未判断」の行を質問の形にできない | `outcome: blocked/undecided_rows` |

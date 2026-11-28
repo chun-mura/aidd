@@ -64,7 +64,7 @@ assert r.returncode == 2, (r.returncode, r.stderr)
 # --- write: valid documents per status --------------------------------------------------------
 Q = {"question": "Which?", "kind": "spec_choice",
      "options": [{"label": "A", "effect": "does a"}, {"label": "B", "effect": "does b"}]}
-DONE = {"verification": "passed", "undecided_rows": 0, "untracked_deferred": 0}
+DONE = {"verification": "passed", "undecided_rows": 0, "untracked_deferred": 0, "security_review": "ran"}
 BASES = {
     "done": {"issue": "191", "status": "done", "reason": None, "questions": [], "completion": DONE,
              "artifacts": {"design_doc": "docs/design.md", "test_perspectives": None}},
@@ -79,7 +79,7 @@ for status, base in BASES.items():
     assert r.returncode == 0, (status, r.stderr)
     with open(outcome) as f:
         written = json.load(f)
-    assert written["schema_version"] == 1 and written["run_id"] == os.path.basename(run_dir), written
+    assert written["schema_version"] == 2 and written["run_id"] == os.path.basename(run_dir), written
     assert {k: v for k, v in written.items() if k not in ("schema_version", "run_id")} == base, written
     r = run(["check", outcome], tmp)
     assert r.returncode == 0, (status, r.stderr)
@@ -89,6 +89,11 @@ assert [n for n in os.listdir(run_dir) if n != "outcome.json"] == [], os.listdir
 for reason in mod.REASONS:
     r = run(["write", run_dir], repo, json.dumps(dict(BASES["blocked"], reason=reason)))
     assert r.returncode == 0, (reason, r.stderr)
+# A done run states each required step; a security review that was not needed is also done.
+for key, allowed in mod.CHECKS.items():
+    for value in allowed:
+        r = run(["write", run_dir], repo, json.dumps(dict(BASES["done"], completion=dict(DONE, **{key: value}))))
+        assert r.returncode == 0, (key, value, r.stderr)
 for kind in mod.KINDS:
     q = dict(Q, kind=kind)
     r = run(["write", run_dir], repo, json.dumps(dict(BASES["needs_input"], questions=[q])))
@@ -136,6 +141,13 @@ rejects = {
     "done with untracked deferred": json.dumps(with_("done", completion=dict(DONE, untracked_deferred=2))),
     "done with bool count": json.dumps(with_("done", completion=dict(DONE, undecided_rows=False))),
     "completion extra key": json.dumps(with_("done", completion=dict(DONE, more=0))),
+    "done without security_review": json.dumps(with_("done", completion={k: v for k, v in DONE.items() if k != "security_review"})),
+    "done with security_review not run": json.dumps(with_("done", completion=dict(DONE, security_review="not_run"))),
+    "done with security_review denied": json.dumps(with_("done", completion=dict(DONE, security_review="denied"))),
+    "done with security_review null": json.dumps(with_("done", completion=dict(DONE, security_review=None))),
+    "done with security_review true": json.dumps(with_("done", completion=dict(DONE, security_review=True))),
+    "done with security_review list": json.dumps(with_("done", completion=dict(DONE, security_review=["ran"]))),
+    "done with security_review object": json.dumps(with_("done", completion=dict(DONE, security_review={}))),
     "needs_input without questions": json.dumps(with_("needs_input", questions=[])),
     "needs_input with reason": json.dumps(with_("needs_input", reason="gh_unavailable")),
     "needs_input with completion": json.dumps(with_("needs_input", completion=DONE)),
@@ -167,6 +179,11 @@ for name, raw in rejects.items():
     assert r.stderr.strip(), name
     with open(outcome, "rb") as f:
         assert f.read() == last_good, name
+# A done whose security review did not run points the writer at the blocked reason to use instead.
+r = run(["write", run_dir], repo, json.dumps(with_("done", completion=dict(DONE, security_review="not_run"))))
+assert r.returncode == 1 and "required_check_not_run" in r.stderr, r.stderr
+r = run(["write", run_dir], repo, json.dumps(with_("done", completion=dict(DONE, security_review="secret-value-xyz"))))
+assert r.returncode == 1 and "secret-value-xyz" not in r.stderr, r.stderr
 # A rejection names the problem but never repeats the offending value.
 r = run(["write", run_dir], repo, json.dumps(with_("blocked", reason="secret-value-xyz")))
 assert r.returncode == 1 and "secret-value-xyz" not in r.stderr, r.stderr
@@ -229,7 +246,7 @@ def check_fixture(name, content, layout=True):
 
 assert check_fixture("good copy", doc).returncode == 0
 for name, bad in {
-    "old schema": dict(doc, schema_version=0),
+    "old schema": dict(doc, schema_version=1),
     "run_id mismatch": dict(doc, run_id="20261128T000000Z-00000000"),
     "missing run_id": {k: v for k, v in doc.items() if k != "run_id"},
     "not utf-8": b'{"issue": "\xff"}',
@@ -339,7 +356,8 @@ per_section = {
     "1": {("blocked", "gh_unavailable")},
     "2": {("needs_input", "spec_choice")},
     "3": {("blocked", "review_unconverged"), ("blocked", "split_proposed")},
-    "5": {("blocked", "review_unconverged"), ("blocked", "audit_session_launched")},
+    "5": {("blocked", "review_unconverged"), ("blocked", "audit_session_launched"),
+          ("blocked", "required_check_not_run")},
     "6": {("needs_input", "approval"), ("blocked", "verification_failed")},
     "7": {("done", ""), ("blocked", "undecided_rows"), ("blocked", "incomplete")},
 }

@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.106.0 (2026-11-28)
+
+- `issue-implement`: 認可・信頼境界の変更で必要な `/security-review` が最後まで実行されないまま `done` を書けないようにした (#223)。#133 の `/aidd:eval develop` の設計レーン (認可の追加) の試行で、`/security-review` が権限で拒否されたのに `done` になり、outcome からは監査済みと読み違えうるため (`tests/eval/results/2026-11-28-develop.md`)。`outcome.json` を `schema_version` 2 にし、`done` の `completion` に `security_review` (`ran` か `not_required`) を必須にした。それ以外の値・欠落は `scripts/issue-outcome.py` が拒否し、理由に使うべき reason を示す。新しい reason `required_check_not_run` を足し、5 の `/security-review` の項に、当たるのに実行が終わらなかったとき (権限で拒否・エラー・autonomous-review が未実行と記録し自分でも実行しなかった・予算や時間を理由に省いた) は完了にせず `blocked/required_check_not_run` で止めると書いた。認可の追加・変更を理由に設計レーンにした変更は常に当たる。`ran` / `not_required` の値の正しさはスクリプトでは確かめられない (自己申告)。`tests/issue-outcome-test.sh` で固定した。設計: `docs/superpowers/specs/2026-11-28-issue-implement-outcome-design.md`
 ## 0.105.0 (2026-11-28)
 
 - `retro`: 手順4-2の還流 issue の一覧取得から `--search 'reflux in:title'` を外し、`--label reflux-triaged --state open --limit 201` だけにした (#140)。`--search` は GitHub の検索インデックスを使うので、ラベルを付けた直後には反映が遅れ、終了コード0のまま0件を返した。retro は0件なら0件と伝えるので、保守者がラベルを付けた直後に集計すると、対象があるのに「0件」と伝えていた。#140 で還流の経路を草案から本体の PR まで通したときに見つけた (2026-11-28: 付けた直後は `--search` 付きが0件、`--search` なしは1件、数十秒後には両方1件)。タイトルの `[reflux] ` の接頭辞は既存の snippet が確かめて、付け間違いの issue は数えないので、検索に頼る必要が無い
