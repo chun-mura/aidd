@@ -159,7 +159,7 @@ Claude Code に入れた aidd と、この Cursor 用プラグインは併用し
 | スクリプト | 動作 |
 |---------|------|
 | [`session-start.sh`](hooks/scripts/session-start.sh) | SessionStart で資産の使いどころと不明点の確認指示を注入し、棚卸しの期限切れと superpowers 未導入を知らせる |
-| [`usage-log.sh`](hooks/scripts/usage-log.sh) | `/aidd:*` の起動回数と最終利用時刻を `~/.claude/aidd/usage.json` に記録する (プロンプト本文は記録しない) |
+| [`usage-log.sh`](hooks/scripts/usage-log.sh) | `/aidd:*` の起動回数と最終利用時刻を `~/.claude/aidd/usage.json` に記録する。モデルが Skill ツールで起動した回数は `model_counts` にも分けて記録する (プロンプト本文は記録しない) |
 | [`tool-reminder.sh`](hooks/scripts/tool-reminder.sh) | Bash の git / gh を1本で判定し、作業を失う git 操作・指名しないステージ・既定ブランチへの force push と削除・重複検索なしの `gh issue create` などを拒否し、テスト観点・日本語・レビュー証跡・コミット規約などを通知する |
 | [`skill-gate.sh`](hooks/scripts/skill-gate.sh) | モデルが `autonomous-review` を起動する前にユーザーの許可を求める (Cursor では SKILL.md の `Read` を拒否する) |
 | [`write-guard.sh`](hooks/scripts/write-guard.sh) | 新規ファイルのうち sandbox で読めなくなる名前を拒否し、`.claude/` への新規資産には重なる aidd 資産を案内する (同名は拒否) |

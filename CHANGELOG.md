@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.100.0 (2026-11-28)
+
+- `usage-log.sh`: モデル (サブエージェントを含む) が Skill ツールで起動した回数を、`usage.json` の `model_counts` にも分けて記録するようにした (#204)。0.95.0 で `test-perspectives`・`design-doc`・`design-review` をモデルから起動できるようにしてから、`command_counts` では利用者が打った回数とモデルが起動した回数が混ざり、`/aidd:retro` で起動しすぎを見分けられなかったため。hook の入力で区別できる: 利用者が打った slash コマンドは UserPromptSubmit だけを通り、PreToolUse(Skill) は通らない (2026-11-14 の設計の R4・R15)。`command_counts` と `last_seen` の意味は変えていない (`model_counts` はその内数)。記録を始める前の回数は区別できない
+- `retro`: `model_counts` を読み、モデルから起動できる skill はモデルの起動と利用者の起動を分けて示すようにした (#204)。`model_counts` にはほかの skill の手順や hook の通知に従った起動も入るので、モデルの起動が多いものは、頼まれていない場面での起動かを利用者に確かめてから description を絞る候補にする
+- 対話に近い形での起動しすぎの測定を `tests/eval/results/2026-11-28-model-invocation-interactive.md` に保存した (#204)。Claude Code 2.1.332 の `claude -p` で、使うべきでない依頼9件 (brainstorming の spec への相談、コードの差分のレビュー、文書への質問、小さな変更、skill の使い分けの質問、spec への追記 → 次の提案、ターンを分けた brainstorming → spec → 「この spec で大丈夫?」、小さなバグ修正 → 提案、小さなバグ修正 → コミット) では3つとも起動されず、使うべき依頼3件では3件とも該当する skill が1回ずつ起動された。description は変えていない
+
 ## 0.98.0 (2026-11-28)
 
 - 保証条件と責任分担を `docs/assurance/contract.md` に定義した (#149)。安全性・成果物の正しさを無条件に保証せず、前提と対象版の下で主張ごとに証拠で判定するため。主張は種別ごとの安定した ID (`AC-PROC-*` 手順遵守・`AC-PRIV-*` 権限制限・`AC-SPEC-*` 仕様適合) で管理し、保証ロードマップの後続 issue (#150〜#161) が引用する主張カタログを置いた。状態は `未検証`・`不適合`・`適合`・`対象外`・`期限付き例外` で、例外は適合にならず、期限 (最長90日) を過ぎると元の状態に戻り、重大な禁止事項に当たる主張は例外にできない。aidd・実行基盤・CI・導入先の業務責任者の責務を割り当て、採用には所有者の承認を要するとした。ユーザーが選んだ最初の対応構成 (arm64 macOS + OrbStack の Linux VM + 作業ごとの Docker コンテナ + squid のサイドカー、Claude Code) は構成の書き方の例として載せ、適合は宣言していない (実測は #150)。通常の利用 (hook の fail-open、#122 の非ブロック警告など) は変えていない

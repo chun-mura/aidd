@@ -27,6 +27,10 @@ except Exception:
 
 names = set()
 tool_input = event.get("tool_input") or {}
+# A typed slash command reaches this hook only as UserPromptSubmit; PreToolUse(Skill) fires only
+# when the model (or a subagent) starts the skill itself. model_counts keeps that subset so
+# /aidd:retro can tell the model's starts from the user's (#204).
+by_model = event.get("tool_name") == "Skill"
 
 # Only actual invocations are counted, on the two paths that identify one:
 #   - the Skill tool, which names the command in tool_input.skill (this also covers a
@@ -35,7 +39,7 @@ tool_input = event.get("tool_input") or {}
 # Scanning free text for "aidd:<name>" was tried and reverted: a single run counted 4 times
 # (parent prompt, Agent dispatch prompt, the subagent's Skill call, task notification),
 # and a prompt that merely discusses a command is not a use of it.
-if event.get("tool_name") == "Skill":
+if by_model:
     skill = tool_input.get("skill")
     if isinstance(skill, str) and skill.startswith("aidd:"):
         names.add(skill[len("aidd:"):])
@@ -75,6 +79,7 @@ with open(lock_file, "w") as lock:
 
     data.setdefault("command_counts", {})
     data.setdefault("last_seen", {})
+    data.setdefault("model_counts", {})
 
     # prompt_log was removed in 0.25.0 but survives in existing installs, keeping prompt
     # fragments on disk after the feature was gone. Drop it wherever this hook runs.
@@ -83,6 +88,8 @@ with open(lock_file, "w") as lock:
     for cmd in names:
         data["command_counts"][cmd] = data["command_counts"].get(cmd, 0) + 1
         data["last_seen"][cmd] = now
+        if by_model:
+            data["model_counts"][cmd] = data["model_counts"].get(cmd, 0) + 1
         changed = True
 
     if changed:

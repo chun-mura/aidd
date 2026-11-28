@@ -1110,6 +1110,8 @@ import json, sys
 data = json.load(open(sys.argv[1]))
 assert data["command_counts"]["design-review"] == 2
 assert "prompt_log" not in data
+# A typed command is the user's start, not the model's (#204).
+assert "design-review" not in data.get("model_counts", {}), data
 PYEOF
 
 # The Skill tool names the command exactly, so the key is read, not pattern-matched.
@@ -1122,6 +1124,8 @@ data = json.load(open(sys.argv[1]))
 assert data["command_counts"]["adr"] == 1
 assert "retro" not in data["command_counts"]
 assert "adr" in data["last_seen"]
+# The Skill tool is only the model's path, so it is also counted as a model start (#204).
+assert data["model_counts"] == {"adr": 1}, data["model_counts"]
 PYEOF
 
 # Free text that merely mentions a command is not an invocation. Counting it made one run
