@@ -18,10 +18,10 @@
 
 | 項目 | 所在 |
 |---|---|
-| リポジトリ・コミット | `chun-mura/aidd-autopilot` の [`994c276`](https://github.com/chun-mura/aidd-autopilot/commit/994c276) (ブランチ `feat/assurance-isolated-runtime`) |
-| PR | `chun-mura/aidd-autopilot#<PR>` (PR 番号は未確定。作成後に差し替える) |
-| 設計 | [`docs/superpowers/specs/2026-11-28-assurance-isolated-runtime-design.md`](https://github.com/chun-mura/aidd-autopilot/blob/994c276/docs/superpowers/specs/2026-11-28-assurance-isolated-runtime-design.md)。「実装時の変更」の節が設計からの差分 |
-| 実 Docker の試験記録 | [`docs/verification/2026-11-28-assurance-boundary-docker.md`](https://github.com/chun-mura/aidd-autopilot/blob/994c276/docs/verification/2026-11-28-assurance-boundary-docker.md) |
+| リポジトリ・コミット | `chun-mura/aidd-autopilot` の [`8469893`](https://github.com/chun-mura/aidd-autopilot/commit/8469893) (ブランチ `feat/assurance-isolated-runtime`)。設計と実装の最初のコミットは `994c276`。その後の修正 (`ab1ac87` 以降) を含む |
+| PR | `chun-mura/aidd-autopilot#8` (#7 の上に積む) |
+| 設計 | [`docs/superpowers/specs/2026-11-28-assurance-isolated-runtime-design.md`](https://github.com/chun-mura/aidd-autopilot/blob/8469893/docs/superpowers/specs/2026-11-28-assurance-isolated-runtime-design.md)。「実装時の変更」の節が設計からの差分 |
+| 実 Docker の試験記録 | [`docs/verification/2026-11-28-assurance-boundary-docker.md`](https://github.com/chun-mura/aidd-autopilot/blob/8469893/docs/verification/2026-11-28-assurance-boundary-docker.md) |
 | 段階の実行と制限 (HostConfig・teardown・limits.json) | `packages/platform-docker/src/staged-runner.ts`、`packages/platform-docker/src/run-resources.ts` |
 | 通信 (許可先・squid の生成) | `config/egress/{agent,deps,publish}.txt`、`image/proxy/generate-squid-conf.sh`、`packages/platform-docker/src/egress-proxy.ts` |
 | 実 Docker の試験 | `tests/docker/*.test.ts` (`npm run test:docker`) |
@@ -55,16 +55,19 @@ aidd 側の検査: `examples/assurance/runtime/check_run_record.py` は、実行
 | VM のカーネル | 7.2.12-orbstack-00394-gbecdd6130068 (aarch64) | 検証記録 (`docker info`) |
 | cgroup・seccomp | cgroup v2・cgroupfs・cgroupns、seccomp は builtin の既定プロファイル | 検証記録 |
 | VM の資源 | 11 CPU・約 16 GiB | 検証記録 (`docker info`) |
-| runner image (最終) | `sha256:687358e76f963f20009fe6fa55e9da070f85342b7eec716ff040cb10cf767eb8` | 検証記録 |
+| runner image (修正後の再ビルド、現行) | `sha256:ce88d42430dacac76ff991e44204ea2775561e0d42715d2b90013e1e30a7b63f` | 検証記録の追補 |
+| runner image (初回の2回目のビルド) | `sha256:687358e76f963f20009fe6fa55e9da070f85342b7eec716ff040cb10cf767eb8` | 検証記録の本文。現行の値ではない |
 | proxy image (最終) | `sha256:d783756d3d92dd6ed583fe60bdf1700613479c61e96362f820d70a192b2e8140` (squid 5.7) | 検証記録 |
 | runner の Node.js | v22.23.1 | 検証記録 |
 | Claude Code (runner image) | 2.1.216 (`image/Dockerfile` の `@anthropic-ai/claude-code@2.1.216`)。検証記録で `claude --version` が 2.1.216 を返した | 検証記録、Dockerfile |
-| 試験したコード | `ae6ba2889080b09aa30af4018690d72067e0119f`。`994c276` はその後の記録の文書だけの変更 (ドキュメントのみ) | `git show --stat` |
+| 試験したコード | 本文の表は `ae6ba2889080b09aa30af4018690d72067e0119f` で試験した。追補の再実行に使ったコードの SHA は記録に書かれていない (未確認)。記録の最新版は `8469893` | 検証記録 |
 | git (runner image) | 未取得 | 検証記録 |
 
-**版の食い違い**: [runtime-selection.md](runtime-selection.md) と [ADR-0002](../adr/0002-isolated-runtime-orbstack-docker-squid.md) は Claude Code を 2.1.207 としている。これは aidd-autopilot の main `cf660fd` の Dockerfile の版で、参照構成 (`994c276`) の Dockerfile は 2.1.216 に固定されている。対象版は 2.1.216 とし、2.1.207 の記述は main の版として読む。判断は所有者が確認する (未確認)。
+**試験結果 (記録 `8469893` の時点)**: `npm run test:docker` は exit 0、8 ファイル成功、51 成功・1 todo (計 52)。追補の再実行の結果。`npm run test:e2e` は 7 試験成功 (本文の記録)。`npm test` は 410 試験成功 (本文の記録。修正前の実行で、追補には件数が無い)。修正後の `npm test` の件数は記録に無いため、ここには書かない (未確認)。
 
-モデルの認証方式は、対象の設定ファイルでどちらを使うかを確かめていない (資格情報ファイルは読まない)。方式は [credentials.md](credentials.md) を参照。
+**版の食い違い**: [runtime-selection.md](runtime-selection.md) と [ADR-0002](../adr/0002-isolated-runtime-orbstack-docker-squid.md) は Claude Code を 2.1.207 としている。これは aidd-autopilot の main `cf660fd` の Dockerfile の版で、参照構成 (`8469893`) の Dockerfile は 2.1.216 に固定されている。対象版は 2.1.216 とし、2.1.207 の記述は main の版として読む。判断は所有者が確認する (未確認)。
+
+モデルの認証方式は、対象の設定ファイルでどちらを使うかを確かめていない (資格情報ファイルは読まない)。方式は資格情報の文書 (作成待ち) を参照。
 
 ## 4. 主張ごとの対応
 
@@ -121,6 +124,7 @@ aidd 側の検査: `examples/assurance/runtime/check_run_record.py` は、実行
 | 証拠 | `tests/docker/ingest.test.ts` (実 Docker、14件): ネットワーク無し、symlink・FIFO・character device の拒否、5000 件の上限、bundle の上限、base..tip の総量の上限、48 MiB の圧縮爆弾、不正な JSON、digest の不一致、余分なファイル、0 commit、自動実行されるパス (`.github/workflows`) |
 | 記録 | 検証記録の AC-PRIV-004 の行 (14 成功) |
 | 前提 | ingest 段階はネットワーク無し・上限付きの tmpfs・時間上限。ホストは大きさの決まった通常ファイルだけを読み、digest を照合する |
+| bundle 作成の拒否 | `unsafe-repository`: workspace・repo ディレクトリが通常でない、alternates で他の object store を借りている、object store が通常のディレクトリでない、grafts・shallow など git の読み方を変える要因がある、config が他のファイルを include している、を bundle 作成の段階で拒否する (commit `ab1ac87`)。試験は `packages/runner/test/branch-bundle.test.ts` (単体、Docker を起動しない) |
 | 限界 | 圧縮爆弾の実 Docker 試験は 48 MiB のゼロ。512 MiB の bundle は単体試験のみ。bind mount 越しの device の扱いは未確認 (検証記録の「device node の試験」) |
 
 ### AC-PRIV-005 外向き通信は外側で既定拒否され、許可した段階と宛先だけに届く
@@ -164,7 +168,7 @@ python3 examples/assurance/runtime/check_run_record.py --limits <run>/limits.jso
 - **通信の分類**:
   - モデル接続 (agent): モデル API への外部送信として扱う。repo ごとに `repository_model_data_policies` (分類・承認者・承認日) を必須にし、run の記録に写す設計 (aidd-autopilot の CLAUDE.md)。承認が無い repo は dispatch しない
   - 依存の取得 (deps): 承認したレジストリだけ。lockfile がある時だけ `npm ci --ignore-scripts` を実行する
-  - 公開 (publish): GitHub だけ。refspec は1つ ([credentials.md](credentials.md))
+  - 公開 (publish): GitHub だけ。refspec は1つ (資格情報の文書は作成待ち)
 - **MCP・ブラウザ・connector**: claude は `--disallowedTools WebFetch,WebSearch` と `--strict-mcp-config --mcp-config {"mcpServers":{}}` で起動する (`claude-executor.ts`、モックで確認)。`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` でテレメトリを止める (`packages/runner/src/cli.ts`)。ブラウザは image に無いと設計にある (未確認: 実 image での確認は無い)。connector は runner に無い (範囲外として扱う)。shell 経由の通信は、段階の squid の許可先だけに届く
 - **ADR 0003 の決定の結果**: 名前空間の syscall (`clone`・`mount`・`pivot_root`・`setns`・`umount2`・`unshare`) は、どの段階にも追加しない。コードに独自の seccomp プロファイルは無く、Docker の既定を使う (`git grep seccomp` で確認)。Codex は runner の workflow で使わない。見直す条件: (a) Codex の read-only レビューを、資格情報とネットワークを持たない専用の段階として追加するとき、(b) 別の基盤 (Linux ホストなど) を採用するとき。その場合は新しい ADR で評価する
 - **VM と容器の root**: 同じ uid で userns は無い。カーネルや OrbStack の脆弱性は境界を越えうる
