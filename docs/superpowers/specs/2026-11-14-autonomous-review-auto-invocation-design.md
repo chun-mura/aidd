@@ -140,7 +140,7 @@ Codex の信頼し直し: この変更は `hooks.json` の既存の `^Skill$` �
 
 ## 未決
 
-- `ask` を無効にして自動で起動したい利用者向けの opt-out（`AIDD_*` 環境変数）は、要望が出るまで足さない。
+- `ask` を無効にして自動で起動したい利用者向けの opt-out（`AIDD_*` 環境変数）は、要望が出るまで足さない。非対話のホストにも要らないことを実測で確かめた（#192、下の R15〜R17 と「非対話のホストからの起動」）。
 - Codex でモデルから起動できるようにするかは、許可を取る仕組みが見つかってから改めて決める。
 
 ## 実測結果
@@ -181,3 +181,21 @@ Codex の信頼し直し: この変更は `hooks.json` の既存の `^Skill$` �
 ### 2026-11-24 / Cursor の Read の基点（#173。Cursor は起動せず、記録と配布物を読んだ）
 
 - **R14（Read の入力と基点）**: `tests/fixtures/hooks/cursor/preToolUse.read-before-edit.json`（cursor-agent 2026.10.22-27dcf5f で記録）の Read の入力に `cwd` は無い（Shell は `cwd: ""`）。同じ記録の `_process.json` では `CURSOR_PROJECT_DIR` が `workspace_roots` の先頭と同じだった。Cursor 3.31.11（`extensions/cursor-agent-exec/dist/main.js`）と cursor-agent 2026.10.22 のバンドルでは、hook の `tool_input.file_path` は Read の引数の文字列のままで、Read の実行（`LocalReadExecutor`）は `file://` を `fileURLToPath`（失敗すれば元の文字列）で変換し、先頭の `~` を展開し、相対なら `path.resolve(workspacePath, path)`、`workspacePath` が無ければ `path.resolve(path)`（プロセスの cwd）で解決する。 変換できない `file://` を「`… is not a valid file URL. Use an absolute path instead.`」のエラーで返す判定は、両方のバンドルとも Write の実行（`_M`）にだけあり、Read（`KR` → `LocalReadExecutor`）には無い。Read は変換前の文字列を相対パスとして開く。gate は変換前の文字列も候補に残すので、将来 Read が同じエラーを返すようになっても、止める側に倒れるだけで通しはしない。`workspacePath` は、workspace が1つならその root、複数で `dirname` がすべて同じならその親、それ以外は無し。`path.resolve` は `..` を文字の上で畳む。Windows と、複数 root のときの `CURSOR_PROJECT_DIR` の値は確かめていない。
+
+### 2026-11-28 / Claude Code 2.1.332・Agent SDK 0.3.332（#192。非対話のホストからの起動）
+
+検証用のプラグイン (`gateprobe`) を使った。中身は、名前が `autonomous-review` のダミーの skill (本文は `GATEPROBE_OK` と返すだけ)、それを Skill ツールで呼ぶ `implement` の skill、本物の `hooks/scripts/skill-gate.sh` を PreToolUse(`^Skill$`) に付けたもの。gate は skill 名の最後の部分で判定するので、`aidd:autonomous-review` と同じ扱いになる。本物の autonomous-review は動かしていない。`--model haiku`・`--setting-sources project`・空の作業ディレクトリで、各1回。`skill-gate.json` の数で gate の判定を数えた。
+
+- **R15（#192 の a）**: `claude -p "/gateprobe:autonomous-review"`（プロンプトとして slash コマンドを渡す。permissionMode は `default`）では、gate の `ask` は記録されず、skill の本文が読み込まれて `GATEPROBE_OK` が返った。プロンプトとして渡した slash コマンドは、手で打ったとき (R4) と同じく PreToolUse(Skill) を通らない。
+- **R16（#192 の c）**: `claude -p "/gateprobe:implement"`（skill の中からモデルが Skill ツールで呼ぶ）と、`claude -p "Use the Skill tool to run the skill gateprobe:autonomous-review …"` のどちらでも、gate が `ask` を返した。Skill ツールは理由の文をエラーとして返し (R2 と同じ)、結果の `permission_denials` に、その Skill の呼び出し (`tool_name: Skill`、`tool_input.skill`) が載った。ホストは `permission_denials` から、モデルが起動しようとして拒否されたことを検出できる。
+- **R17（#192 の b）**: Agent SDK の `query()` に `canUseTool` を渡し、モデルに Skill ツールで呼ばせた (permissionMode は `default`)。hook の `ask` は `canUseTool` に届いた。`toolName` は `Skill`、`input` は `{ skill: "gateprobe:autonomous-review" }`、`decisionReason` は gate の理由の文。`{ behavior: "allow" }` を返すと skill が動いて `GATEPROBE_OK` が返り、`{ behavior: "deny" }` を返すと拒否として `permission_denials` に載った。
+- 費用は1回 0.0016〜0.006 USD だった。
+
+### 非対話のホストからの起動
+
+非対話のホスト (`claude -p`・Agent SDK) が autonomous-review を走らせる経路は、次の2つ。どちらも opt-out は要らない。
+
+1. ホストが、autonomous-review を自分のプロンプトとして別に起動する: `claude -p "/aidd:autonomous-review --base <base> --head <head>"`（R15）。gate を通らない。issue-implement とは別のセッションにし、ホストが結果の `.aidd/autonomous-review/<実行ID>/state.json` を読む。
+2. Agent SDK で、モデルが Skill ツールで起動したものをホストが承認する: `canUseTool` で `toolName === "Skill"` かつ `input.skill` の最後の部分が `autonomous-review` のときに `allow` を返す（R17）。承認するかはホストのコードが決める。モデルの出力や issue の本文で決めない。
+
+ホストが何もしない `claude -p` では、モデルが自分から起動した autonomous-review は拒否される（R16）。issue-implement の中からモデルが起動しようとした場合も同じで、`permission_denials` に載る。対話のセッションでモデルが自分から始めると確認が出る挙動は変えていない（R2・R5〜R8）。
