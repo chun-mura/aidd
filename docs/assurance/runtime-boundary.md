@@ -4,7 +4,7 @@
 
 ## いつ使うか
 
-[最初の対応構成](contract.md#明示選択の保証構成の例-最初の対応構成) (`poc-orbstack-arm64`) で、作業ごとの隔離実行 (AC-PROC-003、AC-PRIV-001〜003)、成果物の取り込み (AC-PRIV-004)、通信の既定拒否 (AC-PRIV-005) の証拠を探すとき、または導入先がこの参照構成の範囲を確かめるとき。資格情報 (AC-PRIV-006・007) の文書は保留中で、まだ作っていない。
+[最初の対応構成](contract.md#明示選択の保証構成の例-最初の対応構成) (`poc-orbstack-arm64`) で、作業ごとの隔離実行 (AC-PROC-003、AC-PRIV-001〜003)、成果物の取り込み (AC-PRIV-004)、通信の既定拒否 (AC-PRIV-005) の証拠を探すとき、または導入先がこの参照構成の範囲を確かめるとき。資格情報 (AC-PRIV-006・007) は [access-separation.md](access-separation.md) にある。
 
 ## この文書が宣言しないこと
 
@@ -39,7 +39,7 @@ aidd 側の検査: `examples/assurance/runtime/check_run_record.py` は、実行
 | deps | `config/egress/deps.txt` の依存レジストリ 11 件 | 依存の取得 | 秘密なし。lockfile がある時だけ `npm ci --ignore-scripts` | 同上 |
 | agent | `api.anthropic.com` だけ | モデル接続 | モデルの token を stdin で受け取る。GitHub の token は無い | 同上。SETUID・SETGID だけ追加 (workflow を別 uid で動かすため) |
 | ingest | なし (network none) | — | output volume (ro) と、quarantine への書き込みだけ | 上限付きの scratch (tmpfs)、時間上限 |
-| publish | `github.com`・`api.github.com` だけ | 公開 | runner の token を stdin で受け取る | 1つの branch への refspec だけ (資格情報の文書は保留中) |
+| publish | `github.com`・`api.github.com` だけ | 公開 | runner の token を stdin で受け取る | 1つの branch への refspec だけ ([access-separation.md](access-separation.md)) |
 
 通信は段階ごとの squid 設定で決まり、設定は run の開始時に固定される。ホストの controller は段階の中に入らない。
 
@@ -67,7 +67,7 @@ aidd 側の検査: `examples/assurance/runtime/check_run_record.py` は、実行
 
 **版の食い違い**: [runtime-selection.md](runtime-selection.md) と [ADR-0002](../adr/0002-isolated-runtime-orbstack-docker-squid.md) は Claude Code を 2.1.207 としている。これは aidd-autopilot の main `cf660fd` の Dockerfile の版で、参照構成 (`8469893`) の Dockerfile は 2.1.216 に固定されている。対象版は 2.1.216 とし、2.1.207 の記述は main の版として読む。判断は所有者が確認する (未確認)。
 
-モデルの認証方式は、対象の設定ファイルでどちらを使うかを確かめていない (資格情報ファイルは読まない)。方式は資格情報の文書 (作成待ち) を参照。
+モデルの認証方式は、対象の設定ファイルでどちらを使うかを確かめていない (資格情報ファイルは読まない)。方式は [access-separation.md](access-separation.md) を参照。
 
 ## 4. 主張ごとの対応
 
@@ -168,13 +168,13 @@ python3 examples/assurance/runtime/check_run_record.py --limits <run>/limits.jso
 - **通信の分類**:
   - モデル接続 (agent): モデル API への外部送信として扱う。repo ごとに `repository_model_data_policies` (分類・承認者・承認日) を必須にし、run の記録に写す設計 (aidd-autopilot の CLAUDE.md)。承認が無い repo は dispatch しない
   - 依存の取得 (deps): 承認したレジストリだけ。lockfile がある時だけ `npm ci --ignore-scripts` を実行する
-  - 公開 (publish): GitHub だけ。refspec は1つ (資格情報の文書は作成待ち)
+  - 公開 (publish): GitHub だけ。refspec は1つ ([access-separation.md](access-separation.md))
 - **MCP・ブラウザ・connector**: claude は `--disallowedTools WebFetch,WebSearch` と `--strict-mcp-config --mcp-config {"mcpServers":{}}` で起動する (`claude-executor.ts`、モックで確認)。`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` でテレメトリを止める (`packages/runner/src/cli.ts`)。ブラウザは image に無いと設計にある (未確認: 実 image での確認は無い)。connector は runner に無い (範囲外として扱う)。shell 経由の通信は、段階の squid の許可先だけに届く
 - **ADR 0003 の決定の結果**: 名前空間の syscall (`clone`・`mount`・`pivot_root`・`setns`・`umount2`・`unshare`) は、どの段階にも追加しない。コードに独自の seccomp プロファイルは無く、Docker の既定を使う (`git grep seccomp` で確認)。Codex は runner の workflow で使わない。見直す条件: (a) Codex の read-only レビューを、資格情報とネットワークを持たない専用の段階として追加するとき、(b) 別の基盤 (Linux ホストなど) を採用するとき。その場合は新しい ADR で評価する
 - **VM と容器の root**: 同じ uid で userns は無い。カーネルや OrbStack の脆弱性は境界を越えうる
 - **tmpfs と VM のメモリ**: tmpfs は VM のメモリを使う。上限の合計が VM のメモリを超えないように決める必要がある
 - **GitHub 側の権限**: ruleset・PAT の範囲は実測していない (aidd #230、所有者の承認待ち)
-- **model token**: claude の子プロセス (Bash ツール) から読める (資格情報の文書は保留中)
+- **model token**: claude の子プロセス (Bash ツール) から読める ([access-separation.md](access-separation.md))
 
 ## 8. 未確認
 
