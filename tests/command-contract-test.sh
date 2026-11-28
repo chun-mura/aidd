@@ -1400,3 +1400,26 @@ fake_issues many
 bash "$retro_tmp/list.sh" > "$retro_tmp/out" 2> "$retro_tmp/err"
 grep -Fx 'listed 200 issue(s) (done)' "$retro_tmp/out"
 grep -F 'more than 200 labeled issues' "$retro_tmp/err"
+
+# User-invoked skills (those with agents/openai.yaml) stay out of the model's reach unless listed here.
+# autonomous-review is gated by skill-gate.sh; the other three are called from issue-implement, the
+# session-start and tool-reminder nudges, and non-interactive hosts, where an `ask` gate acts as a deny (#196).
+model_invocable="autonomous-review design-doc design-review test-perspectives"
+for yaml in "$repo_root"/skills/*/agents/openai.yaml; do
+  skill_dir=$(dirname "$(dirname "$yaml")")
+  name=$(basename "$skill_dir")
+  frontmatter=$(awk 'NR == 1 && $0 == "---" { inside = 1; next } inside && $0 == "---" { exit } inside { print }' "$skill_dir/SKILL.md")
+  case " $model_invocable " in
+    *" $name "*)
+      if printf '%s\n' "$frontmatter" | grep -Fq 'disable-model-invocation'; then
+        echo "$name must be model-invocable (#196)" >&2
+        exit 1
+      fi ;;
+    *)
+      if ! printf '%s\n' "$frontmatter" | grep -Fxq 'disable-model-invocation: true'; then
+        echo "$name is user-invoked and must keep disable-model-invocation: true" >&2
+        exit 1
+      fi ;;
+  esac
+  grep -Fq 'allow_implicit_invocation: false' "$yaml"
+done

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.95.0 (2026-11-28)
+
+- `test-perspectives`・`design-doc`・`design-review` をモデルから起動できるようにした (#196)。`issue-implement`・`autonomous-review` の手順と、`session-start.sh`・`tool-reminder.sh` の案内がこの3つを使うようモデルに指示しているのに、`disable-model-invocation: true` のため Skill ツールが起動を拒否していたため。`claude -p` で4回測ると、test-perspectives は毎回飛ばされ、設計レーンでは design-doc の起動が拒否されて32秒で `blocked/incomplete` になった。gate (`skill-gate.sh` の `ask`) は付けない。headless では `ask` が拒否として働くので、無人のホストでは起動できないままになるため。3つは新しいファイルを作るだけで、既存の文書を書き換えないので、ほかの skill を利用者起動に限っている理由 (0.37.0) は当たらない。description を「いつ使い、いつ使わないか」の形に書き直した (brainstorming の spec、コードの差分、文書への質問、小さな変更などでは使わない)。Codex の `openai.yaml` (`allow_implicit_invocation: false`) は変えていない (Codex で同じ問題が起きるかは未測定)。Cursor もこのフラグを解釈するので、Cursor でもモデルが起動できるようになる。`usage.json` では、この3つについて利用者が打った回数とモデルが起動した回数が混ざる
+- `tests/command-contract-test.sh`: `agents/openai.yaml` を持つ skill のうち、許可リスト (autonomous-review とこの3つ) 以外がすべて `disable-model-invocation: true` を持つことを確かめるようにした。利用者起動の skill の制限を誤って外さないため
+
 ## 0.94.0 (2026-11-28)
 
 - `issue-implement`: 止まるたびに終了状態を `.aidd/issue-implement/<実行ID>/outcome.json` に残すようにした (#191)。非対話のホスト (`claude -p`・Agent SDK) が、完了・質問待ち・停止を最終テキストから推測せずに区別するため。`status` は `done` / `needs_input` / `blocked`。`needs_input` には選択肢 (`label` と、選ぶと何が起きるかの `effect`) 付きの質問を、`blocked` には停止点ごとの `reason` を書く。`done` は `completion` に検証の合格・未判断の行0・追跡先の無い deferred 0 を明示しないと書けない。停止点ごとに `outcome: <status>/<reason か kind>` の印を付け、新しい節「8. 終了状態の記録」に対応表を置いた。ホストは質問で止まったセッションを再開せず、回答を issue に足してから実行し直す前提で、質問は issue と outcome だけで読める文にする。対話セッションの手順・質問・完了報告は変えていないが、止まる前に `python3` を1回実行するので、権限設定によっては実行の許可を求める確認が増える。監査の新しいセッションを起動した run のあとも、outcome の `write` だけは実行する (git を使わず、リンクをたどらずに実行IDディレクトリにだけ書くため)

@@ -1,8 +1,7 @@
 ---
 name: design-review
-description: 設計ドキュメントや実装方針を多観点でレビューする
+description: "Use to review a design document written by design-doc before implementing it (the issue-implement design lane), or when the user asks for a multi-agent design review. Starts several reviewer agents: not for code diffs (autonomous-review, requesting-code-review), specs from superpowers:brainstorming unless asked, questions about a document, or inside a subagent dispatched to review."
 argument-hint: "[設計ファイルのパス or 設計の要約] [--depth=standard|deep] [--review-delta=<前回レビュー後の変更範囲>] [--verify-sources] [--security | --no-security]"
-disable-model-invocation: true
 ---
 
 **パスと引数と質問の扱い**: この文書の相対パスは、この SKILL.md があるディレクトリを起点にする。`$ARGUMENTS` が文字のまま残っている場合（Codex・Cursor など）は、この skill を呼び出したメッセージのうち skill 名以外の部分を `$ARGUMENTS` とみなす。`AskUserQuestion` と書かれた箇所は、ユーザーに質問するツールがあればそれを使い、無ければ質問を書いて作業を止め、回答を待つ。回答が無いまま推測で進めない。

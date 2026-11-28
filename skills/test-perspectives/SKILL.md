@@ -1,8 +1,7 @@
 ---
 name: test-perspectives
-description: 実装対象・変更差分からテスト観点を洗い出す
+description: "Use before implementing a non-trivial change, once a design doc or an issue fixes what to build, to list test perspectives with priorities. Not when perspectives were already produced for this change, for docs-only or trivial changes, or after implementation is complete; not for deriving concrete cases (stdd) or judging an existing suite."
 argument-hint: [対象ファイル/機能の説明。省略時は git diff を対象とする]
-disable-model-invocation: true
 ---
 
 **パスと引数と質問の扱い**: この文書の相対パスは、この SKILL.md があるディレクトリを起点にする。`$ARGUMENTS` が文字のまま残っている場合（Codex・Cursor など）は、この skill を呼び出したメッセージのうち skill 名以外の部分を `$ARGUMENTS` とみなす。`AskUserQuestion` と書かれた箇所は、ユーザーに質問するツールがあればそれを使い、無ければ質問を書いて作業を止め、回答を待つ。回答が無いまま推測で進めない。

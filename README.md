@@ -109,7 +109,7 @@ Claude Code に入れた aidd と、この Cursor 用プラグインは併用し
 
 ### Skills (利用者が呼ぶ。モデルからは自動起動しない)
 
-フラグ・条件分岐・処理の詳細は各 SKILL.md にある。例外として `autonomous-review` は Claude Code ではモデルも起動できるが、起動の前に `skill-gate.sh` が必ずユーザーに許可を求める (Codex は手で起動したときだけ、Cursor はモデルの起動を拒否する)。
+フラグ・条件分岐・処理の詳細は各 SKILL.md にある。例外として `autonomous-review` は Claude Code ではモデルも起動できるが、起動の前に `skill-gate.sh` が必ずユーザーに許可を求める (Codex は手で起動したときだけ、Cursor はモデルの起動を拒否する)。`test-perspectives`・`design-doc`・`design-review` も、Claude Code と Cursor ではモデルが許可なしで起動できる。`issue-implement` と hook の案内がこの3つを使うよう指示しており、非対話のホストでも動かす必要があるため (#196)。Codex は手で起動したときだけ。
 
 | Skill | 用途 | Claude Code | Codex | Cursor |
 |---|---|---|---|---|
