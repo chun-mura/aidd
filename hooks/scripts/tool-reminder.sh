@@ -397,8 +397,9 @@ def added_paths(git_options, args, directory):
 def remind_test_perspectives(directory, adds=()):
     staged = changed_paths(directory, "--cached")
     top = git(directory, "rev-parse", "--show-toplevel") if adds else None
-    added = []
-    for add_top, paths in adds:
+    # Without this commit's top, the adds cannot be matched to it: keep the nudge.
+    added = None if adds and not top else []
+    for add_top, paths in adds if added is not None else ():
         if add_top is None or (add_top == top and paths is None):
             added = None
             break
