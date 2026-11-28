@@ -342,6 +342,11 @@ def changed_paths(directory, *revs):
     return [path for path in out.decode("utf-8", "replace").split("\0") if path]
 
 
+ADD_NAMED_ONLY = {"--dry-run", "--verbose", "--force", "--interactive", "--patch", "--edit", "--intent-to-add",
+                  "--refresh", "--ignore-errors", "--ignore-missing", "--no-warn-embedded-repo", "--renormalize",
+                  "--sparse", "--chmod"}
+
+
 def added_paths(sub, args, directory):
     """(top, paths) for a git add: the paths it names, relative to the repository top, or None when
     they cannot be read (no names, magic pathspec, outside the repository or the whole of it). #197:
@@ -350,7 +355,9 @@ def added_paths(sub, args, directory):
     if not top:
         return None, None
     shorts, longs, positionals = scan(args, *ADD_OPTIONS)
-    if shorts & set("Au") or longs & {"--all", "--update", "--pathspec-from-file"}:
+    # Only options that keep the add to the named paths; anything else, an abbreviation that git
+    # accepts (--pathspec-from-fi) included, cannot be read.
+    if shorts - set("nvfipeN") or longs - ADD_NAMED_ONLY:
         return top, None
     root = os.path.realpath(top)
     paths = []
@@ -368,10 +375,11 @@ def added_paths(sub, args, directory):
         rel = rel.replace(os.sep, "/")
         if rel == "docs":
             rel = "docs/"  # the directory itself: everything it stages is under docs/
-        # Outside docs/, a directory (bundle.md/) or a glob may stage files of any name.
+        # Outside docs/, a directory (bundle.md/), a glob, or a path gone from the disk (a removed
+        # directory stages the deletion of its files) may stage files of any name.
         full = os.path.join(root, rel)
-        if not rel.startswith("docs/") and (
-                re.search(r"[*?\[]", p) or (os.path.isdir(full) and not os.path.islink(full))):
+        if not rel.startswith("docs/") and (re.search(r"[*?\[]", p) or not os.path.lexists(full)
+                                            or (os.path.isdir(full) and not os.path.islink(full))):
             return top, None
         paths.append(rel)
     # An add that names nothing (git add -p / -i) may stage anything.

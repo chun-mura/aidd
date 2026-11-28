@@ -522,6 +522,14 @@ tp_shown "$add_repo" 'git add bundle.md && git commit -m x'
 tp_shown "$add_repo" "git add '*.md' && git commit -m x"
 tp_quiet "$add_repo" "git add docs/ 'docs/*.md' && git commit -m x"
 rm -r "$add_repo/bundle.md"
+# A path gone from the disk may be a removed directory, whose add stages deleted code.
+tp_shown "$add_repo" 'git add bundle.md && git commit -m x'
+# Options other than those that keep the add to the named paths, abbreviations included.
+printf 'src/app.sh\n' > "$add_repo/paths.txt"
+tp_shown "$add_repo" 'git add --pathspec-from-fi paths.txt && git commit -m x'
+tp_shown "$add_repo" 'git add --al notes.md && git commit -m x'
+tp_quiet "$add_repo" 'git add -v --intent-to-add notes.md && git commit -m x'
+rm "$add_repo/paths.txt"
 # Words the shell may still expand name another path; an add naming nothing may stage anything.
 tp_shown "$add_repo" 'git add "docs/$X" && git commit -m x'
 tp_shown "$add_repo" 'git add docs/$(echo x.md) && git commit -m x'
