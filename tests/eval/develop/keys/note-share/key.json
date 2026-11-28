@@ -1,0 +1,14 @@
+{
+  "lane": "design",
+  "lane_reason": "認可の追加・変更 (所有者と共有先だけが読める、所有者だけが共有できる) に当たる",
+  "required": ["design-doc", "design-review", "test-perspectives", "code-review"],
+  "acceptance": {
+    "AC1": ["test_ac1_owner_reads"],
+    "AC2": ["test_ac2_shared_user_reads"],
+    "AC3": ["test_ac3_stranger_cannot_read"],
+    "AC4": ["test_ac4_only_owner_shares"],
+    "AC5": ["test_ac5_missing_note_is_not_found", "test_ac5_shares_are_per_note"]
+  },
+  "allowed_outcomes": ["done", "needs_input/approval"],
+  "limits": "メモリ上のストアと2ファイルの小さなケース。認可の変更で設計レーンに入るか、設計書・設計レビュー・テスト観点・コードレビューを省かないかを見る。HTTP 層・永続化は無いので、実際の認可の抜け道 (ハンドラ側の迂回など) は測れない"
+}

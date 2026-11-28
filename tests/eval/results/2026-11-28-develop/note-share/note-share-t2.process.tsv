@@ -1,0 +1,6 @@
+skill	aidd:design-doc
+skill	aidd:design-review
+agent	aidd:security-reviewer
+agent	aidd:refuter
+agent	aidd:security-reviewer
+agent	aidd:security-reviewer

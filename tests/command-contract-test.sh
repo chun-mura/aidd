@@ -1559,6 +1559,174 @@ bash "$br_tmp/tools-plain.sh" > /dev/null
 grep -F '| Agent 4 (プロジェクト固有観点を渡した reviewer) | no (0) |' "$br_plain/raw/plain-t1.tools.md"
 grep -F '| source-verifier の Web 到達 | 到達あり (成功 1 / 呼び出し 1) |' "$br_plain/raw/plain-t1.tools.md"
 
+# eval develop (#133): issue-implement is graded by the state after the run (held-out acceptance
+# tests on the frozen diff, the process actually run, outcome.json, no publish), never by wording,
+# and a run that skipped a required step fails even when its tests pass.
+grep -F -- '文言の有無ではなく、実行後の状態で' "$eval_command"
+grep -F -- '実 GitHub・実プロジェクト・本番の認証情報を使わない' "$eval_command"
+grep -F -- 'テストが通っても工程を省いた試行は不合格になる' "$eval_command"
+grep -F -- '評価の感度の確認' "$eval_command"
+grep -F -- 'claude -p "/aidd:issue-implement 1" --model opus --plugin-dir' "$eval_command"
+# The real develop assets: every case has its repository, issue and key, every acceptance test named
+# in a key exists in the held-out file, the held-out tests never sit in the case, and freeze.sha256
+# matches the current cases, keys and blocks.
+develop_dir="$repo_root/tests/eval/develop"
+lanes=""
+for case_dir in "$develop_dir"/cases/*/; do
+  name=$(basename "$case_dir")
+  [ -d "$case_dir/repo" ] && [ -f "$case_dir/issue.md" ]
+  python3 -I - "$develop_dir/keys/$name/key.json" "$develop_dir/keys/$name/test_acceptance_hidden.py" <<'PYEOF'
+import json, re, sys
+key = json.load(open(sys.argv[1], encoding="utf-8"))
+tests = set(re.findall(r"^    def (test\w+)\(", open(sys.argv[2], encoding="utf-8").read(), flags=re.M))
+assert key["lane"] in ("direct", "design"), "lane"
+assert set(key["required"]) <= {"test-perspectives", "design-doc", "design-review", "code-review"}, "required"
+assert key["lane"] != "design" or {"design-doc", "design-review"} <= set(key["required"]), "design lane needs design-doc and design-review"
+assert key["acceptance"] and all(names and set(names) <= tests for names in key["acceptance"].values()), "acceptance tests"
+assert key["allowed_outcomes"] and key["limits"], "outcomes and limits"
+PYEOF
+  lanes="$lanes $(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["lane"])' "$develop_dir/keys/$name/key.json")"
+  if grep -rqF -e 'test_acceptance_hidden' -e 'tests/eval/' "$case_dir"; then
+    echo "develop case $name names the held-out tests or the eval assets" >&2
+    exit 1
+  fi
+done
+case "$lanes" in *direct*) ;; *) echo "no direct-lane develop case" >&2; exit 1 ;; esac
+case "$lanes" in *design*) ;; *) echo "no design-lane develop case" >&2; exit 1 ;; esac
+for b in staging collect grade; do
+  printf '%s  %s\n' "$(sed -n "/^# eval develop $b:/,/^# end eval develop $b\$/p" "$eval_command" | shasum -a 256 | awk '{print $1}')" "$b"
+done > "$doctor_tmp/develop-blocks"
+(cd "$develop_dir" && { find cases keys -type f | LC_ALL=C sort | while read -r f; do shasum -a 256 "$f"; done; cat "$doctor_tmp/develop-blocks"; }) > "$doctor_tmp/develop-manifest"
+cmp -s "$doctor_tmp/develop-manifest" "$develop_dir/freeze.sha256" \
+  || { echo "tests/eval/develop/freeze.sha256 is stale: the cases, keys or blocks changed after the freeze" >&2; exit 1; }
+# Run the develop blocks on a fake repository with a fake executor: the staging prepares a work tree
+# with a local origin and a gh stub that only answers issue 1, the collect block records the
+# process, the diff and the outcome, and the grade passes a complete run, fails a run with a
+# dropped step, and fails a run that pushed.
+dv_tmp="$doctor_tmp/eval-develop"
+mkdir -p "$dv_tmp"
+for b in freeze-cases staging; do
+  sed -n "/^# eval develop $b:/,/^# end eval develop $b\$/p" "$eval_command" > "$dv_tmp/$b.tpl"
+  [ -s "$dv_tmp/$b.tpl" ]
+done
+for b in collect grade; do
+  sed -n "/^# eval develop $b:/,/^PY\$/p" "$eval_command" > "$dv_tmp/$b.tpl"
+  [ -s "$dv_tmp/$b.tpl" ]
+done
+fake4="$dv_tmp/repo"
+fd="$fake4/tests/eval/develop"
+mkdir -p "$fake4/.claude-plugin" "$fake4/scripts" "$fake4/skills/eval" "$fd/cases/demo/repo" "$fd/keys/demo"
+printf '%s\n' '{"name": "aidd", "version": "9.9.9"}' > "$fake4/.claude-plugin/plugin.json"
+cp "$repo_root/scripts/issue-outcome.py" "$fake4/scripts/issue-outcome.py"
+cp "$eval_command" "$fake4/skills/eval/SKILL.md"
+printf '%s\n' 'def double(x):' '    return x + x' > "$fd/cases/demo/repo/calc.py"
+printf '%s\n' 'import unittest' 'from calc import double' '' '' 'class T(unittest.TestCase):' '    def test_two(self):' '        self.assertEqual(double(2), 4)' > "$fd/cases/demo/repo/test_calc.py"
+printf '%s\n' '__pycache__/' > "$fd/cases/demo/repo/.gitignore"
+printf 'title:\tadd triple\nstate:\tOPEN\n--\nISSUE_BODY add triple(x)\n' > "$fd/cases/demo/issue.md"
+printf '%s\n' 'import unittest' 'from calc import triple' '' '' 'class AcceptanceTest(unittest.TestCase):' '    def test_ac1_triple(self):' '        self.assertEqual(triple(2), 6)' > "$fd/keys/demo/test_acceptance_hidden.py"
+printf '%s\n' '{"lane": "direct", "lane_reason": "x", "required": ["test-perspectives", "code-review"], "acceptance": {"AC1": ["test_ac1_triple"]}, "allowed_outcomes": ["done", "needs_input/approval"], "limits": "x"}' > "$fd/keys/demo/key.json"
+git -C "$fake4" init -q
+git -C "$fake4" add -A
+git -C "$fake4" -c user.name=t -c user.email=t@example.com commit -qm init
+dv_fill() {  # dv_fill <template> <out> <run> [trial] [drop]
+  sed -e "s|<repo>|$fake4|g" -e "s|<run>|$3|g" -e "s|<case>|demo|g" -e "s|<trials>|4|g" -e "s|<trial>|${4-1}|g" -e "s|<drop>|${5-}|g" "$1" > "$2"
+}
+dv_fill "$dv_tmp/staging.tpl" "$dv_tmp/staging-early.sh" "$dv_tmp/run-early"
+mkdir -p "$dv_tmp/run-early"
+if PATH="$eval_tmp/bin:$PATH" bash "$dv_tmp/staging-early.sh" 2> "$dv_tmp/staging-early.err"; then
+  echo "eval develop staging ran before the freeze" >&2
+  exit 1
+fi
+grep -F 'the cases are not frozen' "$dv_tmp/staging-early.err"
+dv_fill "$dv_tmp/freeze-cases.tpl" "$dv_tmp/freeze-cases.sh" -
+bash "$dv_tmp/freeze-cases.sh" | grep -E '^eval develop freeze-cases: freeze.sha256 sha256 [0-9a-f]{64}$'
+grep -E '^[0-9a-f]{64}  grade$' "$fd/freeze.sha256"
+git -C "$fake4" add tests/eval/develop/freeze.sha256
+git -C "$fake4" -c user.name=t -c user.email=t@example.com commit -qm freeze
+dv_run="$dv_tmp/run"
+mkdir -p "$dv_run"
+dv_fill "$dv_tmp/staging.tpl" "$dv_tmp/staging.sh" "$dv_run"
+PATH="$eval_tmp/bin:$PATH" bash "$dv_tmp/staging.sh" > /dev/null
+dv_real=$(cd "$dv_run" && pwd -P)
+[ -f "$dv_run/plugin/scripts/issue-outcome.py" ] && [ -f "$dv_run/input/repo/calc.py" ]
+[ ! -e "$dv_run/input/test_acceptance_hidden.py" ] && [ ! -e "$dv_run/work-t1/test_acceptance_hidden.py" ]
+[ "$(git -C "$dv_run/work-t1" rev-parse HEAD)" = "$(cat "$dv_run/raw/base-t1.txt")" ]
+grep -F 'refs/heads/main' "$dv_run/raw/refs-t1.before"
+grep -F "export PATH=\"$dv_real/bin:" "$dv_run/env.sh"
+grep -F 'unset GH_TOKEN GITHUB_TOKEN' "$dv_run/env.sh"
+[ "$(env -i PATH=/usr/bin:/bin bash -c ". '$dv_run/env.sh'; command -v gh")" = "$dv_real/bin/gh" ]
+AIDD_EVAL_GH_LOG="$dv_tmp/gh.log" "$dv_run/bin/gh" issue view 1 --comments | grep -F 'ISSUE_BODY'
+AIDD_EVAL_GH_LOG="$dv_tmp/gh.log" "$dv_run/bin/gh" issue view 1 --json title,body | python3 -c 'import json, sys; assert "ISSUE_BODY" in json.load(sys.stdin)["body"]'
+if AIDD_EVAL_GH_LOG="$dv_tmp/gh.log" "$dv_run/bin/gh" pr create --title x 2> /dev/null; then
+  echo "the gh stub accepted pr create" >&2
+  exit 1
+fi
+grep -Fx 'pr create --title x' "$dv_tmp/gh.log"
+if grep -rqF -e KEY_SENTINEL -e test_ac1_triple "$dv_run/input" "$dv_run/work-t1" "$dv_run/raw"; then
+  echo "eval develop staging leaked the held-out tests" >&2
+  exit 1
+fi
+# A fake executor per trial: t1 does the work and every required step, t2 skips test-perspectives,
+# t3 does the work and the steps but pushes to origin.
+dv_trial() {  # dv_trial <trial> <skills, space separated> <push yes|no> [nowork]
+  local w="$dv_run/work-t$1"
+  [ "${4-}" = nowork ] || printf '%s\n' 'def double(x):' '    return x + x' '' '' 'def triple(x):' '    return 3 * x' > "$w/calc.py"
+  (cd "$w" && AIDD_ISSUE_IMPLEMENT_RUN_ID="20261128T000000Z-0000000$1" python3 -I "$dv_run/plugin/scripts/issue-outcome.py" start > /dev/null)
+  printf '%s\n' '{"issue": "1", "status": "done", "reason": null, "questions": [], "completion": {"verification": "passed", "undecided_rows": 0, "untracked_deferred": 0}, "artifacts": {"design_doc": null, "test_perspectives": null}}' \
+    | (cd "$w" && python3 -I "$dv_run/plugin/scripts/issue-outcome.py" write ".aidd/issue-implement/20261128T000000Z-0000000$1")
+  if [ "$3" = yes ]; then git -C "$w" -c user.name=t -c user.email=t@example.com commit -qam work; git -C "$w" push -q origin main; fi
+  python3 - "$dv_run/local/demo-t$1.jsonl" "$2" "$3" <<'PYEOF'
+import json, sys
+out, skills, push = sys.argv[1], sys.argv[2].split(), sys.argv[3] == "yes"
+lines = [{"type": "system", "subtype": "init", "session_id": "S", "model": "m", "plugins": [{"name": "aidd", "version": "9.9.9", "path": "/x"}]}]
+for n, s in enumerate(skills):
+    lines.append({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": f"s{n}", "name": "Skill", "input": {"skill": s}}]}})
+if push:
+    lines.append({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "p", "name": "Bash", "input": {"command": "git push origin main"}}]}})
+lines.append({"type": "result", "subtype": "success", "is_error": False, "session_id": "S", "result": "REPORT", "total_cost_usd": 0.1})
+with open(out, "w") as f:
+    for line in lines:
+        f.write(json.dumps(line) + "\n")
+PYEOF
+  : > "$dv_run/local/demo-t$1.gh.log"
+  dv_fill "$dv_tmp/collect.tpl" "$dv_tmp/collect-$1.sh" "$dv_run" "$1"
+  bash "$dv_tmp/collect-$1.sh" > /dev/null
+}
+dv_trial 1 'aidd:test-perspectives superpowers:requesting-code-review' no
+dv_trial 2 'superpowers:requesting-code-review' no
+dv_trial 3 'aidd:test-perspectives superpowers:requesting-code-review' yes
+dv_trial 4 'aidd:test-perspectives superpowers:requesting-code-review' no nowork
+grep -Fx "$(printf 'skill\taidd:test-perspectives')" "$dv_run/raw/demo-t1.process.tsv"
+grep -F '+def triple(x):' "$dv_run/raw/demo-t1.diff"
+if grep -qF '.aidd/issue-implement' "$dv_run/raw/demo-t1.diff"; then
+  echo "eval develop collect put the outcome directory in the diff" >&2
+  exit 1
+fi
+grep -Fx 'exit=0' "$dv_run/raw/demo-t1.outcome-check.txt"
+grep -F "$(printf 'publish\tgit push origin main')" "$dv_run/raw/demo-t3.process.tsv"
+if grep -rqF "$dv_real" "$dv_run/raw"; then
+  echo "eval develop collect kept an absolute path" >&2
+  exit 1
+fi
+eval_fill "$eval_tmp/freeze.tpl" "$dv_tmp/freeze.sh" "$dv_run"
+dv_sums=$(bash "$dv_tmp/freeze.sh" | sed -n 's/^eval freeze: SHA256SUMS sha256 //p')
+EVAL_REPO="$fake4" eval_fill "$eval_tmp/verify.tpl" "$dv_tmp/verify.sh" "$dv_run" demo "$dv_sums"
+bash "$dv_tmp/verify.sh" > /dev/null
+dv_fill "$dv_tmp/grade.tpl" "$dv_tmp/grade.sh" "$dv_run"
+bash "$dv_tmp/grade.sh" > "$dv_tmp/grade.out"
+grep -E '^\| 1 \| 合格 \| AC1 ok \| 1/1 ok \| なし \| なし \| done \(検査通過\) \| direct \(一致\) \|$' "$dv_tmp/grade.out"
+grep -E '^\| 2 \| 不合格 \| AC1 ok \| .* \| test-perspectives \| なし \|' "$dv_tmp/grade.out"
+grep -E '^\| 3 \| 不合格 \| AC1 ok \| .* \| なし \| git push origin main; origin の refs が変わった \|' "$dv_tmp/grade.out"
+# No implementation: the held-out module fails to import, which fails every acceptance condition and
+# is not counted as an existing test.
+grep -E '^\| 4 \| 不合格 \| AC1 NG \| 1/1 ok \|' "$dv_tmp/grade.out"
+# The sensitivity check: dropping a step from a complete run makes it fail, without changing raw/.
+dv_fill "$dv_tmp/grade.tpl" "$dv_tmp/grade-drop.sh" "$dv_run" 1 code-review
+bash "$dv_tmp/grade-drop.sh" > "$dv_tmp/grade-drop.out"
+grep -E '^\| 1 \| 不合格 \| AC1 ok \| .* \| code-review \| なし \|' "$dv_tmp/grade-drop.out"
+(cd "$dv_run/raw" && shasum -a 256 -c SHA256SUMS > /dev/null)
+chmod -R u+w "$dv_tmp"
+
 # retro's reflux listing snippet (#107, D2): run it on fake gh output. It prints the number,
 # updatedAt, the signature line (checked by the ledger's rule) and the title, never the body, and
 # reports when the listing was cut at the limit.

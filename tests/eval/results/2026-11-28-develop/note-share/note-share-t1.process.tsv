@@ -1,0 +1,11 @@
+skill	aidd:design-doc
+skill	aidd:design-review
+agent	aidd:security-reviewer
+agent	aidd:refuter
+agent	aidd:security-reviewer
+skill	aidd:test-perspectives
+skill	superpowers:requesting-code-review
+agent	general-purpose
+agent	aidd:reviewer
+skill	security-review
+agent	aidd:reviewer
