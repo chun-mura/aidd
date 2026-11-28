@@ -17,7 +17,7 @@ fi
 
 # The payload stays on stdin (a command can exceed ARG_MAX, see usage-log.sh).
 PY_CODE=$(cat <<'PYEOF'
-import fcntl, fnmatch, glob, json, os, re, shlex, subprocess, sys, time
+import fcntl, fnmatch, glob, json, os, re, shlex, stat, subprocess, sys, time
 
 try:
     event = json.load(sys.stdin)
@@ -68,20 +68,28 @@ ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 HEREDOC = re.compile(r"(?<!<)<<(?!<)-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 
 
-def strip_heredocs(text):
-    # Heredoc bodies are data (commit messages, file contents); drop them before tokenizing.
+def scan_heredocs(text):
+    """Split text into the lines outside heredocs and the heredoc bodies [(delimiter, body)]."""
     lines = text.split("\n")
     kept = []
+    bodies = []
     i = 0
     while i < len(lines):
         kept.append(lines[i])
         delimiters = [m.group(2) for m in HEREDOC.finditer(lines[i])]
         i += 1
         for delimiter in delimiters:
+            start = i
             while i < len(lines) and lines[i].strip() != delimiter:
                 i += 1
+            bodies.append((delimiter, "\n".join(lines[start:i])))
             i += 1
-    return "\n".join(kept)
+    return "\n".join(kept), bodies
+
+
+def strip_heredocs(text):
+    # Heredoc bodies are data (commit messages, file contents); drop them before tokenizing.
+    return scan_heredocs(text)[0]
 
 
 def strip_comments(text):
@@ -1150,7 +1158,75 @@ def load_learnings():
 JAPANESE_NUDGE = "aidd: GitHub issue/PR のタイトルと本文は日本語で書くこと (コード識別子・コマンド・コミットメッセージは英語のまま)。既に日本語なら変更不要。"
 PUSH_NUDGE = "aidd: push したブランチに open PR がある場合 (gh pr view で確認)、追加コミットが PR の範囲・内容を変えたなら gh pr edit でタイトルと概要を最新化すること (日本語)。変えていなければ何もしない。"
 
+# #198: the language nudge is advice, so it stays quiet only when every given title and body is
+# readable and holds kana or kanji (one character is enough: identifiers and commands stay in
+# English). Anything unreadable keeps it. A body file is read only by a hook run with no denial,
+# because a read that hangs (an unresponsive mount) would lose the whole reply, denials included.
+JAPANESE_CHARS = re.compile("[぀-ヿ一-鿿]")
+BODY_FILE_LIMIT = 3
+BODY_READ_BYTES = 64 * 1024
+BODY_READ_SECONDS = 1.0
+SUBSTITUTION = re.compile(r"\$\(|\x60|\$\{")  # \x60: a literal backquote breaks the bash $(...) around this code
+HEREDOC_SUBSTITUTION = re.compile(r"\$\(\s*cat\s+" + HEREDOC.pattern + r"\s*\)")
+HEREDOC_BODIES = scan_heredocs(command)[1]
+
+
+def text_is_japanese(value):
+    # The heredoc body was stripped before tokenizing: "$(cat <<'EOF' ... EOF)" left only
+    # "$(cat <<'EOF'\n)". Judge every body under that delimiter (one may be a commit message).
+    delimiters = [m.group(2) for m in HEREDOC_SUBSTITUTION.finditer(value)]
+    if delimiters:
+        if SUBSTITUTION.search(HEREDOC_SUBSTITUTION.sub("", value)):
+            return False
+        texts = [body for name, body in HEREDOC_BODIES if name in delimiters]
+        found = {name for name, _ in HEREDOC_BODIES}
+        return all(d in found for d in delimiters) and all(JAPANESE_CHARS.search(t) for t in texts)
+    return not SUBSTITUTION.search(value) and bool(JAPANESE_CHARS.search(value))
+
+
+def body_file_is_japanese(value, directory, deadline):
+    if value == "-" or time.monotonic() > deadline:
+        return False
+    path = os.path.join(directory, os.path.expanduser(value))
+    try:
+        # stat first: opening a device has side effects; fstat again in case the path changed.
+        if not stat.S_ISREG(os.stat(path).st_mode):
+            return False
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY | getattr(os, "O_CLOEXEC", 0))
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                return False
+            data = b""
+            while len(data) < BODY_READ_BYTES:
+                if time.monotonic() > deadline:
+                    return False
+                chunk = os.read(fd, BODY_READ_BYTES - len(data))
+                if not chunk:
+                    break
+                data += chunk
+        finally:
+            os.close(fd)
+    except (OSError, ValueError):
+        return False
+    return bool(JAPANESE_CHARS.search(data.decode("utf-8", "replace")))
+
+
+def japanese_nudge_needed(action, args, directory):
+    titles = option_values(args, "--title", "-t")
+    texts = titles + option_values(args, "--body", "-b")
+    files = option_values(args, "--body-file", "-F")
+    if action == "create" and not (titles and len(texts) + len(files) > len(titles)):
+        return True
+    if not (texts or files) or denials or len(files) > BODY_FILE_LIMIT:
+        return True
+    if not all(text_is_japanese(v) for v in texts):
+        return True
+    deadline = time.monotonic() + BODY_READ_SECONDS
+    return not all(body_file_is_japanese(f, directory, deadline) for f in files)
+
+
 ledger_calls = []
+language_checks = []
 for argv, directory in simple_commands(command):
     program = os.path.basename(argv[0])
     if program == "git":
@@ -1180,7 +1256,7 @@ for argv, directory in simple_commands(command):
                 record_issue_search(args, target_repo(repo_flag, directory))
             continue
         if group in ("pr", "issue") and action in ("create", "edit"):
-            add(contexts, JAPANESE_NUDGE)
+            language_checks.append((action, args, directory))
         if group == "pr" and action == "create":
             warn_review_before_pr(args, directory)
         if group == "issue" and action == "create":
@@ -1192,6 +1268,15 @@ if any(sub == "commit" for _, sub, _ in ledger_calls):
         check_ledger(ledger_calls)
     except Exception:  # RecursionError and anything else: deny, and keep the other verdicts
         add(denials, LEDGER_FAILED)
+
+# Last, once every denial is known (see JAPANESE_CHARS). Exceptions keep the nudge.
+for action, args, directory in language_checks:
+    try:
+        needed = japanese_nudge_needed(action, args, directory)
+    except Exception:
+        needed = True
+    if needed:
+        add(contexts, JAPANESE_NUDGE)
 
 if denials or contexts:
     output = {"hookEventName": hook_event}
