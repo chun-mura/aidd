@@ -37,7 +37,7 @@ aidd 自身は、次の3か所でモデルにこの3つの skill を使うよう
 - gate (`skill-gate.sh` の `ask`) を付けない。headless (`-p`) では `ask` が拒否として働く (`2026-11-14-autonomous-review-auto-invocation-design.md` の R2・R13)。付けると無人のホストで起動できず、目的を果たさない
 - 条件付きの gate (対話のときだけ `ask`) も採らない。hook の入力の `permission_mode` は `-p` でも対話の auto mode でも `auto` で (先行設計の R2・R6)、両者を見分けられない
 - `issue-split` は今の制限のまま。GitHub に起票し、issue-implement は提案して止まるだけで、起動を求めていない
-- Codex は変えない (`agents/openai.yaml` の `allow_implicit_invocation: false` のまま)。Codex で `$aidd:issue-implement` の設計レーンが同じように止まるかは測っていない。既知の制限として残し、#196 に記録する
+- Codex は変えない (`agents/openai.yaml` の `allow_implicit_invocation: false` のまま)。Codex で `$aidd:issue-implement` の設計レーンが同じように止まるかは測っていない。既知の制限として残し、#196 に記録する (→ #205 で測定: codex-cli 0.163.0 では、モデルが issue-implement の手順に従って3つの SKILL.md を読み、止まらなかった。`tests/eval/results/2026-11-28-codex-design-skills.md`)
 - 本文 (手順) は変えない。issue-implement の手順も変えない
 
 ## 3. 構成と責務
