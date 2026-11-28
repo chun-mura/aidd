@@ -52,6 +52,20 @@ grep -F -- '機微情報 (個人情報・プロンプト・認証情報など) �
 grep -F -- 'stored in files, logs, or caches that other users or processes may read' "$repo_root/agents/security-reviewer.md"
 grep -F -- 'または機微情報をファイル・ログ・キャッシュに保存する場合は、レビュー結果の最後に実装後の `/security-review`' "$design_review"
 grep -F -- 'or store sensitive data in files, logs, or caches. Launched' "$repo_root/agents/security-reviewer.md"
+# The small-target shortcut skips only the reviewer dispatch: a target that meets the Agent 6
+# condition still gets Agent 6, and --security only stands in for that condition (#200).
+grep -F -- 'ただし Agent 6 の起動条件に当たる場合は、このショートカットでも Agent 6 だけは dispatch する' "$design_review"
+grep -F -- '小規模対象のショートカットでメインが直接レビューする場合も、この条件に当たれば Agent 6 だけは dispatch する' "$design_review"
+grep -F -- '`--security` 指定時は判定を省いてこの条件に当たったとみなし、`--no-security` 指定時は起動しない' "$design_review"
+grep -F -- '指摘は Agent 1-4 (ショートカットではメインの直接レビュー) と同じく反証ステージ・裁定に合流する' "$design_review"
+if grep -Fq -- '判定を省いて必ず起動し' "$design_review"; then
+  echo "design-review: --security must only stand in for the Agent 6 condition (#200)" >&2
+  exit 1
+fi
+# Agent 2 asks whether a design that expects an external call to raise on failure handles a
+# partial failure returned as a value, only when the call is in the design (#201).
+grep -F -- '外部の API・ライブラリの呼び出しが設計書から読み取れ、その失敗を例外で受ける前提に立っている場合は、一部だけの失敗が例外にならず戻り値などで返る可能性を設計が扱っているか' "$design_review"
+grep -F -- '外部の API・ライブラリの呼び出しが設計書から読み取れない場合は推測で指摘しない' "$design_review"
 # The implementation-side security checks use the same storage condition as Agent 6, so a
 # design flagged at design time is not dropped at implementation time (#110).
 grep -F -- '公開エンドポイント、権限設定)、または機微情報 (個人情報・プロンプト・認証情報など) をファイル・ログ・キャッシュに保存する。' "$issue_implement"
