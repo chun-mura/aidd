@@ -802,7 +802,7 @@ PY
 |---|---|---|
 | `deep` | `--depth=deep`。小規模対象ショートカットを使わず、並列 dispatch → refuter → arbiter | 全ケース |
 | `standard` | 既定の `--depth=standard`。小規模対象ショートカットを使わず並列 dispatch し、refuter・arbiter は design-review の standard の条件に従う | 全ケース |
-| `direct` | `--depth=standard` の小規模対象ショートカット (dispatch せず、メインが直接レビューする) | 100行未満のケースだけ (今は structure・data-error・security)。100行以上は「対象外」として記録する |
+| `direct` | `--depth=standard` の小規模対象ショートカット (reviewer を dispatch せず、メインが直接レビューする。Agent 6 の起動条件に当たれば Agent 6 だけは dispatch する) | 100行未満のケースだけ (今は structure・data-error・security)。100行以上は「対象外」として記録する |
 | `baseline` | aidd を使わない単体モデル。`2026-11-07-baseline.md`・`2026-11-22-crosscut-comparison.md` と同じ文言のプロンプトに行番号付きの本文を埋め込み、ツールなし (`--tools ""`) で答えさせる | 全ケース |
 
 - **既存の deep 回帰評価 (手順1〜6) を置き換えない**。運用ルール6の評価は今までどおり手順1〜6で行う。この比較は偽指摘を混ぜない (構成の間で refuter の起動条件と費用をそろえるため) ので、偽指摘の棄却率は測らず、費用は手順1〜6の結果と直接比べない
@@ -919,7 +919,7 @@ echo "eval compare staging: ok ($run, $base)"
 # eval compare configs
 deep: `--depth=deep` で適用する (並列 dispatch → refuter → arbiter)。対象が1ファイル・100行未満でも、小規模対象ショートカットは使わない。
 standard: `--depth=standard` で適用する (既定の深さ。refuter・arbiter は design-review の standard の条件に従う)。対象が1ファイル・100行未満でも、小規模対象ショートカットは使わず、並列 dispatch する。
-direct: `--depth=standard` で適用し、小規模対象ショートカットを使う (agent に dispatch せず、メインが design-review の観点で直接レビューする)。その後の refuter・arbiter は design-review の standard の条件に従う。
+direct: `--depth=standard` で適用し、小規模対象ショートカットを使う (reviewer を dispatch せず、メインが design-review の観点で直接レビューする。Agent 6 の起動条件に当たれば Agent 6 だけは dispatch する)。その後の refuter・arbiter は design-review の standard の条件に従う。
 # end eval compare configs
 ```
 
@@ -955,7 +955,7 @@ direct: `--depth=standard` で適用し、小規模対象ショートカット�
 | 最終報告の指摘件数 | high/mid/low 別。同じケースの `baseline` との差も書く |
 | ノイズ率・誤検出 | 手順3・4と同じ |
 | キー外で正当 | 手順4で「正当」と確定した件数 |
-| 経路 | 実行担当の `## 経路` (dispatch した agent、refuter・arbiter・security-reviewer の起動、ショートカットの有無)。構成どおりでない経路 (`direct` で dispatch した、`deep` で arbiter を起動しなかった など) は、その試行に注記する |
+| 経路 | 実行担当の `## 経路` (dispatch した agent、refuter・arbiter・security-reviewer の起動、ショートカットの有無)。構成どおりでない経路 (`direct` で reviewer を dispatch した、`deep` で arbiter を起動しなかった など) は、その試行に注記する |
 | 待ち時間 | meta の `duration_ms` |
 | 総費用 | meta の `total_cost_usd` と、モデル別の使用量のトークンの合計。agent 別の `total_tokens` も書く |
 

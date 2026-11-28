@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.96.0 (2026-11-28)
+
+- `design-review`: 小規模対象のショートカット (dispatch せずメインが直接レビューする) でも、Agent 6 の起動条件 (信頼境界を跨ぐ、または機微情報をファイル・ログ・キャッシュに保存する) に当たる場合は、Agent 6 だけは dispatch するようにした (#200)。ショートカットの記述と Agent 6 の記述が食い違い、ショートカットでは Agent 6 も起動しないとも読めたため (#130 の構成比較で実行担当の解釈が割れ、起動しなかった試行で安全上重要なシードを見逃した)。`--security` は「判定を省いてこの条件に当たったとみなす」とだけ書き、ショートカットとの関係は上の扱いに従う。`--no-security` では今までどおり起動しない。Agent 6 の指摘は、ショートカットではメインの直接レビューの指摘と同じく反証ステージ・裁定に合流する
+- `design-review`: Agent 2 の「4. エラー処理」に、外部の API・ライブラリの呼び出しで失敗を例外で受ける前提に立つ設計が、一部だけの失敗が例外にならず戻り値などで返る可能性を扱っているかを足した (#201)。eval の S3 は、この前提の誤りに気づいた試行でしか検出されていなかったため。推測の指摘を増やさないよう、外部の呼び出しが設計書から読み取れる場合に限る。正解キーは変えていない
+- `eval`: 構成比較 (`/aidd:eval compare`) の `direct` の説明を、上の design-review のショートカットの扱いにそろえた (#200)。`direct` は reviewer を dispatch せず、Agent 6 の起動条件に当たれば Agent 6 だけは dispatch する。構成どおりでない経路の例は「`direct` で reviewer を dispatch した」にした (dispatch してよい Agent 6・refuter・arbiter と区別するため)。compare の説明が「dispatch せず」のままだと、#200 と同じ読み方の割れが比較の実行で起きるため。deep 回帰評価 (手順1〜6) は変えていない
+- 運用ルール6の評価 (`/aidd:eval`、deep、4ケース×3試行) の結果を `tests/eval/results/2026-11-28-2.md` に保存した (#200, #201)。S3 は3試行とも検出した (前回の回帰評価では未検出、構成比較の deep では1/3) が、深刻度は3回とも mid (期待 high)。コアは全試行で 13/13、偽指摘の棄却率は 44/45、ノイズ率は 24% (前回 25%)。#200 のショートカットの経路は deep の評価では動かないので、測っていない
+
 ## 0.95.0 (2026-11-28)
 
 - `test-perspectives`・`design-doc`・`design-review` をモデルから起動できるようにした (#196)。`issue-implement`・`autonomous-review` の手順と、`session-start.sh`・`tool-reminder.sh` の案内がこの3つを使うようモデルに指示しているのに、`disable-model-invocation: true` のため Skill ツールが起動を拒否していたため。`claude -p` で4回測ると、test-perspectives は毎回飛ばされ、設計レーンでは design-doc の起動が拒否されて32秒で `blocked/incomplete` になった。gate (`skill-gate.sh` の `ask`) は付けない。headless では `ask` が拒否として働くので、無人のホストでは起動できないままになるため。3つは新しいファイルを作るだけで、既存の文書を書き換えないので、ほかの skill を利用者起動に限っている理由 (0.37.0) は当たらない。description を「いつ使い、いつ使わないか」の形に書き直した (brainstorming の spec、コードの差分、文書への質問、小さな変更などでは使わない)。Codex の `openai.yaml` (`allow_implicit_invocation: false`) は変えていない (Codex で同じ問題が起きるかは未測定)。Cursor もこのフラグを解釈するので、Cursor でもモデルが起動できるようになる。`usage.json` では、この3つについて利用者が打った回数とモデルが起動した回数が混ざる
