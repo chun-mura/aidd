@@ -3,6 +3,7 @@
   "subject_name": "app.tar.gz",
   "oidc_issuer": "https://token.actions.githubusercontent.com",
   "signer_workflow": "example-org/assurance-policy/.github/workflows/provenance.yml",
+  "signer_digest": "0000000000000000000000000000000000000000",
   "source_repository": "example-org/example-app",
   "source_ref_pattern": "^refs/tags/v[0-9]+\\.[0-9]+\\.[0-9]+$",
   "runner_environment": "github-hosted",

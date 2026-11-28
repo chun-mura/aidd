@@ -6,12 +6,14 @@ log entries, on that command's `--format json` output (one file per predicate ty
 
   python3 verify_evidence.py --policy policy.json --artifact dist/app.tar.gz \
       --source-digest <release commit> --source-ref refs/tags/v1.2.3 \
+      --default-branch-compare compare.json \
       --attestations provenance.json test-result.json [--now 2026-11-28T00:00:00Z]
 
 gh checks each attestation on its own. This script checks what binds them together: the artifact
-on disk is the subject of both, both come from the same workflow run of the pinned signer, the
-source and ref are the release's, the tests passed on the owner-approved criteria, the evidence
-is recent, and nothing beyond test IDs and digests was stored. It does not verify signatures,
+on disk is the subject of both, both come from the same workflow run of the pinned signer commit,
+the source and ref are the release's and the commit is on the default branch, the tests passed on
+the owner-approved criteria, the evidence is recent, and nothing beyond test IDs and digests was
+stored. It does not verify signatures,
 so never run it on attestations that gh has not verified.
 
 Prints one JSON object and exits 0 only when some workflow run's attestations pass every rule.
@@ -77,18 +79,21 @@ def judge_group(entries, policy, artifact_digest, source_digest, source_ref, now
                 reasons.add("digest-mismatch:%s" % label)
             if cert.get("issuer") != policy["oidc_issuer"]:
                 reasons.add("issuer-mismatch")
-            if not str(cert.get("buildSignerURI", "")).startswith(signer):
+            # The path alone is not enough: any ref of the policy repository (an unreviewed branch)
+            # has the same path. The digest pins the approved commit of the signing workflow.
+            if not str(cert.get("buildSignerURI", "")).startswith(signer) or \
+                    cert.get("buildSignerDigest") != policy["signer_digest"]:
                 reasons.add("signer-mismatch")
             if cert.get("runnerEnvironment") != policy["runner_environment"]:
                 reasons.add("environment-mismatch")
             if cert.get("sourceRepositoryURI") != source_uri or cert.get("sourceRepositoryDigest") != source_digest:
                 reasons.add("source-mismatch")
             ref = cert.get("sourceRepositoryRef")
-            if ref != source_ref or not re.match(policy["source_ref_pattern"], ref or ""):
+            if ref != source_ref or not re.fullmatch(policy["source_ref_pattern"], ref or ""):
                 reasons.add("ref-mismatch")
             if not entry["times"]:
                 reasons.add("missing-timestamp")
-            elif now - min(entry["times"]) > max_age or min(entry["times"]) > now:
+            elif now - min(entry["times"]) > max_age or max(entry["times"]) > now:
                 reasons.add("stale-evidence")
     for entry in by_label.get("test-result", []):
         reasons.update(judge_test_result(entry["statement"].get("predicate"), policy, artifact_digest))
@@ -101,7 +106,11 @@ def judge_test_result(predicate, policy, artifact_digest):
     reasons = []
     test_id = re.compile(policy["test_id_pattern"])
     names = [n for key in ("passedTests", "warnedTests", "failedTests") for n in predicate.get(key) or []]
-    if not all(isinstance(n, str) and test_id.match(n) for n in names):
+    run_url = r"https://github\.com/%s/actions/runs/[0-9]+" % re.escape(policy["source_repository"])
+    config_names = sorted(str(c.get("name")) for c in predicate.get("configuration") or [])
+    if (not all(isinstance(n, str) and test_id.fullmatch(n) for n in names)
+            or not re.fullmatch(run_url, str(predicate.get("url")))
+            or config_names != sorted([policy["subject_name"], "approved.sha256"])):
         reasons.append("unexpected-content")
     if predicate.get("result") != "PASSED" or predicate.get("failedTests") or not predicate.get("passedTests"):
         reasons.append("tests-not-passed")
@@ -111,12 +120,26 @@ def judge_test_result(predicate, policy, artifact_digest):
     return reasons
 
 
+def judge_default_branch(compare_path, source_digest):
+    """The release commit must already be on the protected default branch (merged through the gate).
+
+    compare_path is `gh api repos/<owner>/<repo>/compare/<default branch>...<source digest>`: the
+    commit is on the branch exactly when it is its own merge base with the branch tip.
+    """
+    with open(compare_path, encoding="utf-8") as fh:
+        compare = json.load(fh)
+    on_branch = compare["status"] in ("behind", "identical") and \
+        compare["merge_base_commit"]["sha"] == source_digest
+    return [] if on_branch else ["not-on-default-branch"]
+
+
 def main(argv):
     parser = argparse.ArgumentParser()
     parser.add_argument("--policy", required=True)
     parser.add_argument("--artifact", required=True)
     parser.add_argument("--source-digest", required=True)
     parser.add_argument("--source-ref", required=True)
+    parser.add_argument("--default-branch-compare", required=True)
     parser.add_argument("--attestations", nargs="+", required=True)
     parser.add_argument("--now")
     args = parser.parse_args(argv)
@@ -133,6 +156,7 @@ def main(argv):
         with open(args.artifact, "rb") as fh:
             artifact_digest = hashlib.sha256(fh.read()).hexdigest()
         result["artifact_digest"] = "sha256:" + artifact_digest
+        branch_reasons = judge_default_branch(args.default_branch_compare, args.source_digest)
         entries = load_entries(args.attestations)
         groups = {}
         for entry in entries:
@@ -143,6 +167,7 @@ def main(argv):
         for run, group in groups.items():
             latest = max((t for e in group for t in e["times"]), default=None)
             reasons = judge_group(group, policy, artifact_digest, args.source_digest, args.source_ref, now)
+            reasons = sorted(set(reasons) | set(branch_reasons))
             if run is None and group:
                 reasons = sorted(set(reasons) | {"missing-run"})
             verdicts.append((latest or datetime.datetime.min.replace(tzinfo=datetime.timezone.utc), run, reasons))

@@ -90,7 +90,7 @@ jobs:
             >"$RUNNER_TEMP/result.json" || status=$?
           mkdir -p evidence
           # in-toto test-result predicate: test IDs and digests only, no logs, prompts or secrets.
-          python3 - "$RUNNER_TEMP/result.json" "$artifact" "$criteria" >evidence/test-result.json <<'PY'
+          python3 -I - "$RUNNER_TEMP/result.json" "$artifact" "$criteria" >evidence/test-result.json <<'PY'
           import json, os, sys
           result = json.load(open(sys.argv[1], encoding="utf-8"))
           print(json.dumps({

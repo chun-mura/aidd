@@ -28,6 +28,7 @@ cert = {
     "issuer": "https://token.actions.githubusercontent.com",
     "subjectAlternativeName": "https://github.com/example-org/assurance-policy/.github/workflows/provenance.yml@refs/heads/main",
     "buildSignerURI": "https://github.com/example-org/assurance-policy/.github/workflows/provenance.yml@refs/heads/main",
+    "buildSignerDigest": policy["signer_digest"],
     "buildConfigURI": "https://github.com/example-org/example-app/.github/workflows/release.yml@refs/tags/v1.2.3",
     "runnerEnvironment": "github-hosted",
     "sourceRepositoryURI": "https://github.com/example-org/example-app",
@@ -56,7 +57,7 @@ def entry(kind):
     }}
 
 def digest(value):
-    return ARTIFACT if value == "ARTIFACT" else OTHER if value == "OTHER" else value
+    return {"ARTIFACT": ARTIFACT, "OTHER": OTHER, "CRITERIA": CRITERIA}.get(value, value)
 
 def apply(e, over):
     r = e["verificationResult"]
@@ -68,6 +69,8 @@ def apply(e, over):
         r["statement"]["predicateType"] = over["predicateType"]
     if "predicate" in over:
         r["statement"]["predicate"].update(over["predicate"])
+        for c in r["statement"]["predicate"].get("configuration") or []:
+            c["digest"]["sha256"] = digest(c["digest"]["sha256"])
     config = r["statement"]["predicate"].get("configuration") or []
     if "artifact_in_config" in over:
         config[0]["digest"]["sha256"] = digest(over["artifact_in_config"])
@@ -78,10 +81,15 @@ def apply(e, over):
                                    for t in over["timestamps"]]
     return e
 
-def run(entries_by_file, artifact_bytes=ARTIFACT_BYTES, extra_args=(), source=SOURCE):
+ON_BRANCH = {"status": "behind", "merge_base_commit": {"sha": SOURCE}}
+
+def run(entries_by_file, artifact_bytes=ARTIFACT_BYTES, extra_args=(), source=SOURCE, ref=REF, compare=ON_BRANCH):
     artifact = os.path.join(work, "app.tar.gz")
     with open(artifact, "wb") as fh:
         fh.write(artifact_bytes)
+    compare_path = os.path.join(work, "compare.json")
+    with open(compare_path, "w", encoding="utf-8") as fh:
+        fh.write(compare if isinstance(compare, str) else json.dumps(compare))
     files = []
     for n, entries in enumerate(entries_by_file):
         path = os.path.join(work, "att-%d.json" % n)
@@ -89,7 +97,8 @@ def run(entries_by_file, artifact_bytes=ARTIFACT_BYTES, extra_args=(), source=SO
             fh.write(entries if isinstance(entries, str) else json.dumps(entries))
         files.append(path)
     cmd = [sys.executable, "-I", "-B", script, "--policy", policy_path, "--artifact", artifact,
-           "--source-digest", source, "--source-ref", REF, "--now", NOW, "--attestations", *files, *extra_args]
+           "--source-digest", source, "--source-ref", ref, "--now", NOW,
+           "--default-branch-compare", compare_path, "--attestations", *files, *extra_args]
     proc = subprocess.run(cmd, capture_output=True, text=True)
     return proc.returncode, json.loads(proc.stdout)
 
@@ -106,7 +115,8 @@ for case in cases:
     for extra in case.get("extra", []):
         (prov if extra["kind"] == "provenance" else tres).append(apply(entry(extra["kind"]), copy.deepcopy(extra)))
     artifact_bytes = b"tampered artifact\n" if case.get("artifact") == "tampered" else ARTIFACT_BYTES
-    code, out = run([prov, tres], artifact_bytes)
+    code, out = run([prov, tres], artifact_bytes, ref=case.get("source_ref", REF),
+                    compare=case.get("compare", ON_BRANCH))
     want = (0 if case["verdict"] == "pass" else 1, case["verdict"], sorted(case["reasons"]))
     got = (code, out["verdict"], sorted(out["reasons"]))
     if got != want:
@@ -115,13 +125,15 @@ for case in cases:
 # Fail-closed on input it cannot read.
 good = [[entry("provenance")], [entry("test_result")]]
 assert run(good)[0] == 0, "baseline must pass"
-for label, files, source in [
-    ("broken JSON", [good[0], "{not json"], SOURCE),
-    ("not a list", [good[0], json.dumps({"verificationResult": {}})], SOURCE),
-    ("entry without a certificate", [good[0], json.dumps([{"verificationResult": {"statement": {}}}])], SOURCE),
-    ("short source digest", good, "abc123"),
+for label, files, source, compare in [
+    ("broken JSON", [good[0], "{not json"], SOURCE, ON_BRANCH),
+    ("not a list", [good[0], json.dumps({"verificationResult": {}})], SOURCE, ON_BRANCH),
+    ("entry without a certificate", [good[0], json.dumps([{"verificationResult": {"statement": {}}}])], SOURCE, ON_BRANCH),
+    ("short source digest", good, "abc123", ON_BRANCH),
+    ("broken compare output", good, SOURCE, "{not json"),
+    ("compare output without a merge base", good, SOURCE, {"status": "behind"}),
 ]:
-    code, out = run(files, source=source)
+    code, out = run(files, source=source, compare=compare)
     if code != 1 or not out["reasons"][0].startswith("invalid-input:"):
         sys.exit("%s: expected invalid-input, got %s %s" % (label, code, out))
 print("evidence fixtures: %d cases ok" % len(cases))
@@ -168,6 +180,25 @@ doc = open(os.path.join(root, "docs/assurance/evidence.md"), encoding="utf-8").r
 for phrase in ("所有者の承認後に実測する", "宣言しない", "保持期間", "アクセス権", "#122", "gh attestation verify"):
     if phrase not in doc:
         problems.append("evidence.md does not mention %s" % phrase)
+
+# The tag ruleset: release tags cannot be created, moved or deleted except by the owner team.
+tags = json.load(open(os.path.join(root, "examples/assurance/github/tag-ruleset.json"), encoding="utf-8"))
+if set(tags) != {"name", "target", "enforcement", "bypass_actors", "conditions", "rules"}:
+    problems.append("tag ruleset top-level keys %s" % sorted(tags))
+if tags.get("target") != "tag" or tags.get("enforcement") != "active":
+    problems.append("the tag ruleset must be an active tag ruleset")
+if tags.get("conditions", {}).get("ref_name", {}).get("include") != ["refs/tags/v*"]:
+    problems.append("the tag ruleset must cover refs/tags/v*")
+if sorted(r.get("type") for r in tags.get("rules", [])) != ["creation", "deletion", "non_fast_forward", "update"] \
+        or any("parameters" in r for r in tags.get("rules", [])):
+    problems.append("the tag ruleset must forbid creation, update, deletion and force updates")
+actors = tags.get("bypass_actors", [])
+if not actors or any(a != {"actor_id": 0, "actor_type": "Team", "bypass_mode": "always"} for a in actors):
+    problems.append("only the owner team (placeholder actor_id 0) may bypass the tag ruleset")
+import re
+pattern = re.compile(policy["source_ref_pattern"])
+if not pattern.fullmatch("refs/tags/v1.2.3") or any(pattern.fullmatch(r) for r in ("refs/heads/main", "refs/tags/x1.2.3", "refs/tags/v1.2.3-rc")):
+    problems.append("source_ref_pattern must accept only the release tags the tag ruleset protects")
 if problems:
     sys.exit("\n".join(problems))
 

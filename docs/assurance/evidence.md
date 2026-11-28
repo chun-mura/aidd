@@ -33,9 +33,9 @@ aidd はどの構成のこれらの主張も `適合` と判定しない。試�
 | source SHA と ref | 署名証明書の `sourceRepositoryDigest`・`sourceRepositoryRef`・`sourceRepositoryURI` (GitHub の OIDC token から Fulcio が埋める。workflow が書き換えられない) | 配る版の commit と tag、`policy.json` の `source_repository`・`source_ref_pattern` |
 | 実際に実行した検証 | in-toto test-result の predicate (`result`・`passedTests`・`failedTests`) | `PASSED` で、失敗が無く、成功した基準が1つ以上 |
 | 要件の版 (受け入れ基準) | test-result の `configuration` の `approved.sha256` の digest。`approved.sha256` は原要件・基準・インタフェース・試験の digest を含む ([acceptance.md](acceptance.md)) | `policy.json` の `criteria_digest` |
-| 実行基盤 | 証明書の `issuer`・`runnerEnvironment`・`buildSignerURI` (署名した workflow) | GitHub Actions の OIDC、GitHub hosted runner、policy リポジトリの `provenance.yml` |
+| 実行基盤 | 証明書の `issuer`・`runnerEnvironment`・`buildSignerURI` (署名した workflow)・`buildSignerDigest` (その workflow の commit) | GitHub Actions の OIDC、GitHub hosted runner、policy リポジトリの `provenance.yml` の、所有者が承認した commit (`policy.json` の `signer_digest`) |
 | 同じ実行であること | 証明書の `runInvocationURI` | 2つの attestation で一致すること |
-| 承認 | attestation には入らない。source の ref が #156 の ruleset で守られたブランチ・tag であることで間接に結ぶ | 承認の記録は [contract.md の記録項目](contract.md#主張の記録項目) に残す ([限界](#限界)) |
+| 承認 | attestation には入らない。source の commit が #156 の ruleset で守られた既定ブランチに含まれ、tag が [`tag-ruleset.json`](../../examples/assurance/github/tag-ruleset.json) で守られていることで間接に結ぶ | 承認の記録は [contract.md の記録項目](contract.md#主張の記録項目) に残す ([限界](#限界)) |
 
 ## 構成
 
@@ -61,32 +61,41 @@ jobs:
 | `verify` | `contents: read` | 配布物を取り出し、digest が `build` と同じか確かめ、承認済みの基準 (`sha256sum --check`) で受け入れ試験を実行し、test-result の predicate を書く。失敗したら job ごと失敗する | 署名しない |
 | `attest` | `contents: read`・`id-token: write`・`attestations: write` | 配布物と test-result の digest を照合し直し、SLSA provenance と test-result の attestation を発行する。`build` と `verify` が成功したときだけ動く | プロジェクトのコードを checkout も実行もしない |
 
-tag の作成は ruleset で所有者に限る (tag を対象にした ruleset。#156 の `ruleset.json` は既定ブランチだけを対象にしている)。
+release の tag (`refs/tags/v*`) の作成・移動・削除は、tag を対象にした ruleset [`tag-ruleset.json`](../../examples/assurance/github/tag-ruleset.json) で禁じ、bypass に所有者のチーム (`actor_id` は置き換える) だけを置く。#156 の `ruleset.json` は既定ブランチだけを対象にしているので、tag は別の ruleset で守る。エージェントに渡す token の持ち主をこのチームに入れない。所有者が既定ブランチに無い commit に tag を付けても配らないように、配布側は commit が既定ブランチに含まれることを別に確かめる (下の手順)。
 
 ## 配布側の判定
 
-配る前に、配布側 (所有者の手元か、公開を行う信頼する job) で2段階で確かめる。
+配る前に、配布側 (所有者の手元か、公開を行う信頼する job) で3段階で確かめる。
 
 1. **署名の検証 (`gh attestation verify`)**: 証明書の連鎖・透明性ログ・署名元を検証する。predicate の種類ごとに1回ずつ実行し、JSON を保存する。
 
    ```bash
    gh attestation verify dist/app.tar.gz --repo example-org/example-app \
      --signer-workflow example-org/assurance-policy/.github/workflows/provenance.yml \
+     --signer-digest <policy リポジトリの承認した commit SHA> \
      --source-ref refs/tags/v1.2.3 --source-digest <release の commit SHA> \
      --deny-self-hosted-runners \
      --predicate-type https://slsa.dev/provenance/v1 --format json >provenance.json
    gh attestation verify dist/app.tar.gz --repo example-org/example-app \
      --signer-workflow example-org/assurance-policy/.github/workflows/provenance.yml \
+     --signer-digest <policy リポジトリの承認した commit SHA> \
      --source-ref refs/tags/v1.2.3 --source-digest <release の commit SHA> \
      --deny-self-hosted-runners \
      --predicate-type https://in-toto.io/attestation/test-result/v0.1 --format json >test-result.json
    ```
 
-2. **結び付けの判定 ([`verify_evidence.py`](../../examples/assurance/evidence/verify_evidence.py))**: `gh` は attestation を1つずつ検証するので、2つが同じ実行・同じ入力から来たか、試験が通ったか、古くないかは別に確かめる。検証条件は [`policy.json`](../../examples/assurance/evidence/policy.json) に置く。
+2. **source の commit が既定ブランチにあることの確認**: tag は既定ブランチの外の commit にも付けられる。GitHub の compare API で、commit が既定ブランチの先端の祖先 (自分自身が merge base) であることを確かめる材料を取る。
+
+   ```bash
+   gh api repos/example-org/example-app/compare/main...<release の commit SHA> >compare.json
+   ```
+
+3. **結び付けの判定 ([`verify_evidence.py`](../../examples/assurance/evidence/verify_evidence.py))**: `gh` は attestation を1つずつ検証するので、2つが同じ実行・同じ入力から来たか、試験が通ったか、古くないかは別に確かめる。検証条件は [`policy.json`](../../examples/assurance/evidence/policy.json) に置く。例の `signer_digest` は 0 の並びで、[release-gate.md](release-gate.md#置き換えるもの) の `POLICY_SHA` と同じ、所有者が承認した policy リポジトリの commit に置き換える (`example-org` の名前も同様)。
 
    ```bash
    python3 verify_evidence.py --policy policy.json --artifact dist/app.tar.gz \
      --source-digest <release の commit SHA> --source-ref refs/tags/v1.2.3 \
+     --default-branch-compare compare.json \
      --attestations provenance.json test-result.json
    ```
 
@@ -96,7 +105,8 @@ tag の作成は ruleset で所有者に限る (tag を対象にした ruleset�
 |---|---|
 | 配る手元のファイルの digest が attestation の主語と違う | `digest-mismatch:<provenance か test-result>` |
 | 試験が別の build の成果物に対して行われた | `digest-mismatch:test-result`、`input-mismatch` |
-| 署名した workflow が policy リポジトリの `provenance.yml` でない (対象リポジトリ自身の workflow など) | `signer-mismatch` |
+| 署名した workflow が policy リポジトリの `provenance.yml` でない (対象リポジトリ自身の workflow など)、またはその commit が `signer_digest` でない (policy リポジトリの未承認のブランチなど。パスだけでは区別できない) | `signer-mismatch` |
+| source の commit が既定ブランチに含まれない (compare の `status` が `behind`・`identical` でない、または merge base が commit 自身でない) | `not-on-default-branch` |
 | OIDC の発行者が GitHub Actions でない | `issuer-mismatch` |
 | self-hosted runner で作られた | `environment-mismatch` |
 | source のリポジトリ・commit が配る版と違う (古い commit の証跡の再利用を含む) | `source-mismatch` |
@@ -105,8 +115,8 @@ tag の作成は ruleset で所有者に限る (tag を対象にした ruleset�
 | 試験が `PASSED` でない、失敗がある、成功が1つも無い | `tests-not-passed` |
 | provenance か test-result が無い (別の run の組み合わせを含む) | `missing-attestation:<種類>` |
 | 透明性ログの時刻が無い | `missing-timestamp` |
-| 署名時刻が `max_age_days` (例は30日) より古い、または未来 | `stale-evidence` |
-| test-result に決めた項目以外 (プロンプトなど) や、ID の形でない試験名 (ログの断片など) がある | `unexpected-content` |
+| 最も古い署名時刻が `max_age_days` (例は30日) より古い、または最も新しい時刻が未来 | `stale-evidence` |
+| test-result に決めた項目以外 (プロンプトなど)、ID の形でない試験名 (ログの断片など)、run の URL の形でない `url`、配布物と `approved.sha256` 以外の `configuration` の名前がある | `unexpected-content` |
 | 実行の識別子が無い | `missing-run` |
 | 入力を読めない | `invalid-input:<説明>` |
 
@@ -119,8 +129,8 @@ provenance を新しく発行し直しても、古い run の test-result とは
 | 守るもの | 置き場所と仕組み |
 |---|---|
 | 署名の権限 (`id-token: write`) | `attest` job だけが持つ。`attest` は checkout せず、プロジェクトのコードを動かさない。`build`・`verify` は読み取りの token だけで、OIDC token を取れない |
-| 署名する workflow | policy リポジトリの `provenance.yml` を固定コミットで呼ぶ。配布側は `--signer-workflow` でこのファイルに限る。対象リポジトリの workflow を書き換えても、署名元が変わって `signer-mismatch` になる |
-| 発行のきっかけ | 保護した tag の push だけ。PR のイベント (`pull_request` など) では動かない。PR のコードは #156 のゲートを通ってマージされるまで release に入らない |
+| 署名する workflow | policy リポジトリの `provenance.yml` を固定コミットで呼ぶ。配布側は `--signer-workflow` でこのファイルに、`--signer-digest` と `policy.json` の `signer_digest` で所有者が承認した commit に限る。対象リポジトリの workflow を書き換えても、policy リポジトリの別のブランチで書き換えた版を呼んでも、署名元が変わって `signer-mismatch` になる |
+| 発行のきっかけ | release の tag の push だけで、PR のイベント (`pull_request` など) では動かない。PR のコードが release に入らないことは2つの前提に依存する: (1) tag の作成・移動を所有者のチームに限る ([`tag-ruleset.json`](../../examples/assurance/github/tag-ruleset.json))、(2) 既定ブランチへのマージは #156 のゲートを通る。(1) が崩れて未マージの commit に tag が付いても、配布側の compare の確認で `not-on-default-branch` になる |
 | 検証条件 (`policy.json`) | 配布側 (所有者の手元か policy リポジトリ) に置き、変更は所有者の承認を要する設定変更として扱う。対象リポジトリには置かない |
 | 長期の秘密 | 使わない。署名は実行ごとの短命の証明書 (Sigstore の keyless 署名) で、保存する鍵が無い |
 
@@ -153,10 +163,11 @@ provenance を新しく発行し直しても、古い run の test-result とは
 
 `bash tests/assurance/evidence-test.sh` (CI の `contract-tests` で ubuntu と macOS の両方) が次を確かめる。どれも fixture と静的な検査で、実際の GitHub では attestation を発行も検証もしていない。
 
-1. `verify_evidence.py` の判定: `gh attestation verify --format json` の出力の形に合わせた架空の検証結果の25通り (上の表の各状況、古い run と新しい run が並ぶ場合、古い run だけの場合) で、判定・終了コード・理由のコードが期待と一致する。読めない入力は `invalid-input` で失敗になる
+1. `verify_evidence.py` の判定: `gh attestation verify --format json` の出力の形に合わせた架空の検証結果の35通り (上の表の各状況、古い run と新しい run が並ぶ場合、古い run だけの場合、同じ run の test-result の片方だけが失敗の場合、policy リポジトリの別の ref で署名した場合、末尾に改行のある ref) で、判定・終了コード・理由のコードが期待と一致する。読めない入力 (compare の出力を含む6通り) は `invalid-input` で失敗になる
 2. `provenance.yml` の静的な検査 ([release-gate.md](release-gate.md) と同じ小さな YAML の解析): トリガーが `workflow_call` だけ、書き込みの権限は `attest` の `id-token`・`attestations` だけ、署名の action は `attest` だけ、`attest` は checkout しない、`attest` は `build` と `verify` の成功を待つ、action の SHA 固定、`persist-credentials: false`
 3. 静的な検査の識別力: `build` に `id-token` を渡す、`attest` で checkout する、試験の失敗でも `attest` を動かす (`if: always()`)、PR のトリガーを足す、`attest` に `contents: write` を渡す、の5つの改変をそれぞれ検出する
-4. `policy.json` と workflow・受け入れ基準の対応: 配布物の名前、test-result の predicate の種類、`criteria_digest` が例の `approved.sha256` の digest と一致すること
+4. `tag-ruleset.json`: tag を対象にした有効な ruleset で、`refs/tags/v*` の作成・更新・削除・force 更新を禁じ、bypass がチームだけ (置き換える `actor_id` 0) であること。`policy.json` の `source_ref_pattern` がこの tag の形だけを通すこと
+5. `policy.json` と workflow・受け入れ基準の対応: 配布物の名前、test-result の predicate の種類、`criteria_digest` が例の `approved.sha256` の digest と一致すること
 
 fixture は `gh attestation verify --format json` の出力 (sigstore-go の検証結果の JSON) の項目名に合わせて書いたもので、実際の出力の形と一致するかは実測していない。
 
@@ -167,6 +178,9 @@ fixture は `gh attestation verify --format json` の出力 (sigstore-go の検�
 | 実測すること | 確かめ方 |
 |---|---|
 | attestation が発行され、`gh attestation verify` が通る | tag を push し、上の2つのコマンドが成功することを見る |
+| tag の ruleset が効く | `tag-ruleset.json` (値を置き換えたもの) を適用し、所有者のチーム以外 (エージェントの token を含む) が `v*` の tag を作成・移動・削除できないことを見る |
+| compare の判定が既定ブランチの外の commit を拒否する | 未マージのブランチの commit に tag を付け (所有者が試験として行う)、`compare` の `status` が `ahead` か `diverged` になり `not-on-default-branch` で落ちることを見る |
+| `buildSignerDigest` が policy リポジトリの commit になる | 固定コミットで呼んだときの証明書の `buildSignerDigest` と `buildSignerURI` の ref を見る |
 | `gh` の出力の形が fixture と同じ | 実際の `--format json` の出力で `verify_evidence.py` が `pass` になることを見る。項目名が違えば fixture と script を直す |
 | 配布物を1バイト変えると拒否される | 変えたファイルで `gh attestation verify` が失敗することを見る |
 | 対象リポジトリの workflow で署名したものは拒否される | 同じ手順を対象リポジトリ側の workflow で発行し、`--signer-workflow` で失敗することを見る |
@@ -178,7 +192,7 @@ fixture は `gh attestation verify --format json` の出力 (sigstore-go の検�
 
 ## 限界
 
-- **承認は attestation に入らない。** source の ref が守られたブランチ・tag であることは #156 の ruleset に依存し、承認者・承認日は attestation では確かめられない。導入先の記録で結ぶ
+- **承認は attestation に入らない。** source の commit が守られた既定ブランチにあること・tag が守られていることは #156 の ruleset と `tag-ruleset.json` に依存し、承認者・承認日は attestation では確かめられない。導入先の記録で結ぶ
 - **試験の実行時の改ざんは防がない。** `verify` は配布物のコードを試験と同じプロセスで動かす ([release-gate.md の限界](release-gate.md#限界) と同じ)。test-result は「信頼する workflow がこの結果を観測した」ことを示し、悪意のある実装が試験の実行を乗っ取らなかったことは示さない
 - `verify_evidence.py` は署名を検証しない。`gh attestation verify` を飛ばすと、偽の JSON でも通る
 - 再現可能な固め方 (`tar --sort=name` など) は GNU tar を前提にしている (ubuntu の runner)。配布物の再現性 (別の環境で同じ digest になること) は確かめていない
