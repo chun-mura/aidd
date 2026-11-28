@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.100.0 (2026-11-28)
+## 0.99.0 (2026-11-28)
 
 - `usage-log.sh`: モデル (サブエージェントを含む) が Skill ツールで起動した回数を、`usage.json` の `model_counts` にも分けて記録するようにした (#204)。0.95.0 で `test-perspectives`・`design-doc`・`design-review` をモデルから起動できるようにしてから、`command_counts` では利用者が打った回数とモデルが起動した回数が混ざり、`/aidd:retro` で起動しすぎを見分けられなかったため。hook の入力で区別できる: 利用者が打った slash コマンドは UserPromptSubmit だけを通り、PreToolUse(Skill) は通らない (2026-11-14 の設計の R4・R15)。`command_counts` と `last_seen` の意味は変えていない (`model_counts` はその内数)。記録を始める前の回数は区別できない
 - `retro`: `model_counts` を読み、モデルから起動できる skill はモデルの起動と利用者の起動を分けて示すようにした (#204)。`model_counts` にはほかの skill の手順や hook の通知に従った起動も入るので、モデルの起動が多いものは、頼まれていない場面での起動かを利用者に確かめてから description を絞る候補にする
