@@ -71,7 +71,8 @@ PR が書き換えられるものの中に、合格条件を置かない。
 | 報告の対象 SHA が違う | `report-sha-mismatch` |
 | 報告の基準の digest が、base の `approved.sha256` と違う | `report-criteria-mismatch` |
 | 報告に失敗した基準がある | `report-failed` |
-| 入力を読めない (SHA が完全でない、JSON が壊れている、`--suite-id` が無い) | `invalid-input:<説明>` |
+| base の `criteria.md` にある基準のどれかが、報告の成功の一覧に無い (1件だけの成功などで通さない) | `report-incomplete` |
+| 入力を読めない (SHA が完全でない、JSON が壊れている、`--suite-id`・`--report`・`--approved` が無い、`approved.sha256`・`criteria.md` が無い、policy の `app_id` が整数でない・必須の check が空) | `invalid-input:<説明>` |
 
 同じ名前・同じ提供元・同じ run の中で再実行があれば、最も新しい run (id、次に開始時刻) で判定する。GitHub が check を最新の run で数えるのに合わせた。開始時刻を先にしないのは、待機中の再実行には開始時刻が無く、古い成功が勝ってしまうからである。
 
@@ -127,7 +128,7 @@ ruleset の `workflows` ルールと `required_reviewers` (チーム) は organi
 
 `bash tests/assurance/release-gate-test.sh` (CI の `contract-tests` で ubuntu と macOS の両方) が次を確かめる。どれも fixture と静的な検査で、実際の GitHub では動かしていない。
 
-1. `gate.py` の判定: 架空の check run と報告の27通り (上の表の各状況、同じ名前の偽の成功が本物の失敗と並ぶ場合、再実行で成功・失敗が入れ替わる場合、成功の後の再実行が待機中の場合) で、判定・終了コード・理由のコードが期待と一致する。読めない入力が `invalid-input` で失敗になる
+1. `gate.py` の判定: 架空の check run と報告の30通り (上の表の各状況、同じ名前の偽の成功が本物の失敗と並ぶ場合、再実行で成功・失敗が入れ替わる場合、成功の後の再実行が待機中の場合、承認済みの基準の一部しか成功していない場合) で、判定・終了コード・理由のコードが期待と一致する。読めない入力8通りが `invalid-input` で失敗になる。check run は `filter=all` で取った全件 (再実行の前の run を含む) を前提にしている
 2. workflow の静的な検査: 標準ライブラリだけの小さな YAML の解析 (例が使う構文だけを読み、それ以外は失敗にする) で、トリガー・権限・SHA の固定・`persist-credentials`・secrets の参照・script injection・`paths` の絞り込み・`gate` の `if: always()` を確かめる
 3. 静的な検査の識別力: 特権トリガー・書き込みの権限・タグでの参照・token の保持・secrets・PR のタイトルの展開・`paths`・広い既定の権限、の8つの改変をそれぞれ検出する
 4. ruleset・workflow・policy の対応: ruleset の項目名が REST API の body の形に合うこと (使うルールの範囲だけ)、bypass が空であること、必須の check の名前が workflow の job 名と一致し、すべて app id 15368 に固定されていること、プレースホルダが残っていること

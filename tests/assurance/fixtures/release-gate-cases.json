@@ -25,6 +25,9 @@
     {"id": "report-for-another-sha", "runs": [{}], "report": {"target_sha": "OLD"}, "verdict": "fail", "reasons": ["report-sha-mismatch"]},
     {"id": "report-against-changed-criteria", "runs": [{}], "report": {"criteria_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"}, "verdict": "fail", "reasons": ["report-criteria-mismatch"]},
     {"id": "report-with-failed-criteria", "runs": [{}], "report": {"failed": ["AT-AUTHZ-01"]}, "verdict": "fail", "reasons": ["report-failed"]},
+    {"id": "report-missing-an-approved-criterion", "runs": [{}], "report": {"passed": ["AT-FLOW-01"]}, "verdict": "fail", "reasons": ["report-incomplete"]},
+    {"id": "report-passed-not-a-list", "runs": [{}], "report": {"passed": "AT-FLOW-01"}, "verdict": "fail", "reasons": ["report-invalid"]},
+    {"id": "report-failed-not-a-list", "runs": [{}], "report": {"failed": null}, "verdict": "fail", "reasons": ["report-invalid"]},
     {"id": "report-with-nothing-passed", "runs": [{}], "report": {"passed": []}, "verdict": "fail", "reasons": ["report-invalid"]},
     {"id": "report-with-unknown-schema", "runs": [{}], "report": {"schema": "something-else/v1"}, "verdict": "fail", "reasons": ["report-invalid"]},
     {"id": "report-not-json", "runs": [{}], "report": "RAW:{not json", "verdict": "fail", "reasons": ["report-invalid"]}

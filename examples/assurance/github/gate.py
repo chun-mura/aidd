@@ -9,7 +9,8 @@ RUNS is the check runs of the target commit, either the REST response of
 GET /repos/{owner}/{repo}/commits/{sha}/check-runs or one check run object per line
 (the output of `gh api --paginate ... --jq '.check_runs[]'`).
 REPORT is the verification report the verify job uploaded; a missing file means no evidence.
-APPROVED is the owner-approved digest list read from the protected base, not from the change.
+APPROVED is the owner-approved digest list read from the protected base, not from the change;
+the criteria.md beside it lists the criterion IDs that must all appear in the report as passed.
 
 Prints one JSON object and exits 0 only when every rule passed. Anything else, including
 input it cannot read, is a failure (exit 1). Python standard library only.
@@ -18,10 +19,13 @@ input it cannot read, is a failure (exit 1). Python standard library only.
 import argparse
 import hashlib
 import json
+import os
 import re
 import sys
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}([0-9a-f]{24})?$")
+# A criterion row of criteria.md (docs/assurance/acceptance.md): | AT-PAY-01 | origin | ...
+CRITERION_RE = re.compile(r"^\| (AT-[A-Z]+-[0-9P]+) \|")
 REPORT_SCHEMA = "aidd-verify-report/v1"
 
 
@@ -83,7 +87,19 @@ def judge_check(spec, runs, target_sha, suite_id):
     return []
 
 
-def judge_report(report_path, target_sha, approved_path):
+def trusted_criteria(approved_path):
+    """The approved digest and the criterion IDs of criteria.md next to it, both from the protected base."""
+    with open(approved_path, "rb") as fh:
+        digest = "sha256:" + hashlib.sha256(fh.read()).hexdigest()
+    criteria_path = os.path.join(os.path.dirname(approved_path), "criteria.md")
+    with open(criteria_path, encoding="utf-8") as fh:
+        ids = {m.group(1) for m in (CRITERION_RE.match(line) for line in fh) if m}
+    if not ids:
+        raise InvalidInput("no criteria rows in %s" % criteria_path)
+    return digest, ids
+
+
+def judge_report(report_path, target_sha, trusted_digest, criterion_ids):
     try:
         report = load_json(report_path)
     except FileNotFoundError:
@@ -98,12 +114,13 @@ def judge_report(report_path, target_sha, approved_path):
     reasons = []
     if report.get("target_sha") != target_sha:
         reasons.append("report-sha-mismatch")
-    with open(approved_path, "rb") as fh:
-        trusted = "sha256:" + hashlib.sha256(fh.read()).hexdigest()
-    if report.get("criteria_digest") != trusted:
+    if report.get("criteria_digest") != trusted_digest:
         reasons.append("report-criteria-mismatch")
     if failed:
         reasons.append("report-failed")
+    # Every approved criterion must have passed: one passing test is not the acceptance run.
+    if not criterion_ids <= set(passed):
+        reasons.append("report-incomplete")
     return reasons
 
 
@@ -137,7 +154,8 @@ def main(argv):
         if policy.get("require_report", True):
             if not args.report or not args.approved:
                 raise InvalidInput("the policy requires --report and --approved")
-            reasons += judge_report(args.report, args.target_sha, args.approved)
+            digest, criterion_ids = trusted_criteria(args.approved)
+            reasons += judge_report(args.report, args.target_sha, digest, criterion_ids)
         result["reasons"] = reasons
         result["verdict"] = "pass" if not reasons else "fail"
     except (InvalidInput, OSError, ValueError, KeyError, TypeError, AttributeError) as exc:

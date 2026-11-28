@@ -14,7 +14,7 @@ fail() {
 
 # 1. gate.py on every fixture: the verdict, the exit code and the exact reasons.
 python3 -B - "$repo_root" "$work" <<'PY' || fail "gate.py fixtures"
-import copy, hashlib, json, os, subprocess, sys
+import copy, hashlib, json, os, re, subprocess, sys
 root, work = sys.argv[1], sys.argv[2]
 gate = os.path.join(root, "examples/assurance/github/gate.py")
 policy = os.path.join(root, "examples/assurance/github/gate-policy.json")
@@ -27,19 +27,26 @@ base_run = {"id": 1, "name": "aidd-verify", "head_sha": T, "status": "completed"
             "check_suite": {"id": 100}}
 # The gate's own check run is always present and still running; it must not affect the verdict.
 self_run = dict(base_run, id=99, name="aidd-release-gate", status="in_progress", conclusion=None)
+with open(os.path.join(os.path.dirname(approved), "criteria.md"), encoding="utf-8") as fh:
+    all_ids = sorted(m.group(1) for m in (re.match(r"^\| (AT-[A-Z]+-[0-9P]+) \|", l) for l in fh) if m)
+assert len(all_ids) > 1, "the example criteria have more than one row"
 base_report = {"schema": "aidd-verify-report/v1", "target_sha": T, "criteria_digest": trusted,
-               "passed": ["AT-FLOW-01"], "failed": []}
+               "passed": all_ids, "failed": []}
 
 def swap(value):
     return T if value == "T" else OLD if value == "OLD" else value
 
-def run_gate(runs_text, report_path, extra=()):
+def run_gate(runs_text, report_path, extra=(), policy_path=policy, approved_path=approved):
     runs_file = os.path.join(work, "runs")
     with open(runs_file, "w", encoding="utf-8") as fh:
         fh.write(runs_text)
-    cmd = [sys.executable, "-I", "-B", gate, "--policy", policy, "--target-sha", T,
-           "--check-runs", runs_file, "--suite-id", "100", "--report", report_path,
-           "--approved", approved, *extra]
+    cmd = [sys.executable, "-I", "-B", gate, "--policy", policy_path, "--target-sha", T,
+           "--check-runs", runs_file, "--suite-id", "100"]
+    if report_path:
+        cmd += ["--report", report_path]
+    if approved_path:
+        cmd += ["--approved", approved_path]
+    cmd += list(extra)
     proc = subprocess.run(cmd, capture_output=True, text=True)
     return proc.returncode, json.loads(proc.stdout)
 
@@ -78,12 +85,25 @@ good_report = os.path.join(work, "good-report.json")
 with open(good_report, "w", encoding="utf-8") as fh:
     json.dump(base_report, fh)
 assert run_gate(good, good_report)[0] == 0, "baseline must pass"
-for label, runs_text, extra in [
-    ("broken check-runs line", good + "{not json\n", ()),
-    ("check runs not a list of objects", "[1, 2]", ()),
-    ("short target sha", good, ("--target-sha", "abc123")),
+def policy_file(name, data):
+    path = os.path.join(work, name)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(data, fh)
+    return path
+string_app = policy_file("p-string-app.json", {"required_checks": [{"name": "aidd-verify", "app_id": "15368", "same_run": True}]})
+no_checks = policy_file("p-no-checks.json", {"required_checks": []})
+for label, runs_text, extra, kwargs in [
+    ("broken check-runs line", good + "{not json\n", (), {}),
+    ("check runs not a list of objects", "[1, 2]", (), {}),
+    ("short target sha", good, ("--target-sha", "abc123"), {}),
+    ("app_id is a string", good, (), {"policy_path": string_app}),
+    ("no required checks", good, (), {"policy_path": no_checks}),
+    ("report required but --report missing", good, (), {"report_path": None}),
+    ("report required but --approved missing", good, (), {"approved_path": None}),
+    ("approved.sha256 does not exist", good, (), {"approved_path": os.path.join(work, "missing", "approved.sha256")}),
 ]:
-    code, out = run_gate(runs_text, good_report, extra)
+    kwargs.setdefault("report_path", good_report)
+    code, out = run_gate(runs_text, extra=extra, **kwargs)
     if code != 1 or out["verdict"] != "fail" or not out["reasons"][0].startswith("invalid-input:"):
         sys.exit("%s: expected invalid-input, got exit %d %s" % (label, code, out))
 proc = subprocess.run([sys.executable, "-I", "-B", gate, "--policy", policy, "--target-sha", T,
