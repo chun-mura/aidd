@@ -1,0 +1,81 @@
+diff --git a/__pycache__/test_textutil.cpython-315.pyc b/__pycache__/test_textutil.cpython-315.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..e1ce5f90bfabcbd8e85d2a653325caee643b7b41
+GIT binary patch
+literal 2121
+zcmcIlL2nyH6rQzr?ZtK)5^6PW>(*8as-rq?ToO@%O4L%3OO!0M0*O?^W<8EqS??}0
+zv!wAUaG-GGUJf}nxBL{URBkmK5r^K|q!I`Ti8r$w;mA>m5FKgWyf-uN&3oUxdGpDM
+zksN~d*AKb1XDNh!mBK+Y5@x>#%qH}^Xem377>t%SuYa6ksWN&Cokv!xh^+K7TFfLG
+z14A<%3rt@&EPeKKgq)KIokp;`Ft9CQ&!c9-mEo+a>NVq;oU3Uf%e-jSZErZq9yMr*
+zus;XPm&(s&#54=B)ZGkApF}=*TSQEkUNXZ<1I<`E(5z(uHLVPL;|^jud0s6m@}I_s
+z+$M}W2gc<Y5)KH)+`kUYCiFXKac~`GWcwls7$FNalXXjL0=TlpVbxN-{5<izpz>Kj
+zz1E-kjuh(aQrJ$3yv-P){MJ{I?NMoNTN64XUYkjK?}!_Xkh)*noHTehY&f1BwMc#D
+z%5=k?zIt_~k)Tv>yZ0Jka;?s%8yup+oZRCPcfF}_LtIodUa(H6V>80A?YA%`p=Uc%
+zz$^qtTp0jk>Npx%aFCq>@(p@w7M_?BkIadmPHmNUOO2g!-~4bNme6a2^@M`;awP_~
+zN~J&4ltkuvj31SWC$6b*oWS$!P{ogF<l~@?{lLez7j|qv>JsWY47)xLaNrZ%*$6wt
+z7q^B``7dUaLlfZ2A*g<?PVbhQI}3gD1|5aP*N9cFQmKDL?KZDhgwc}B(MVlVNHI>`
+zkYSJ5E!SUF>B6b)dQymSVdC8(V2+_RA}?k*WzO!FrgpM@^SxKVz(I8r`te`llKIa|
+z{5LJwo4nsaEmbD8Ub<SX9t~Ig)+pf-^%*AJkZ)iK1K_mo@=g%(!|5g7A42W;%5O^W
+zCV?DEqOIbCa}UQKo0kXQ;P`_xTPuCD_6j`zm&%q|vR6r^*~^45)|*FzG^TQDjSxtw
+zmb>b5CdxxF3@*c`aa5K}?3N}U&iBn371cJX<%Nl{Z+8jCB8PD|Xhojn3mD6Cnyids
+z+;%DBkiEnYFs3pI>6j!%N#wJnXMl(zhRd_L>tLJ1C9Xu^IG7v580s!#E!W`=6mN{-
+ze;OH>1T~pFbE?=-`FAKHe@ON=kU#FjmF=Z8V@})4XvR%NukB@0#^mp&X3RcEKvYml
+zPe#?XT_4WL3N!LuE&&wgK}lENgfMTz<V`5&@qy>y9HC1!T9yvTdJ-2u^Me?e>s02B
+zbd=2id6CvM?H4rq8#?<kGpf!0c<IUbg-7ETULp{lUqpK0``+Vp>8W10zwqtCcZ)C5
+JNI$L2{tc{R>-qoy
+
+literal 0
+HcmV?d00001
+
+diff --git a/__pycache__/textutil.cpython-315.pyc b/__pycache__/textutil.cpython-315.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..c051e8f4ba318bd63598b254f0b04a062fb51a63
+GIT binary patch
+literal 563
+zcmYjOO-~y!5VdzV-I6UI66%FZ-3nDo(Pl}YNI|q$I8+Kt$qCVDlXZfXO?G8_3*;1z
+zzyW>&*WUOg2*jbP%K?dBP^IUp<7AOC(##vr*w4@7otf!80{eHG@7w@B>BX}dSu$LJ
+zWB~3Xf%eh1y=4jP<JU+S+xA;jF#3zT^hlBe8YPqq(uz50q$~<quT7GmO-XI%izqg6
+z#-||%ZX#q2IV1z{8mdnAp`xuk1{CAHXEms5WyJ}2gM928HCzTxZB=`WlhHTI*$trC
+z?7!Phd5;8Rfs)CH64sM3R6s2eQQ9u{^LyU{x4-OG_LmfP3zo`7@ge2P;8d9+ZK#}(
+zoFxTA<wgw39`$J`wA%MXeex2{z6X+evYU9#C`d!<eq1hjL1|^B;ptmg>)36vBkwTg
+z9aok-38PFUi;Bsyva=1`0XjW0u>|1+J<iNubWS_x-NELAGkvjkwsz@W&0n?eo#Ibt
+z_0Czn{(A3JZmr4?w!>qUU9X36vtH+#WW@FZ@mD(6->+V7bmK6M=x06)OFbnq2jP#2
+SG5&=<{6<rMUzm7(bmBi+kbP+Y
+
+literal 0
+HcmV?d00001
+
+diff --git a/test_textutil.py b/test_textutil.py
+index 0a0d0cc..201fb2f 100644
+--- a/test_textutil.py
++++ b/test_textutil.py
+@@ -7,6 +7,19 @@ class SlugifyTest(unittest.TestCase):
+     def test_lowercases_and_replaces_a_space(self):
+         self.assertEqual(slugify("Hello World"), "hello-world")
+ 
++    def test_collapses_a_run_of_non_alphanumerics_into_one_hyphen(self):
++        self.assertEqual(slugify("Hello,  World!"), "hello-world")
++
++    def test_strips_leading_and_trailing_hyphens(self):
++        self.assertEqual(slugify("  -Draft- "), "draft")
++
++    def test_returns_empty_string_without_alphanumerics(self):
++        self.assertEqual(slugify("!!!"), "")
++        self.assertEqual(slugify(""), "")
++
++    def test_keeps_digits(self):
++        self.assertEqual(slugify("Page 2"), "page-2")
++
+ 
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/textutil.py b/textutil.py
+index 3398c7e..0f988c1 100644
+--- a/textutil.py
++++ b/textutil.py
+@@ -5,4 +5,4 @@ import re
+ def slugify(title):
+     """Turn a page title into a URL slug."""
+     lowered = title.lower()
+-    return re.sub(r"[^a-z0-9]", "-", lowered)
++    return re.sub(r"[^a-z0-9]+", "-", lowered).strip("-")

@@ -1,0 +1,58 @@
+diff --git a/docs/design/2026-11-28-note-read-authz-and-share.md b/docs/design/2026-11-28-note-read-authz-and-share.md
+new file mode 100644
+index 0000000..bc53d7e
+--- /dev/null
++++ b/docs/design/2026-11-28-note-read-authz-and-share.md
+@@ -0,0 +1,52 @@
++---
++status: draft
++---
++
++# メモの読み取り認可と共有
++
++規模: 単一モジュール (notes/) の2ファイル変更のため要約形式。
++
++## 1. 背景と目的
++
++`NoteService.read` が所有者を確かめず、ログインした利用者なら誰でも他人のメモを読める。所有者と共有先だけが読めるようにし、所有者がメモを共有できるようにする (issue #1)。
++
++## 2. スコープ / やらないこと
++
++- やる: `read` の認可、`share(user, note_id, target)` の追加、`PermissionDenied` の追加
++- やらない (issue の範囲外): 共有の取り消し、HTTP のハンドラ、永続化。利用者の実在確認 (利用者の台帳が無く、利用者名は HTTP のハンドラが渡す文字列のため)。取り消しが範囲外なので、誤った相手への共有はこの変更では解消できない (受容するリスク)
++
++## 3. 構成と責務
++
++| コンポーネント | 配置 | 責務 |
++|---|---|---|
++| `NoteService` | `notes/service.py` | 認可の判定 (所有者・共有先か) と例外 (`NotFound`・`PermissionDenied`) の送出 |
++| `NoteStore` | `notes/store.py` | メモと共有先の保持。認可は判定しない |
++
++既存の分担 (store はデータ保持、service は利用者に対する判定) に合わせる。`shared_with` を変更するのは `NoteStore.share` だけとし、service は `get` の戻り値を変更も返却もしない。
++
++## 4. インターフェース
++
++- `NoteService.read(user, note_id) -> str`: 所有者か共有先なら本文を返す。メモが無ければ `NotFound`、どちらでもなければ `PermissionDenied`
++- `NoteService.share(user, note_id, target) -> None`: 所有者だけが共有できる。メモが無ければ `NotFound`、所有者でなければ (共有先を含む) `PermissionDenied`。同じ相手への再共有は何もしない (冪等)。所有者自身を `target` にしても読める範囲は変わらない
++- `notes.service.PermissionDenied(Exception)`: 新設
++- `NoteStore.share(note_id, target)`: 共有先を追加する (内部 API)
++
++所有者・共有先の判定は利用者名の完全一致とし、正規化はハンドラの責務とする。`read`・`share` の `user` が空でない `str` でなければ、所有者でも共有先でもない利用者として `PermissionDenied` を出す (ハンドラの不具合で `None` が渡ったとき、`owner=None` のメモや `None` の共有先と一致して読めてしまうのを防ぐ)。`share` の `target` が空でない `str` でなければ `ValueError` を出す (呼び出し側の入力の誤りで、共有先に匿名を登録しない)。
++
++判定の順序は「存在確認 (`NotFound`) → `user` の検証と認可 (`PermissionDenied`) → `target` の検証 (`ValueError`)」。存在確認を先にするのは、社内ツールでメモの有無を隠す必要が無いと issue が明記しているため (受け入れ基準 5)。`target` の検証を認可の後にするのは、権限の無い利用者に入力検証の結果を返さないため。
++
++前提 (この設計書が定めるハンドラ側の契約): `user` はハンドラが認証済みのセッションから取った利用者名であり、リクエストの入力から直接取らない。`note_id` の型の正規化もハンドラの責務とし、`int` 以外が渡ったときの挙動は未定義 (ストアの `dict.get` が `TypeError` を出しうる)。`create` は変更しない。`create` が不正な `owner` を受け入れるため、`read`・`share` 側の `user` 検証は外さない (不正な `owner` を持つメモは誰にも読めず共有もできない。受容)。
++
++## 5. データフロー
++
++共有先はメモのレコード (`NoteStore._notes[note_id]`) の `shared_with` (set) に持つ。状態の持ち主は `NoteStore` だけで、二重管理は無い。`add` で空の set を作る。ストアはメモリ上で、既存コードも排他を持たない単一プロセス前提のため、並行アクセスの対策は今回足さない (永続化と同じく範囲外)。
++
++## 6. エラー処理
++
++- メモが無い: `NotFound(note_id)` (read・share 共通)
++- `share` の `target` が不正: `ValueError`
++- 権限が無い: `PermissionDenied(note_id)`。既定値や空文字を返して黙って失敗させない
++
++## 7. 運用
++
++ライブラリ内の変更で、デプロイ手順・移行は無い (メモリ上のストア)。ロールバックはコードを戻すだけ。

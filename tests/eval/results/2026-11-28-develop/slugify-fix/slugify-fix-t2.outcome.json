@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "run_id": "20261128T080045Z-8408ecf0",
+  "issue": "1",
+  "status": "done",
+  "reason": null,
+  "questions": [],
+  "completion": {
+    "verification": "passed",
+    "undecided_rows": 0,
+    "untracked_deferred": 0
+  },
+  "artifacts": {
+    "design_doc": null,
+    "test_perspectives": null
+  }
+}

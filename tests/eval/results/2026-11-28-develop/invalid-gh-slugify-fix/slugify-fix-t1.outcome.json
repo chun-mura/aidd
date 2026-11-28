@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "run_id": "20261128T075705Z-d285d813",
+  "issue": "1",
+  "status": "blocked",
+  "reason": "gh_unavailable",
+  "questions": [],
+  "completion": null,
+  "artifacts": {
+    "design_doc": null,
+    "test_perspectives": null
+  }
+}
