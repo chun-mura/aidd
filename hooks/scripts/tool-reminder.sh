@@ -1191,17 +1191,29 @@ GH_TEXT_OPTIONS = {"--title": "titles", "-t": "titles", "--body": "bodies", "-b"
                    "--body-file": "files", "-F": "files"}
 
 
+# The other options of gh pr/issue create/edit: those that take a value and those that do not.
+GH_VALUE_OPTIONS = {"--base", "-B", "--head", "-H", "--label", "-l", "--assignee", "-a", "--reviewer", "-r",
+                    "--milestone", "-m", "--project", "-p", "--repo", "-R", "--template", "-T", "--recover",
+                    "--add-label", "--remove-label", "--add-assignee", "--remove-assignee", "--add-reviewer",
+                    "--remove-reviewer", "--add-project", "--remove-project"}
+GH_FLAG_OPTIONS = {"--draft", "-d", "--fill", "-f", "--fill-first", "--fill-verbose", "--web", "-w", "--editor",
+                   "-e", "--no-maintainer-edit", "--dry-run", "--remove-milestone"}
+
+
 def gh_text_options(args):
-    """The title, body and body-file values, read in order so that a value is never read as an option
-    (--title "-bX" is a title, not a body). Other options are not known here, so a value of theirs that
-    looks like one of these (--label -bX) is still read as one: that can only keep the nudge or add a
-    value to judge."""
+    """The title, body and body-file values, or None when they cannot be told apart. Options are read in
+    order and a value is never read as an option (--title "-bX" and --label "-bX" hold no body). An
+    option not listed above, or short flags joined together (-dw), may take the next word as its value,
+    so the rest cannot be read: None, and the nudge stays."""
     found = {"titles": [], "bodies": [], "files": []}
     i = 0
     while i < len(args):
         arg = args[i]
         if arg == "--":
             break
+        if not arg.startswith("-") or arg == "-":
+            i += 1
+            continue
         name, sep, attached = arg.partition("=") if arg.startswith("--") else (arg[:2], "", arg[2:])
         kind = GH_TEXT_OPTIONS.get(name)
         if kind and (sep or attached):
@@ -1209,6 +1221,12 @@ def gh_text_options(args):
         elif kind and i + 1 < len(args):
             found[kind].append(args[i + 1])
             i += 1
+        elif kind:
+            return None
+        elif name in GH_VALUE_OPTIONS:
+            i += 0 if (sep or attached) else 1
+        elif name not in GH_FLAG_OPTIONS or attached:
+            return None
         i += 1
     return found["titles"], found["bodies"], found["files"]
 
@@ -1241,7 +1259,10 @@ def body_file_is_japanese(value, directory, deadline):
 
 
 def japanese_nudge_needed(action, args, directory):
-    titles, bodies, files = gh_text_options(args)
+    options = gh_text_options(args)
+    if options is None:
+        return True
+    titles, bodies, files = options
     texts = titles + bodies
     if action == "create" and not (titles and len(texts) + len(files) > len(titles)):
         return True

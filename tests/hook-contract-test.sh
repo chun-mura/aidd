@@ -113,6 +113,8 @@ import json, subprocess, sys
 payload = json.dumps({"hook_event_name": "PreToolUse", "cwd": sys.argv[1], "session_id": "session-ja",
                       "tool_name": "Bash", "tool_input": {"command": sys.argv[2]}})
 r = subprocess.run(["bash", sys.argv[3]], input=payload, capture_output=True, text=True, timeout=10)
+if r.returncode != 0:
+    sys.exit(f"hook exited {r.returncode}")
 print(r.stdout, end="")
 ' "$repo" "$1" "$dispatcher") || { echo "hook did not return: $1" >&2; exit 1; }
   printf '%s' "$out"
@@ -158,6 +160,12 @@ ja_quiet $'gh issue edit 5 --title 通知 --body "$(cat <<EOF\n日本語の本�
 ja_quiet $'gh issue edit 5 --title 通知 --body "$(cat <<\'EOF\'\n本文 $(literal)\nEOF\n)"'
 # A value is never read as an option: --title "-b..." is a title, so the create has no body.
 ja_shown 'gh pr create --head docs-only --title "-b日本語"'
+ja_shown 'gh pr create --head docs-only --title 通知 --label "-b日本語"'
+ja_shown 'gh pr create --head docs-only --title 通知 -l"-b日本語"'
+# Known flags and value options pass; an unknown option or joined short flags keep the nudge.
+ja_quiet 'gh pr create --draft --head docs-only -B main --label bug --title 通知を直す --body 本文'
+ja_shown 'gh pr create --head docs-only --some-new-option x --title 通知を直す --body 本文'
+ja_shown 'gh pr create --head docs-only -dw --title 通知を直す --body 本文'
 ja_shown 'gh pr create --head docs-only --title "通知を直す" --body "$(cat notes/ja.md)"'
 ja_shown 'gh pr create --head docs-only --title "通知を直す" --body "`cat notes/ja.md`"'
 # More than three body files: the rest count as unreadable.
