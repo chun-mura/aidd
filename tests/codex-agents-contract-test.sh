@@ -111,18 +111,23 @@ def denied(out, case):
     return True
 
 
+skill_dir = os.path.dirname(own)
 deny_cases = [
     ("absolute cat", f"cat {own}", {}),
     ("sed range", f"sed -n '1,220p' '{own}'", {}),
     ("relative from cwd", "cat skills/autonomous-review/SKILL.md", {"cwd": root}),
     ("glob over every skill", f"cat {root}/skills/*/SKILL.md", {}),
-    ("cd into the directory", f"cd {root}/skills/autonomous-review && cat SKILL.md", {}),
+    # No "skill" or "autonomous" in the text: the glob characters alone must reach python.
+    ("glob without the names", f"cat {root}/sk*/a*/S*.md", {}),
     ("python open", f"python3 -c \"print(open('{own}').read())\"", {}),
     ("plugin root variable", "cat \"$CLAUDE_PLUGIN_ROOT/skills/autonomous-review/SKILL.md\"",
      {"env": {"CLAUDE_PLUGIN_ROOT": root}}),
     ("link to the directory", f"cat {tmp}/alias-dir/SKILL.md", {}),
-    ("workdir in the skill directory", "cat SKILL.md", {"extra": {"workdir": os.path.dirname(own)}}),
-    ("file under the directory", f"cat {root}/skills/autonomous-review/agents/openai.yaml", {}),
+    ("workdir in the skill directory", "cat SKILL.md", {"extra": {"workdir": skill_dir}}),
+    # --plugin-dir development (cwd is the plugin root): any word naming the SKILL.md is refused, an edit
+    # or a commit message too. Documented as a false positive on the stopping side.
+    ("plugin-dir edit", "sed -i.bak 's/a/b/' skills/autonomous-review/SKILL.md", {"cwd": root}),
+    ("plugin-dir commit message", "git commit -m 'fix skills/autonomous-review/SKILL.md'", {"cwd": root}),
 ]
 for case, command, opts in deny_cases:
     out = run(command, cwd=opts.get("cwd", work), extra=opts.get("extra"), env_extra=opts.get("env"))
@@ -136,6 +141,13 @@ if os.path.exists(upper):
     denied(run(f"cat {upper}"), "case spelling")
 
 pass_cases = [
+    # A user-started run works in the skill directory: only the SKILL.md itself is refused.
+    ("helper script from the skill directory", f"cd {skill_dir} && python3 ../../scripts/learnings.py candidates"),
+    ("listing the skill directory", f"ls {skill_dir}"),
+    ("naming the directory", f"echo see {skill_dir}"),
+    ("another file in the directory", f"cat {skill_dir}/agents/openai.yaml"),
+    # Known limit: a relative path after cd is resolved from the event's cwd, not the cd target.
+    ("relative path after cd", f"cd {skill_dir} && cat SKILL.md"),
     ("another skill", f"cat {root}/skills/adr/SKILL.md"),
     ("listing the skills", f"ls {root}/skills"),
     ("a copy outside the plugin", f"cat {tmp}/copy/skills/autonomous-review/SKILL.md"),

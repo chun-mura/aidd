@@ -145,8 +145,9 @@ the skill's `name:` frontmatter.
   - `skill-gate.sh` (PreToolUse `^Skill$`, beside `usage-log.sh`; PreToolUse `Bash`, after `tool-reminder.sh`;
     Cursor `Read` through the adapter): returns `ask` before the model starts `autonomous-review`, on Cursor
     denies the read of this plugin's `skills/autonomous-review/SKILL.md`, and denies a Bash command whose words
-    name that directory or a file in it (Codex has no Skill tool and ignores `ask`; its model reads SKILL.md with
-    the shell, #225). A Bash event without `skill`/`autonomous`/`\u` exits before python. Prints the decision
+    name that same SKILL.md file; other files in the skill directory pass (Codex has no Skill tool and ignores
+    `ask`; its model reads SKILL.md with the shell, #225). A Bash event without `skill`/`autonomous`/a glob
+    character/`\u` exits before python. Prints the decision
     before its best-effort count in `skill-gate.json`, always exits 0 (a hook that fails to start lets the Skill
     through), and fails closed (ask; deny for Read and Bash) when it cannot parse input that names the skill
   - `tool-reminder.sh` (PreToolUse + PostToolUse + PostToolUseFailure, matcher `Bash`): the single Bash dispatcher.

@@ -42,8 +42,8 @@
 
 Codex の hooks (codex-cli 0.163.0、公式の文書 learn.chatgpt.com/docs/hooks) は、シェル (`exec_command` を含む) を `Bash` として PreToolUse に渡し、`permissionDecision: "deny"` で止められる。`ask` は「解釈するが未対応」で、hook の失敗として扱われ、ツールは実行される。そのため Claude Code の Skill ツールのような許可の確認はできず、Cursor の `Read` の拒否 (2026-11-14 の設計) と同じく `deny` で止める。
 
-- `hooks.json` の PreToolUse `Bash` エントリの `tool-reminder.sh` の後ろに `skill-gate.sh` を足した。コマンドの語がこの plugin の `skills/autonomous-review/` (ディレクトリ自体かその中のファイル) を指せば `deny` を返す (`tests/codex-agents-contract-test.sh` で固定)
-- Codex の信頼はエントリの位置ごと (`pre_tool_use:0:1` が新しく増える)。既存の `tool-reminder.sh` の信頼は切れない。利用者は `/hooks` で新しい1つを信頼する必要がある
+- `hooks.json` の PreToolUse `Bash` エントリの `tool-reminder.sh` の後ろに `skill-gate.sh` を足した。コマンドの語がこの plugin の `skills/autonomous-review/SKILL.md` そのもの (ファイルとして同じもの) を指せば `deny` を返す。同じディレクトリのほかのファイルやディレクトリ自体は通す (`tests/codex-agents-contract-test.sh` で固定)。上の pr1〜3 の `cat <絶対パス>`・`sed -n '<範囲>p' <絶対パス>` はこれに当たる
+- エントリに hook を足すと、利用者は `/hooks` で信頼し直す必要がある。0.53.0 で `^Skill$` エントリに足したときは既存の `usage-log.sh` の記録も止まったので、既存の `tool-reminder.sh` の信頼も外れうる (Codex では確かめていない)。README と CHANGELOG で、このエントリの hook がどちらも信頼済みかを確かめるよう案内した
 - この変更の hook を Codex で実際に動かす測定はしていない (Codex の設定・信頼を変えないため)。Codex に届く入力の形は `tests/fixtures/hooks/codex/PreToolUse.bash-git-add-all.json`、Bash の `deny` が効くことは 2026-10-27 の multi-harness hooks の設計の実測に拠る
 - `adr` など、ほかの利用者起動の skill は止めない。モデルが始めても、手順の中で利用者に確かめる (adr1 は質問で止まった)。`autonomous-review` は外部へのコード送信・コード修正・品質ゲートまで進むので止める。広げるかは、困る skill が見つかってから決める
 

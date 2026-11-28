@@ -13,13 +13,13 @@ ASK_REASON="autonomous-review の実行にはユーザーの許可が必要で�
 DENY_REASON="autonomous-review はモデルからは起動できません。ユーザーに /autonomous-review を手で実行するよう依頼してください。"
 SHELL_DENY_REASON="autonomous-review の SKILL.md はシェルから読めません。この skill はユーザーが手で起動するものです (Codex は \$aidd:autonomous-review、Claude Code は /aidd:autonomous-review)。ユーザーに実行するよう依頼してください。"
 
-# A shell command can only reach the skill through a word naming it, its directory or a glob, so a Bash
-# event without "skill", "autonomous" or a JSON escape (\u) is left alone before python starts.
+# A shell command reaches the SKILL.md through a word naming it or a glob, so a Bash event without "skill",
+# "autonomous", a glob character (* ? [) or a JSON escape (\u) is left alone before python starts.
 bash_re='"tool_name"[[:space:]]*:[[:space:]]*"Bash"'
 if [[ $payload =~ $bash_re ]]; then
   shopt -s nocasematch
   case "$payload" in
-    *skill* | *autonomous* | *'\u'*) shopt -u nocasematch ;;
+    *skill* | *autonomous* | *'*'* | *'?'* | *'['* | *'\u'*) shopt -u nocasematch ;;
     *) exit 0 ;;
   esac
 fi
@@ -50,43 +50,37 @@ if event.get("tool_name") == "Skill":
 elif event.get("tool_name") == "Bash":
     # Codex has no Skill tool: its model starts a skill by reading the SKILL.md with a shell command, even
     # with allow_implicit_invocation: false (codex-cli 0.163.0, #225). Codex ignores ask, so refuse the
-    # command when one of its words names this plugin's autonomous-review directory or a file in it.
+    # command when one of its words names this plugin's autonomous-review SKILL.md itself. Words naming the
+    # skill directory or another file in it pass: a user-started run works there (../../scripts/learnings.py).
     # A best-effort guard against a model following its own search, not a sandbox: a path built at run time
-    # (a variable the hook does not have, a command substitution) is not seen.
+    # (a variable the hook does not have, a command substitution, a relative path after cd) is not seen.
     command = tool_input.get("command")
     if isinstance(command, list) and all(isinstance(c, str) for c in command):
         command = " ".join(command)
     if not isinstance(command, str):
         sys.exit(3)
-    own_dir = os.path.join(plugin_root, "skills", "autonomous-review")
+    own = os.path.join(plugin_root, "skills", "autonomous-review", "SKILL.md")
     bases = [b for b in (tool_input.get("workdir"), event.get("cwd")) if isinstance(b, str) and os.path.isabs(b)]
-    def inside(path):  # the skill directory itself or anything under it, compared as files
-        path = os.path.normpath(path)
-        while True:
+    def same(path):  # compared as files: links and a case-insensitive filesystem name it under other spellings
+        for candidate in (path, os.path.normpath(path)):
             try:
-                if os.path.samefile(path, own_dir):
+                if os.path.samefile(candidate, own):
                     return True
             except (OSError, ValueError):
                 pass
-            parent = os.path.dirname(path)
-            if parent == path:
-                return False
-            path = parent
+        return False
     def names_skill(word):
         word = os.path.expandvars(re.sub(r"^~(?=$|/)", lambda _: os.path.expanduser("~"), word))
         roots = [""] if os.path.isabs(word) else bases
         for root in roots:
             path = os.path.join(root, word)
             matches = itertools.islice(glob.iglob(path), 1000) if re.search(r"[*?\[]", word) else [path]
-            if any(inside(m) for m in matches):
+            if any(same(m) for m in matches):
                 return True
         return False
     # \x60 is a backquote (a literal one would end this $(...) in bash 3.2).
-    for word in re.split(r"[\s'\"\x60;&|<>(){}=,]+", command):
-        low = word.lower()
-        if ("skill" in low or "autonomous" in low or re.search(r"[*?\[]", word)) and names_skill(word):
-            reply("deny", shell_deny_reason)
-            break
+    if any(word and names_skill(word) for word in re.split(r"[\s'\"\x60;&|<>(){}=,]+", command)):
+        reply("deny", shell_deny_reason)
 elif event.get("tool_name") == "Read":
     # Cursor loads a skill by reading its SKILL.md. Only this plugin's copy is refused,
     # so editing the aidd repository itself in Cursor keeps working.
