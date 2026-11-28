@@ -72,7 +72,7 @@ PR が書き換えられるものの中に、合格条件を置かない。
 | 報告の基準の digest が、base の `approved.sha256` と違う | `report-criteria-mismatch` |
 | 報告に失敗した基準がある | `report-failed` |
 | base の `criteria.md` にある基準のどれかが、報告の成功の一覧に無い (1件だけの成功などで通さない) | `report-incomplete` |
-| 入力を読めない (SHA が完全でない、JSON が壊れている、`--suite-id`・`--report`・`--approved` が無い、`approved.sha256`・`criteria.md` が無い、policy の `app_id` が整数でない・必須の check が空) | `invalid-input:<説明>` |
+| 入力を読めない (SHA が完全でない、JSON が壊れている、`--suite-id`・`--report`・`--approved` が無い、`approved.sha256`・`criteria.md` が無い、`criteria.md` が `approved.sha256` に載る digest と違う、`approved.sha256` に同じ名前が2行ある、policy の `app_id` が整数でない・必須の check が空) | `invalid-input:<説明>` |
 
 同じ名前・同じ提供元・同じ run の中で再実行があれば、最も新しい run (id、次に開始時刻) で判定する。GitHub が check を最新の run で数えるのに合わせた。開始時刻を先にしないのは、待機中の再実行には開始時刻が無く、古い成功が勝ってしまうからである。
 

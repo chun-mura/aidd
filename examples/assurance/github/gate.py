@@ -100,7 +100,10 @@ def trusted_criteria(approved_path):
     for line in approved_bytes.decode("utf-8").splitlines():
         parts = line.split(None, 1)
         if len(parts) == 2:
-            listed[parts[1].strip()] = parts[0]
+            name = parts[1].strip()
+            if name in listed:
+                raise InvalidInput("approved.sha256 lists %s more than once" % name)
+            listed[name] = parts[0]
     criteria_path = os.path.join(os.path.dirname(approved_path), "criteria.md")
     with open(criteria_path, "rb") as fh:
         criteria_bytes = fh.read()
