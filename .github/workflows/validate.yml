@@ -36,6 +36,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
         test:
           - assurance/acceptance-test.sh
+          - assurance/evidence-test.sh
           - assurance/release-gate-test.sh
           - autonomous-review-contract-test.sh
           - codex-agents-contract-test.sh

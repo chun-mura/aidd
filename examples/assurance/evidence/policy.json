@@ -1,0 +1,17 @@
+{
+  "schema": "aidd-evidence-policy/v1",
+  "subject_name": "app.tar.gz",
+  "oidc_issuer": "https://token.actions.githubusercontent.com",
+  "signer_workflow": "example-org/assurance-policy/.github/workflows/provenance.yml",
+  "signer_digest": "0000000000000000000000000000000000000000",
+  "source_repository": "example-org/example-app",
+  "source_ref_pattern": "^refs/tags/v[0-9]+\\.[0-9]+\\.[0-9]+$",
+  "runner_environment": "github-hosted",
+  "required_predicates": {
+    "provenance": "https://slsa.dev/provenance/v1",
+    "test-result": "https://in-toto.io/attestation/test-result/v0.1"
+  },
+  "criteria_digest": "sha256:2c15b2014dae904799a752552a44b275f9050379c206c9bfc685cc44634e79c3",
+  "test_id_pattern": "^AT-[A-Z]+-[0-9P]+$",
+  "max_age_days": 30
+}

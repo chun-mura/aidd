@@ -1,0 +1,46 @@
+{
+  "_comment": "Fictional gh attestation verify --format json entries for verify_evidence.py. evidence-test.sh builds one passing provenance and one passing test-result entry from the same run, then applies each case's overrides: 'both' to both entries, 'provenance' / 'test_result' to one (null removes it), 'extra' adds entries. In overrides, cert keys replace certificate fields, 'subject' and 'artifact_in_config' / 'criteria_in_config' take ARTIFACT, OTHER or a digest, 'predicate' merges into the test-result predicate, 'timestamps' replaces the verified timestamps, 'compare' replaces the default-branch compare output (default: the commit is behind the default branch tip), 'source_ref' replaces --source-ref. ARTIFACT and CRITERIA in a configuration digest stand for the artifact and the approved criteria digests.",
+  "cases": [
+    {"id": "all-bound", "verdict": "pass", "reasons": []},
+    {"id": "distributed-file-differs", "artifact": "tampered", "verdict": "fail", "reasons": ["digest-mismatch:provenance", "digest-mismatch:test-result", "input-mismatch"]},
+    {"id": "tests-ran-on-another-build", "test_result": {"subject": "OTHER", "artifact_in_config": "OTHER"}, "verdict": "fail", "reasons": ["digest-mismatch:test-result", "input-mismatch"]},
+    {"id": "signed-by-the-app-repository-workflow", "provenance": {"cert": {"buildSignerURI": "https://github.com/example-org/example-app/.github/workflows/release.yml@refs/tags/v1.2.3"}}, "verdict": "fail", "reasons": ["signer-mismatch"]},
+    {"id": "signed-from-an-unreviewed-ref-of-the-policy-repository", "both": {"cert": {"buildSignerURI": "https://github.com/example-org/assurance-policy/.github/workflows/provenance.yml@refs/heads/unreviewed", "buildSignerDigest": "7777777777777777777777777777777777777777"}}, "verdict": "fail", "reasons": ["signer-mismatch"]},
+    {"id": "signer-path-right-but-digest-unapproved", "provenance": {"cert": {"buildSignerDigest": "7777777777777777777777777777777777777777"}}, "verdict": "fail", "reasons": ["signer-mismatch"]},
+    {"id": "commit-not-on-the-default-branch", "compare": {"status": "ahead", "merge_base_commit": {"sha": "8888888888888888888888888888888888888888"}}, "verdict": "fail", "reasons": ["not-on-default-branch"]},
+    {"id": "commit-diverged-from-the-default-branch", "compare": {"status": "diverged", "merge_base_commit": {"sha": "8888888888888888888888888888888888888888"}}, "verdict": "fail", "reasons": ["not-on-default-branch"]},
+    {"id": "commit-is-the-default-branch-tip", "compare": {"status": "identical", "merge_base_commit": {"sha": "3333333333333333333333333333333333333333"}}, "verdict": "pass", "reasons": []},
+    {"id": "ref-with-a-trailing-newline", "source_ref": "refs/tags/v1.2.3\n", "both": {"cert": {"sourceRepositoryRef": "refs/tags/v1.2.3\n"}}, "verdict": "fail", "reasons": ["ref-mismatch"]},
+    {"id": "one-of-two-test-results-in-the-run-failed", "extra": [{"kind": "test_result", "predicate": {"result": "FAILED", "passedTests": ["AT-FLOW-01"], "failedTests": ["AT-PAY-01"]}}], "verdict": "fail", "reasons": ["tests-not-passed"]},
+    {"id": "url-is-not-a-run-url", "test_result": {"predicate": {"url": "https://example.invalid/log?prompt=fictional"}}, "verdict": "fail", "reasons": ["unexpected-content"]},
+    {"id": "unexpected-configuration-name", "test_result": {"predicate": {"configuration": [{"name": "app.tar.gz", "digest": {"sha256": "ARTIFACT"}}, {"name": "approved.sha256", "digest": {"sha256": "CRITERIA"}}, {"name": "system prompt (fictional)", "digest": {"sha256": "5555555555555555555555555555555555555555555555555555555555555555"}}]}}, "verdict": "fail", "reasons": ["unexpected-content"]},
+    {"id": "one-current-timestamp-and-one-in-the-future", "test_result": {"timestamps": ["2026-11-27T12:00:00Z", "2026-12-25T00:00:00Z"]}, "verdict": "fail", "reasons": ["stale-evidence"]},
+    {"id": "other-oidc-issuer", "both": {"cert": {"issuer": "https://issuer.example.invalid"}}, "verdict": "fail", "reasons": ["issuer-mismatch"]},
+    {"id": "self-hosted-runner", "both": {"cert": {"runnerEnvironment": "self-hosted"}}, "verdict": "fail", "reasons": ["environment-mismatch"]},
+    {"id": "other-source-repository", "both": {"cert": {"sourceRepositoryURI": "https://github.com/example-org/fork-of-app"}}, "verdict": "fail", "reasons": ["source-mismatch"]},
+    {"id": "evidence-of-an-older-commit", "both": {"cert": {"sourceRepositoryDigest": "4444444444444444444444444444444444444444"}}, "verdict": "fail", "reasons": ["source-mismatch"]},
+    {"id": "built-from-a-branch", "both": {"cert": {"sourceRepositoryRef": "refs/heads/feature"}}, "verdict": "fail", "reasons": ["ref-mismatch"]},
+    {"id": "tested-against-changed-criteria", "test_result": {"criteria_in_config": "OTHER"}, "verdict": "fail", "reasons": ["input-mismatch"]},
+    {"id": "tests-failed", "test_result": {"predicate": {"result": "FAILED", "failedTests": ["AT-PAY-01"]}}, "verdict": "fail", "reasons": ["tests-not-passed"]},
+    {"id": "passed-label-with-failures", "test_result": {"predicate": {"failedTests": ["AT-PAY-01"]}}, "verdict": "fail", "reasons": ["tests-not-passed"]},
+    {"id": "nothing-passed", "test_result": {"predicate": {"passedTests": []}}, "verdict": "fail", "reasons": ["tests-not-passed"]},
+    {"id": "provenance-and-tests-from-different-runs", "test_result": {"cert": {"runInvocationURI": "https://github.com/example-org/example-app/actions/runs/900/attempts/1"}, "timestamps": ["2026-11-27T13:00:00Z"]}, "verdict": "fail", "reasons": ["missing-attestation:provenance"]},
+    {"id": "evidence-older-than-max-age", "both": {"timestamps": ["2026-09-01T00:00:00Z"]}, "verdict": "fail", "reasons": ["stale-evidence"]},
+    {"id": "timestamp-in-the-future", "both": {"timestamps": ["2026-12-25T00:00:00Z"]}, "verdict": "fail", "reasons": ["stale-evidence"]},
+    {"id": "no-test-result", "test_result": null, "verdict": "fail", "reasons": ["missing-attestation:test-result"]},
+    {"id": "no-provenance", "provenance": null, "verdict": "fail", "reasons": ["missing-attestation:provenance"]},
+    {"id": "no-verified-timestamp", "test_result": {"timestamps": []}, "verdict": "fail", "reasons": ["missing-timestamp"]},
+    {"id": "prompt-stored-in-evidence", "test_result": {"predicate": {"prompt": "fictional prompt text"}}, "verdict": "fail", "reasons": ["unexpected-content"]},
+    {"id": "free-text-as-test-name", "test_result": {"predicate": {"passedTests": ["AT-FLOW-01", "log: token=fictional"]}}, "verdict": "fail", "reasons": ["unexpected-content"]},
+    {"id": "other-predicate-version", "test_result": {"predicateType": "https://in-toto.io/attestation/test-result/v0.2"}, "verdict": "fail", "reasons": ["missing-attestation:test-result"]},
+    {"id": "no-run-identity", "both": {"cert": {"runInvocationURI": null}}, "verdict": "fail", "reasons": ["missing-run"]},
+    {"id": "stale-run-beside-fresh-run", "extra": [
+      {"kind": "provenance", "cert": {"runInvocationURI": "https://github.com/example-org/example-app/actions/runs/500/attempts/1"}, "timestamps": ["2026-08-01T00:00:00Z"]},
+      {"kind": "test_result", "cert": {"runInvocationURI": "https://github.com/example-org/example-app/actions/runs/500/attempts/1"}, "timestamps": ["2026-08-01T00:00:00Z"]}
+    ], "verdict": "pass", "reasons": []},
+    {"id": "only-a-stale-run", "provenance": null, "test_result": null, "extra": [
+      {"kind": "provenance", "cert": {"runInvocationURI": "https://github.com/example-org/example-app/actions/runs/500/attempts/1"}, "timestamps": ["2026-08-01T00:00:00Z"]},
+      {"kind": "test_result", "cert": {"runInvocationURI": "https://github.com/example-org/example-app/actions/runs/500/attempts/1"}, "timestamps": ["2026-08-01T00:00:00Z"]}
+    ], "verdict": "fail", "reasons": ["stale-evidence"]}
+  ]
+}
