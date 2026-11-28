@@ -88,12 +88,25 @@ def judge_check(spec, runs, target_sha, suite_id):
 
 
 def trusted_criteria(approved_path):
-    """The approved digest and the criterion IDs of criteria.md next to it, both from the protected base."""
+    """The approved digest and the criterion IDs of criteria.md next to it, both from the protected base.
+
+    criteria.md must also match the digest that the approved list gives it: a copy that differs
+    from the approved list is not the approved criteria, whichever IDs it names.
+    """
     with open(approved_path, "rb") as fh:
-        digest = "sha256:" + hashlib.sha256(fh.read()).hexdigest()
+        approved_bytes = fh.read()
+    digest = "sha256:" + hashlib.sha256(approved_bytes).hexdigest()
+    listed = {}
+    for line in approved_bytes.decode("utf-8").splitlines():
+        parts = line.split(None, 1)
+        if len(parts) == 2:
+            listed[parts[1].strip()] = parts[0]
     criteria_path = os.path.join(os.path.dirname(approved_path), "criteria.md")
-    with open(criteria_path, encoding="utf-8") as fh:
-        ids = {m.group(1) for m in (CRITERION_RE.match(line) for line in fh) if m}
+    with open(criteria_path, "rb") as fh:
+        criteria_bytes = fh.read()
+    if listed.get("criteria.md") != hashlib.sha256(criteria_bytes).hexdigest():
+        raise InvalidInput("criteria.md does not match approved.sha256")
+    ids = {m.group(1) for m in (CRITERION_RE.match(line) for line in criteria_bytes.decode("utf-8").splitlines()) if m}
     if not ids:
         raise InvalidInput("no criteria rows in %s" % criteria_path)
     return digest, ids

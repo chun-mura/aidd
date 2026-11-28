@@ -20,6 +20,8 @@ SUPPORTED_SCHEMA = 1
 STAGES = ("seed", "deps", "agent", "ingest", "publish")
 NO_NETWORK_STAGES = ("seed", "ingest")
 AGENT_CAPABILITIES = {"SETUID", "SETGID"}
+# Host paths, devices and kernel settings a stage must not be given; an empty value is none.
+UNEXPECTED_HOST_KEYS = ("Binds", "Mounts", "Devices", "VolumesFrom", "Sysctls", "OomKillDisable")
 OUTCOMES = ("succeeded", "blocked", "failed")
 INCOMPLETE_OUTCOMES = ("blocked", "failed")
 TMPFS_SIZE_RE = re.compile(r"[1-9][0-9]*[kKmMgG]?")
@@ -173,9 +175,15 @@ def check_stage(name, stage, eff, reasons):
     security = host.get("SecurityOpt") or []
     if not any(opt in ("no-new-privileges", "no-new-privileges:true") for opt in security):
         reasons.append("no-new-privileges-missing:%s" % name)
+    # Only no-new-privileges is expected, so the Docker default seccomp and AppArmor profiles stay in force.
+    if any(opt not in ("no-new-privileges", "no-new-privileges:true") for opt in security):
+        reasons.append("security-opt-unexpected:%s" % name)
+    for key in UNEXPECTED_HOST_KEYS:
+        if host.get(key):
+            reasons.append("host-config-unexpected:%s:%s" % (name, key))
     if host.get("Privileged") not in (None, False):
         reasons.append("privileged:%s" % name)
-    for key in ("PidMode", "IpcMode", "UsernsMode"):
+    for key in ("PidMode", "IpcMode", "UsernsMode", "UTSMode", "CgroupnsMode"):
         value = host.get(key)
         if isinstance(value, str) and value.strip().lower() == "host":
             reasons.append("host-namespace:%s:%s" % (name, key))

@@ -36,6 +36,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
         test:
           - assurance/acceptance-test.sh
+          - assurance/boundary-suite.sh
           - assurance/evidence-test.sh
           - assurance/release-gate-test.sh
           - assurance/runtime-record-test.sh
