@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.94.0 (2026-11-28)
+
+- `issue-implement`: 止まるたびに終了状態を `.aidd/issue-implement/<実行ID>/outcome.json` に残すようにした (#191)。非対話のホスト (`claude -p`・Agent SDK) が、完了・質問待ち・停止を最終テキストから推測せずに区別するため。`status` は `done` / `needs_input` / `blocked`。`needs_input` には選択肢 (`label` と、選ぶと何が起きるかの `effect`) 付きの質問を、`blocked` には停止点ごとの `reason` を書く。`done` は `completion` に検証の合格・未判断の行0・追跡先の無い deferred 0 を明示しないと書けない。停止点ごとに `outcome: <status>/<reason か kind>` の印を付け、新しい節「8. 終了状態の記録」に対応表を置いた。ホストは質問で止まったセッションを再開せず、回答を issue に足してから実行し直す前提で、質問は issue と outcome だけで読める文にする。対話セッションの手順・質問・完了報告は変えていないが、止まる前に `python3` を1回実行するので、権限設定によっては実行の許可を求める確認が増える。監査の新しいセッションを起動した run のあとも、outcome の `write` だけは実行する (git を使わず、リンクをたどらずに実行IDディレクトリにだけ書くため)
+- `scripts/issue-outcome.py` を足した (#191)。`start` (実行IDディレクトリの作成。ホストは `AIDD_ISSUE_IMPLEMENT_RUN_ID` で実行IDを渡せる)、`write` (検証して原子的に書く。外れた入力は書かず、値を繰り返さずに理由だけを出す)、`check` (ホスト用の検証。`--issue` で issue 番号も照合する)。`tests/issue-outcome-test.sh` で拒否の条件を1件ずつ確かめ、SKILL.md の印・8 節の表・スクリプトの列挙値の一致も確かめる。CI の contract-tests の matrix に足した。費用 (`total_cost_usd`) は outcome に持たない (セッションは自分の費用を知らないため)
+- issue-implement 1件の費用の予備測定を `tests/eval/results/2026-11-28-issue-implement-cost.md` に保存した (#191)。使い捨てのローカル repo の小さな直行レーンの issue を `claude -p --model opus` で1回動かし、`total_cost_usd` は $0.81 (116秒)、outcome は `needs_input/approval` で `check` を通った。この実行では `Skill` ツールの呼び出しが0件で、test-perspectives を起動していないため、手順どおりの実行より小さい可能性がある
+
 ## 0.93.0 (2026-11-27)
 
 - `eval`: design-review の構成比較 (`/aidd:eval compare`) の手順を足した (#130)。crosscut では素の Opus 5.5 が deep と同じ検出を約1/4.8のトークンで出したが、既定の `standard` と小規模対象の直接レビューの効果は測っていなかったため。同じケース (`tests/eval/cases/`) と正解キーで、`deep`・`standard` (どちらもショートカットなし)・`direct` (小規模対象ショートカット、100行未満のケースだけ)・`baseline` (aidd なしの単体モデル。過去の比較と同じ文言で行番号付きの本文を埋め込み、`claude -p --tools ""`) を、全構成で同じ `--model` に固定して各3試行以上行う。準備は手順1a の準備のブロックの後に新しい `# eval compare staging:` で構成ごとのプロンプト (偽指摘なし) と単体モデル用の別の run を作り、抽出・凍結・照合は #129 のブロックをそのまま使う。比べる資産に未コミットの変更があれば準備で止まり、安全上重要なシード (期待深刻度 high か、対応観点がセキュリティ) の見逃しの定義と、既定を維持/軽量化する提案の規則を実行の前に固定する。見逃しは指摘件数の増減と別の表に書く。既存の deep 回帰評価 (手順1〜6・運用ルール6) は変えておらず、比較の結果だけで構成を削除しない。準備は、手順1a でコピーした資産が今の元ファイルと同じことと、準備したコミットが今の HEAD と同じことも確かめる (未コミットの資産で準備した後に戻した場合を止めるため)。失敗した試行は C5 の基準にも判定にも入れず、凍結の前に全試行がそろっていることを確かめる。ユーザーが承認したときだけ、試行数を減らした予備測定 (`-compare-prelim.md`、C5 の提案なし) を行える。課金のある実行は未実施で、ユーザーが推定コストを承認してから行う
