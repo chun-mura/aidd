@@ -41,6 +41,7 @@ jobs:
           - hook-contract-test.sh
           - hook-log-test.sh
           - incident-retro-memory-test.sh
+          - issue-outcome-test.sh
           - learnings-test.sh
           - redundancy-contract-test.sh
           - session-start-test.sh
