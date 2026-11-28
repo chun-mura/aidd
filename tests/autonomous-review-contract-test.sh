@@ -25,6 +25,68 @@ grep -F -- '対象外の変更が混ざる場合、レビューを始めずに�
 grep -F -- 'codex exec --sandbox read-only' "$command_file"
 grep -F -- 'human_required' "$command_file"
 grep -F -- '同一モデルの自己レビューへ黙ってフォールバックしてはならない' "$command_file"
+# Eligibility rests on an independent review, not on the model family (#134).
+grep -F -- '## 独立レビューの成立条件' "$command_file"
+grep -F -- '| `review_independence` | object | 必須 |' "$command_file"
+grep -F -- '実行名の `codex` だけでモデルの系列を決めない' "$command_file"
+grep -F -- '実行名 (`reviewer: codex`)・CLI の名前・既定の設定から推測して埋めない' "$command_file"
+grep -F -- '`model: <値>` と `provider: <値>` の行だけを読み' "$command_file"
+grep -F -- 'どちらかが `null` なら `unknown`' "$command_file"
+grep -F -- '`null` も `false` と同じく `established` を `false` にする' "$command_file"
+grep -F -- '`established` が `true` でない `--reviewer codex` の run は `human_required` (`human_required_reason` は `review_incomplete`) とし、`auto_merge_eligible` にしない' "$command_file"
+grep -F -- 'ほかの run の `report.md`・`state.json`・最終判定と、この run の前のラウンドの verdict・指摘の判定・finding ID は渡さない (懸念点にも含めない' "$command_file"
+grep -F -- '| 新しい文脈 | `fresh_context` |' "$command_file"
+grep -F -- '| `false` (同じセッション) |' "$command_file"
+grep -F -- 'tests/eval/results/2026-11-25-impl.md' "$command_file"
+test -f "$repo_root/tests/eval/results/2026-11-25-impl.md"
+test -f "$repo_root/docs/superpowers/specs/2026-11-28-autonomous-review-independence-design.md"
+grep -F -- '- **残存リスク** (`--reviewer codex` の run では `residual_risks` に書く)' "$command_file"
+grep -F -- '| 対象 SHA の固定 | `target_pinned` | そのラウンドの `rounds[].snapshot.commit` が対象コミットの完全な SHA で、`created: true`、`diff_applied` が作業ツリー差分の run で `true` |' "$command_file"
+grep -F -- '| 過去の判定を渡さない | `prior_verdicts_withheld` | `reviewer-round<N>-prompt.txt` が 2 で決めたもの (対象差分・変更目的・不変条件・懸念点) だけで、懸念点に前のラウンドの verdict・指摘の判定・finding ID を含まず、スナップショットに `.aidd/` と `.git` が無い |' "$command_file"
+grep -F -- '| 読み取り専用のスナップショット | `read_only_snapshot` | `reviewer-round<N>-command.txt` が `--sandbox read-only --skip-git-repo-check -C <snapshot-dir>` を含む |' "$command_file"
+grep -F -- '高リスク領域 (下の「リスク別の最終判定」)、未実行・未確定の監査と必須品質ゲートは、独立レビューが成立しても今までどおり `human_required` にする' "$command_file"
+grep -F -- '`established` は4つがすべて `true` のときだけ `true`' "$command_file"
+grep -F -- '`--reviewer codex` で `review_independence.established` が `true` でない' "$command_file"
+# The records the four conditions are checked against are written every round (#212 review).
+grep -F -- '`reviewer-round<N>-prompt.txt` に、実行するコマンド行' "$command_file"
+grep -F -- '- 確かめた記録 (`reviewer-round<N>-command.txt`・`reviewer-round<N>-prompt.txt`・`rounds[].snapshot`) が無い・読めない条件は `null` にする' "$command_file"
+grep -F -- '見出しより後ろ (プロンプトの写しとレビュー担当の出力) は読まない。' "$command_file"
+grep -F -- 'provider はホストが明示した場合だけ書き、明示しなければ `null` にする' "$command_file"
+if grep -F -- 'Claude Code なら `anthropic`' "$command_file"; then
+  echo "the judge's provider must not be guessed from the host (#212 review)" >&2
+  exit 1
+fi
+# User decision 2026-11-28: a same-family (or unknown) independent review is eligible only within
+# the evaluated range: evaluated models and the boundary / exception-handling change kinds.
+grep -F -- '### 同種・系列不明の独立レビューは評価した範囲に限る' "$command_file"
+grep -F -- 'ユーザー決定 (2026-11-28、設計書の「ユーザー決定」): 同種モデルの独立レビューで適格にできるのは、評価した範囲だけである' "$command_file"
+grep -F -- '満たさない・判定できない run は、独立レビューが成立していても `human_required` (`human_required_reason` は `human_judgment`) とする' "$command_file"
+grep -F -- '`null` (取得できない) は一致としない' "$command_file"
+grep -F -- '判定者 (このセッション) が、1 で読んだ差分の意味から、変更を次の種類に分類して' "$command_file"
+grep -F -- '`other` を含む、または分類できない (根拠を `report.md` に書けない) ときは満たさない' "$command_file"
+grep -F -- '| `claude-opus-5-5` | anthropic |' "$command_file"
+grep -F -- '評価した範囲の外の同種・系列不明の独立レビュー (`evaluated_scope.within` が `true` でない)' "$command_file"
+grep -F -- '同種・系列不明の場合は評価した範囲の内側 (`review_independence.evaluated_scope.within` が `true`' <<<"$(grep -F -- '`--reviewer claude` の場合は、自己レビューである残存リスク' "$command_file")"
+design_doc="$repo_root/docs/superpowers/specs/2026-11-28-autonomous-review-independence-design.md"
+grep -F -- '## ユーザー決定 (2026-11-28、PR #212 のレビュー後)' "$design_doc"
+grep -F -- '「境界」「例外の扱い」の変更以外、および評価していないモデルによるレビューは `human_required` (`human_judgment`) にする' "$design_doc"
+# The evaluated models are listed in one place only (the skill), not copied into the design doc.
+if grep -F -- '| `claude-opus-5-5` |' "$design_doc"; then
+  echo "the evaluated model list belongs only in the skill" >&2
+  exit 1
+fi
+eligibility=$(grep -F -- '`--reviewer claude` の場合は、自己レビューである残存リスク' "$command_file")
+grep -F -- '独立レビュー完了 (`review_independence.established` が `true`)' <<<"$eligibility"
+grep -F -- 'モデルの系列が違うこと (`model_relation` が `different`) は条件にしない' <<<"$eligibility"
+grep -F -- '最終判定は常に `human_required`' <<<"$eligibility"
+if grep -F -- '異種' <<<"$eligibility"; then
+  echo "eligibility must not depend on a heterogeneous model (#134)" >&2
+  exit 1
+fi
+if grep -F -- 'cross-model' "$command_file"; then
+  echo "the skill must not describe its review as cross-model by the reviewer's name (#134)" >&2
+  exit 1
+fi
 grep -F -- '"verdict": "approved" | "changes_requested"' "$command_file"
 grep -F -- 'JSON以外の出力' "$command_file"
 grep -F -- '最大3ラウンド' "$command_file"
@@ -438,7 +500,7 @@ grep -F -- 'Bash ツールの `timeout` パラメータ' "$command_file"
 grep -F -- 'codex login status < /dev/null' "$command_file"
 grep -F -- '--output-last-message' "$command_file"
 grep -F -- '`proceeding` を含む警告は失敗ではない' "$command_file"
-grep -F -- '現行は `5`' "$command_file"
+grep -F -- '現行は `6`' "$command_file"
 # Evidence bound to the reviewed diff and to a finished review (#122); tool-reminder.sh reads it.
 grep -F -- '| `human_required_reason` | string / null | 必須 |' "$command_file"
 grep -F -- '`review_incomplete` はレビューが成立していない' "$command_file"
