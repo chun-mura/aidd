@@ -19,9 +19,9 @@
 | 項目 | 値 | 取得方法 |
 |---|---|---|
 | aidd の base 版 | `0.108.0` | `.claude-plugin/plugin.json` |
-| aidd の試験ブランチ | `docs/assurance-boundary-cases`。起点は stage-2 のブランチ `docs/assurance-runtime-evidence` (`e824130`)。PR `chun-mura/aidd#239` は未マージ | `git rev-parse` |
-| aidd-autopilot の試験ブランチ | `feat/assurance-boundary-cases` (未 push)。記録の HEAD `f3166ab`、起点 `8469893` | `docs/verification/2026-11-28-assurance-boundary-cases.md` |
-| aidd-autopilot の PR | `chun-mura/aidd-autopilot#<PR>` (未作成。placeholder) | — |
+| aidd の試験ブランチ | `docs/assurance-boundary-cases`。起点は stage-2 のブランチ `docs/assurance-runtime-evidence` (`e824130`)。stage-2 は `chun-mura/aidd#239` で main にマージ済み (`d0fbd4d`) | `git rev-parse` |
+| aidd-autopilot の試験ブランチ | `feat/assurance-boundary-cases`。記録の HEAD `f3166ab`、起点 `8469893` | `docs/verification/2026-11-28-assurance-boundary-cases.md` |
+| aidd-autopilot の PR | `chun-mura/aidd-autopilot#9`。2026-11-28 に main へマージ済み (`c8aadc1`。記録の HEAD `f3166ab` はその祖先) | — |
 | runner image | `sha256:35fcb1f409966f6f8f0e159afcdbf9451cf6506c5116bae248a81146ef260ce6` (ingest 修正後に再ビルド) | 同上の記録 |
 | proxy image | 未記録 | 未確認 |
 | claude CLI (runner image 内) | 2.1.216 (Claude Code)。試験では偽 claude を使い、モデルは呼んでいない | 同上の記録 |
@@ -29,10 +29,10 @@
 | Docker server | 29.8.2 | `docker version` |
 | Docker kernel | 7.2.12-orbstack-00394-gbecdd6130068 | `docker info` |
 | Node.js (ホスト) | v22.23.5 | `node -v` |
-| macOS | Darwin 25.6.0 (aidd-autopilot の記録による)。同じ版の別記録 (`2026-11-28-assurance-boundary-docker.md`) は 26.7.3 と書いており、食い違う | 未確認 |
+| macOS | 26.7.3 (Darwin 25.6.0)。aidd-autopilot の境界ケースの記録が書く 25.6.0 は Darwin カーネルの版で、macOS の版ではない | `sw_vers`、`uname -r` |
 | 試験ハーネス | aidd 側は bash と python3 (ローカル 3.15.0。CI は 3.12)。aidd-autopilot 側の vitest の版は記録に無い | 未確認 |
 
-**記録の食い違い**: aidd-autopilot には、同じ日付の別の記録 `docs/verification/2026-11-28-assurance-boundary-docker.md` があり、ブランチ `w6-fixes` (`ae6ba28`) と別の runner image (`sha256:687358e7…`、`sha256:ce88d424…`) を書いている。この文書は境界ケースの記録 (`f3166ab`) を引用した。どちらが最終の版かは、PR を埋める前に確認する (未確認)。
+**記録の関係**: aidd-autopilot の `docs/verification/2026-11-28-assurance-boundary-docker.md` は、それより前のコミット (`ae6ba28`・`8469893`) とそのときの runner image (`sha256:687358e7…`・`sha256:ce88d424…`) での per-claim の試験の記録である。この文書は、その後の修正を含む境界ケースの記録 (`f3166ab`、runner image `sha256:35fcb1f4…`) を引用する。image はコードの修正ごとに作り直しているため、記録ごとに digest が違う。
 
 ## 2. 実行したコマンドと結果
 
@@ -212,8 +212,7 @@ CI は `ubuntu-latest` と `macos-latest` で実行する。この記録のロ�
 
 - `ubuntu-latest` の CI で contract test 14 本と `boundary-suite.sh` を実行していない (ローカルは macOS のみ)。
 - 残りの contract test 9 本の Python 3.12 での実行は、ローカルの既定の Python 3.15.0 だけで行った (3.12 では assurance の 5 本だけを確認)。
-- aidd-autopilot の試験で、`lifecycle.test.ts` の 3 件が address pool の枯渇で失敗した。単独の再実行は成功しているが、並行時の挙動は確かめていない。
-- aidd-autopilot の記録の食い違い (§1): `w6-fixes` の記録と、どちらが最終の runner image か。
+- aidd-autopilot の試験で、`lifecycle.test.ts` の 3 件が address pool の枯渇で失敗した。単独の再実行は成功し、その後に全体をもう一度流したときは 11 ファイル・78 件成功 (skip 1、todo 1) だった (2026-11-28、開発の実行による確認)。並行時に枯渇する条件は確かめていない。
 - proxy image の digest は記録されていない。
 - 試験ハーネスの版 (vitest など) は記録されていない。
 - Git の版による fsck の挙動。ホストの git 2.54 と image の git 2.39.5 で、`..` の扱いが違う。path rule で拒否されることは確認したが、他の版は未確認。
