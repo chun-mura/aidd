@@ -1,0 +1,13 @@
+case	lines	config	prompt
+structure	61	deep	prompt-structure-deep.md
+structure	61	standard	prompt-structure-standard.md
+structure	61	direct	prompt-structure-direct.md
+data-error	45	deep	prompt-data-error-deep.md
+data-error	45	standard	prompt-data-error-standard.md
+data-error	45	direct	prompt-data-error-direct.md
+security	45	deep	prompt-security-deep.md
+security	45	standard	prompt-security-standard.md
+security	45	direct	prompt-security-direct.md
+crosscut	385	deep	prompt-crosscut-deep.md
+crosscut	385	standard	prompt-crosscut-standard.md
+crosscut	385	direct	対象外 (100行以上)
