@@ -79,7 +79,9 @@ with open(lock_file, "w") as lock:
 
     data.setdefault("command_counts", {})
     data.setdefault("last_seen", {})
-    data.setdefault("model_counts", {})
+    # A hand-edited or broken value would make the increment raise and drop the whole record.
+    if not isinstance(data.get("model_counts"), dict):
+        data["model_counts"] = {}
 
     # prompt_log was removed in 0.25.0 but survives in existing installs, keeping prompt
     # fragments on disk after the feature was gone. Drop it wherever this hook runs.

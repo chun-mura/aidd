@@ -55,7 +55,7 @@ b3 の注: 同じ状態 (コードの変更を stage して `git commit`) を `t
 
 記録用プラグインの記録では、モデルが Skill ツールで起動した p1〜p3 と b1 で PreToolUse(Skill) が発火した (入力に `agent_id` は無く、`permission_mode` は `acceptEdits`)。利用者の発言は UserPromptSubmit だけを通った。利用者が打った slash コマンドは PreToolUse(Skill) を通らないこと (2026-11-14 の設計の R4・R15) と合わせると、hook のイベントの種類で両者を区別できる。
 
-これを使って、0.98.0 で `usage-log.sh` が PreToolUse(Skill) の回数を `usage.json` の `model_counts` にも記録するようにした (`command_counts` はその合計のまま)。この測定の p1〜p3 の実行では `model_counts` を持たない版 (0.97.1) の hook が動いており、`command_counts` に1ずつ入った。
+これを使って、0.100.0 で `usage-log.sh` が PreToolUse(Skill) の回数を `usage.json` の `model_counts` にも記録するようにした (`model_counts` は `command_counts` の内数)。この測定の p1〜p3 の実行では `model_counts` を持たない版 (0.97.1) の hook が動いており、`command_counts` に1ずつ入った。
 
 ## 対話との違い (この測定の限界)
 
