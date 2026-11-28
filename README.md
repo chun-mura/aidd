@@ -179,6 +179,7 @@ Claude Code に入れた aidd と、この Cursor 用プラグインは併用し
 | [`team-settings.json.template`](templates/team-settings.json.template) | チーム導入用。利用プロジェクトの `.claude/settings.json` にマージすると aidd が自動提案される |
 | [`design-perspectives.md.template`](templates/design-perspectives.md.template) | `.aidd/design-perspectives.md` の出発点。可観測性・プロジェクト固有観点 (design-review の Agent 4 が読む) |
 | [`asset-overlap-prompt-hook.json.template`](templates/asset-overlap-prompt-hook.json.template) | 資産の重複を厳格に止めたい利用側向けの prompt 型 hook (既定では無効)。`scripts/generate-asset-index.py` が生成する |
+| [`assurance-claims.md.template`](templates/assurance-claims.md.template) | 明示選択の保証構成で、主張ごとの対象版・前提・証拠・限界・責任者・状態を記録する (規則は [保証条件と責任分担](docs/assurance/contract.md)。コピーしただけでは採用にならない) |
 | [`aidd-hook-log.sh`](templates/aidd-hook-log.sh) | 利用側の hook を包み、発火と失敗を `~/.claude/aidd/` 配下に記録するラッパー (`/aidd:asset-audit` が読む) |
 
 雛形ごとの使い方と制約は [templates/README.md](templates/README.md)。
@@ -200,6 +201,7 @@ Claude Code に入れた aidd と、この Cursor 用プラグインは併用し
 | [ローカルで権限を絞って使う](docs/guides/local-permissions.md) | skill を自動で動かす前の sandbox・PAT・ruleset の設定、破壊的な操作の防止と限界 |
 | [利用側プロジェクトの設定](docs/guides/project-setup.md) | ディレクトリ規約、知見の台帳 (任意) の有効化・項目・CI・機密情報の扱い |
 | [hooks の運用と調査](docs/guides/hooks-operations.md) | 各 hook の判定の詳細、状態ファイル・環境変数・無効化、`aidd-hook-log.sh` の導入 |
+| [保証条件と責任分担](docs/assurance/contract.md) | 安全性・成果物の正しさを主張ごとに説明するとき。主張ID (`AC-PROC-*` 手順遵守・`AC-PRIV-*` 権限制限・`AC-SPEC-*` 仕様適合)、状態と期限付き例外、責任分担、明示選択の保証構成の採用条件。通常の利用は対象外 |
 
 ## 依存プラグインの互換方針
 
