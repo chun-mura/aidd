@@ -262,6 +262,11 @@ with open(target, "w") as f:
 os.symlink(target, os.path.join(link_dir, "outcome.json"))
 r = run(["check", os.path.join(link_dir, "outcome.json")], tmp)
 assert r.returncode == 1, ("symlinked outcome for check", r.stderr)
+r = run(["start"], repo)
+dir_outcome = os.path.join(r.stdout.strip(), "outcome.json")
+os.mkdir(dir_outcome)
+r = run(["check", dir_outcome], tmp)
+assert r.returncode == 1, ("outcome.json is a directory", r.returncode, r.stderr)
 r = run(["check", os.path.join(repo2, ".aidd", "issue-implement", "20261128T000002Z-00000002", "outcome.json")], tmp)
 assert r.returncode == 1, ("symlinked parent for check", r.stderr)
 

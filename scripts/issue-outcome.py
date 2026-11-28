@@ -321,9 +321,11 @@ def cmd_check(args):
             if e.errno == errno.ELOOP:
                 raise Rejected("outcome.json is a symlink")
             raise Failed(f"cannot read outcome.json ({type(e).__name__})")
+        # fstat before fdopen: fdopen itself refuses a directory with IsADirectoryError.
+        if not stat.S_ISREG(os.fstat(file_fd).st_mode):
+            os.close(file_fd)
+            raise Rejected("outcome.json is not a regular file")
         with os.fdopen(file_fd, "rb") as f:
-            if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
-                raise Rejected("outcome.json is not a regular file")
             raw = f.read()
     finally:
         os.close(fd)
