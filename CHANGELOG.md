@@ -3,7 +3,7 @@
 ## 0.95.0 (2026-11-28)
 
 - `test-perspectives`・`design-doc`・`design-review` をモデルから起動できるようにした (#196)。`issue-implement`・`autonomous-review` の手順と、`session-start.sh`・`tool-reminder.sh` の案内がこの3つを使うようモデルに指示しているのに、`disable-model-invocation: true` のため Skill ツールが起動を拒否していたため。`claude -p` で4回測ると、test-perspectives は毎回飛ばされ、設計レーンでは design-doc の起動が拒否されて32秒で `blocked/incomplete` になった。gate (`skill-gate.sh` の `ask`) は付けない。headless では `ask` が拒否として働くので、無人のホストでは起動できないままになるため。3つは新しいファイルを作るだけで、既存の文書を書き換えないので、ほかの skill を利用者起動に限っている理由 (0.37.0) は当たらない。description を「いつ使い、いつ使わないか」の形に書き直した (brainstorming の spec、コードの差分、文書への質問、小さな変更などでは使わない)。Codex の `openai.yaml` (`allow_implicit_invocation: false`) は変えていない (Codex で同じ問題が起きるかは未測定)。Cursor もこのフラグを解釈するので、Cursor でもモデルが起動できるようになる。`usage.json` では、この3つについて利用者が打った回数とモデルが起動した回数が混ざる
-- 変更の前後の測定を `tests/eval/results/2026-11-28-model-invocable-skills.md` に保存した (#196)。変更後は、小さな直行レーンの2回とも test-perspectives が起動された。設計レーンは design-doc → design-review → 実装まで進み、テストが通った。費用は、小が $1.22〜1.42 (変更前は $0.75〜0.81)、設計が $1.79。skill を使うべきでない依頼3件 (設計書への質問・小さな修正・要約) では起動されなかった
+- 変更の前後の測定を `tests/eval/results/2026-11-28-model-invocable-skills.md` に保存した (#196)。変更後は、小さな直行レーンの2回とも test-perspectives が起動された。設計レーンは design-doc → design-review → 実装まで進み、テストが通った (最後は追跡先の承認待ちの `needs_input`)。費用は、小が $1.22〜1.42 (変更前は $0.75〜0.81)、設計が $1.79。skill を使うべきでない依頼3件 (設計書への質問・小さな修正・要約) では起動されなかった
 - `tests/command-contract-test.sh`: `agents/openai.yaml` を持つ skill のうち、許可リスト (autonomous-review とこの3つ) 以外がすべて `disable-model-invocation: true` を持つことを確かめるようにした。利用者起動の skill の制限を誤って外さないため
 
 ## 0.94.0 (2026-11-28)

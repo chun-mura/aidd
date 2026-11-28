@@ -1408,7 +1408,13 @@ model_invocable="autonomous-review design-doc design-review test-perspectives"
 for yaml in "$repo_root"/skills/*/agents/openai.yaml; do
   skill_dir=$(dirname "$(dirname "$yaml")")
   name=$(basename "$skill_dir")
-  frontmatter=$(awk 'NR == 1 && $0 == "---" { inside = 1; next } inside && $0 == "---" { exit } inside { print }' "$skill_dir/SKILL.md")
+  # CR is dropped so that a CRLF file is read as written; an unreadable frontmatter fails rather than passing as empty.
+  # (awk strips the CR itself: a pipe into an awk that exits early would end in SIGPIPE under pipefail.)
+  frontmatter=$(awk '{ sub(/\r$/, "") } NR == 1 && $0 == "---" { inside = 1; next } inside && $0 == "---" { exit } inside { print }' "$skill_dir/SKILL.md")
+  if ! printf '%s\n' "$frontmatter" | grep -Eq '^name: '; then
+    echo "$name: SKILL.md frontmatter could not be read" >&2
+    exit 1
+  fi
   case " $model_invocable " in
     *" $name "*)
       if printf '%s\n' "$frontmatter" | grep -Fq 'disable-model-invocation'; then
@@ -1421,5 +1427,10 @@ for yaml in "$repo_root"/skills/*/agents/openai.yaml; do
         exit 1
       fi ;;
   esac
-  grep -Fq 'allow_implicit_invocation: false' "$yaml"
+  # The one live value must be false: a commented-out false next to a live true must not pass.
+  implicit=$(tr -d '\r' < "$yaml" | sed 's/#.*//' | grep -E '^[[:space:]]*allow_implicit_invocation:' || true)
+  if [ "$(printf '%s\n' "$implicit" | sed 's/[[:space:]]//g')" != "allow_implicit_invocation:false" ]; then
+    echo "$name: agents/openai.yaml must set allow_implicit_invocation: false exactly once" >&2
+    exit 1
+  fi
 done
