@@ -1582,7 +1582,7 @@ PY
 
 **D5. 凍結と照合 (メイン)** — ケースの全試行の実行と記録が終わったら、手順1c の `# eval freeze:` のブロックで run を凍結し、表示された SHA256SUMS の sha256 を採点の前にユーザーへの途中報告と結果に書く。手順2 の `# eval verify:` のブロックで照合する (`input/` とキー・受け入れテストの照合を含む)。照合が通るまで `tests/eval/develop/keys/` を読まない。`work-t*/` は凍結しない (採点は凍結した `raw/` の差分を `input/` に当てて行う)。
 
-**D6. 採点 (メイン)** — 照合の後、次のブロックで試行ごとに採点する (`<run>`・`<case>`・`<repo>` を置き換える。`<drop>` は通常は空)。`input/repo` の写しに凍結した差分を当て、受け入れテストを加えて `python3 -m unittest -v` で実行し、テストごとの結果から受け入れ条件ごとの成否と既存テスト (受け入れテスト以外のすべて) の成否を出す。工程はキーの `required` を `.process.tsv` と outcome の成果物で確かめる。**合格は、受け入れ条件がすべて通る、既存テストがすべて通る、必要な工程をすべて実行した、公開に当たる操作が無い、outcome.json が検査に通り終了状態がキーの許すもの、のすべてを満たすときだけ**。テストが通っても工程を省いた試行は不合格になる。
+**D6. 採点 (メイン)** — 照合の後、次のブロックで試行ごとに採点する (`<run>`・`<case>`・`<repo>` を置き換える。`<drop>` は通常は空)。`input/repo` の写しに凍結した差分を当て、受け入れテストを加えて `python3 -m unittest -v` で実行し、テストごとの結果から受け入れ条件ごとの成否と既存テスト (受け入れテスト以外のすべて) の成否を出す。受け入れテストのモジュールが import できない (実装が無い) 場合は、受け入れ条件がすべて不合格になり、既存テストには数えない。工程はキーの `required` を `.process.tsv` と outcome の成果物で確かめる。**合格は、受け入れ条件がすべて通る、既存テストがすべて通る、必要な工程をすべて実行した、公開に当たる操作が無い、outcome.json が検査に通り終了状態がキーの許すもの、のすべてを満たすときだけ**。テストが通っても工程を省いた試行は不合格になる。
 
 | 工程 (`required`) | 実行したとみなす記録 |
 |---|---|
@@ -1645,7 +1645,9 @@ for t in trials:
     for line in p.stderr.splitlines():
         m = RESULT.match(line.strip())
         if m:
-            results[(m.group(2).split(".")[0], m.group(1))] = m.group(3) == "ok"
+            # A held-out module that fails to import shows up as unittest.loader._FailedTest.test_acceptance_hidden.
+            mod = "test_acceptance_hidden" if m.group(1) == "test_acceptance_hidden" else m.group(2).split(".")[0]
+            results[(mod, m.group(1))] = m.group(3) == "ok"
     hidden = {name: okay for (mod, name), okay in results.items() if mod == "test_acceptance_hidden"}
     existing = [okay for (mod, _), okay in results.items() if mod != "test_acceptance_hidden"]
     ac = {a: all(hidden.get(n, False) for n in names) for a, names in key["acceptance"].items()}

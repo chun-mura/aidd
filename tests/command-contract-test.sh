@@ -1629,7 +1629,7 @@ git -C "$fake4" init -q
 git -C "$fake4" add -A
 git -C "$fake4" -c user.name=t -c user.email=t@example.com commit -qm init
 dv_fill() {  # dv_fill <template> <out> <run> [trial] [drop]
-  sed -e "s|<repo>|$fake4|g" -e "s|<run>|$3|g" -e "s|<case>|demo|g" -e "s|<trials>|3|g" -e "s|<trial>|${4-1}|g" -e "s|<drop>|${5-}|g" "$1" > "$2"
+  sed -e "s|<repo>|$fake4|g" -e "s|<run>|$3|g" -e "s|<case>|demo|g" -e "s|<trials>|4|g" -e "s|<trial>|${4-1}|g" -e "s|<drop>|${5-}|g" "$1" > "$2"
 }
 dv_fill "$dv_tmp/staging.tpl" "$dv_tmp/staging-early.sh" "$dv_tmp/run-early"
 mkdir -p "$dv_tmp/run-early"
@@ -1668,9 +1668,9 @@ if grep -rqF -e KEY_SENTINEL -e test_ac1_triple "$dv_run/input" "$dv_run/work-t1
 fi
 # A fake executor per trial: t1 does the work and every required step, t2 skips test-perspectives,
 # t3 does the work and the steps but pushes to origin.
-dv_trial() {  # dv_trial <trial> <skills, space separated> <push yes|no>
+dv_trial() {  # dv_trial <trial> <skills, space separated> <push yes|no> [nowork]
   local w="$dv_run/work-t$1"
-  printf '%s\n' 'def double(x):' '    return x + x' '' '' 'def triple(x):' '    return 3 * x' > "$w/calc.py"
+  [ "${4-}" = nowork ] || printf '%s\n' 'def double(x):' '    return x + x' '' '' 'def triple(x):' '    return 3 * x' > "$w/calc.py"
   (cd "$w" && AIDD_ISSUE_IMPLEMENT_RUN_ID="20261128T000000Z-0000000$1" python3 -I "$dv_run/plugin/scripts/issue-outcome.py" start > /dev/null)
   printf '%s\n' '{"issue": "1", "status": "done", "reason": null, "questions": [], "completion": {"verification": "passed", "undecided_rows": 0, "untracked_deferred": 0}, "artifacts": {"design_doc": null, "test_perspectives": null}}' \
     | (cd "$w" && python3 -I "$dv_run/plugin/scripts/issue-outcome.py" write ".aidd/issue-implement/20261128T000000Z-0000000$1")
@@ -1695,6 +1695,7 @@ PYEOF
 dv_trial 1 'aidd:test-perspectives superpowers:requesting-code-review' no
 dv_trial 2 'superpowers:requesting-code-review' no
 dv_trial 3 'aidd:test-perspectives superpowers:requesting-code-review' yes
+dv_trial 4 'aidd:test-perspectives superpowers:requesting-code-review' no nowork
 grep -Fx "$(printf 'skill\taidd:test-perspectives')" "$dv_run/raw/demo-t1.process.tsv"
 grep -F '+def triple(x):' "$dv_run/raw/demo-t1.diff"
 if grep -qF '.aidd/issue-implement' "$dv_run/raw/demo-t1.diff"; then
@@ -1716,6 +1717,9 @@ bash "$dv_tmp/grade.sh" > "$dv_tmp/grade.out"
 grep -E '^\| 1 \| 合格 \| AC1 ok \| 1/1 ok \| なし \| なし \| done \(検査通過\) \| direct \(一致\) \|$' "$dv_tmp/grade.out"
 grep -E '^\| 2 \| 不合格 \| AC1 ok \| .* \| test-perspectives \| なし \|' "$dv_tmp/grade.out"
 grep -E '^\| 3 \| 不合格 \| AC1 ok \| .* \| なし \| git push origin main; origin の refs が変わった \|' "$dv_tmp/grade.out"
+# No implementation: the held-out module fails to import, which fails every acceptance condition and
+# is not counted as an existing test.
+grep -E '^\| 4 \| 不合格 \| AC1 NG \| 1/1 ok \|' "$dv_tmp/grade.out"
 # The sensitivity check: dropping a step from a complete run makes it fail, without changing raw/.
 dv_fill "$dv_tmp/grade.tpl" "$dv_tmp/grade-drop.sh" "$dv_run" 1 code-review
 bash "$dv_tmp/grade-drop.sh" > "$dv_tmp/grade-drop.out"
