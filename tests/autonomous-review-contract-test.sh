@@ -43,7 +43,7 @@ test -f "$repo_root/docs/superpowers/specs/2026-11-28-autonomous-review-independ
 grep -F -- '- **残存リスク** (`--reviewer codex` の run では `residual_risks` に書く)' "$command_file"
 grep -F -- '| 対象 SHA の固定 | `target_pinned` | そのラウンドの `rounds[].snapshot.commit` が対象コミットの完全な SHA で、`created: true`、`diff_applied` が作業ツリー差分の run で `true` |' "$command_file"
 grep -F -- '| 過去の判定を渡さない | `prior_verdicts_withheld` | `reviewer-round<N>-prompt.txt` が 2 で決めたもの (対象差分・変更目的・不変条件・懸念点) だけで、懸念点に前のラウンドの verdict・指摘の判定・finding ID を含まず、スナップショットに `.aidd/` と `.git` が無い |' "$command_file"
-grep -F -- '| 読み取り専用のスナップショット | `read_only_snapshot` | `reviewer-round<N>-command.txt` が `--sandbox read-only --skip-git-repo-check -C <snapshot-dir>` を含む |' "$command_file"
+grep -F -- '| 読み取り専用のスナップショット | `read_only_snapshot` | `reviewer-round<N>-command.txt` が `--sandbox read-only --skip-git-repo-check -C <snapshot-dir>` を含み、' "$command_file"
 grep -F -- '高リスク領域 (下の「リスク別の最終判定」)、未実行・未確定の監査と必須品質ゲートは、独立レビューが成立しても今までどおり `human_required` にする' "$command_file"
 grep -F -- '`established` は4つがすべて `true` のときだけ `true`' "$command_file"
 grep -F -- '`--reviewer codex` で `review_independence.established` が `true` でない' "$command_file"
@@ -488,7 +488,65 @@ grep -F -- 'deferred の追跡' "$command_file"
 grep -F -- '"type": "unresolved"' "$command_file"
 grep -F -- '`tracking` が `unresolved` の `deferred` なし' "$command_file"
 grep -F -- '< /dev/null' "$command_file"
-grep -F -- 'exit 0 で空の応答' "$command_file"
+grep -F -- 'ツールの失敗を受けたモデルが契約どおりの JSON を返すこともあり、`-o` のファイルの形だけではサンドボックスが起動したかを判断できない' "$command_file"
+if grep -F -- 'exit 0 で空の応答を返すことがある' "$command_file"; then
+  echo "a contract-shaped -o file does not show the sandbox started (#217)" >&2
+  exit 1
+fi
+# #217: before each codex exec, a deterministic check that the read-only sandbox starts, reads inside
+# its directory and refuses a write. Anything else is review_incomplete without starting codex exec.
+grep -F -- '- **サンドボックスの事前確認**: ラウンドごとに `codex exec` を起動する前に' "$command_file"
+grep -F -- 'Bash ツールの `timeout` パラメータは 10000ms とする' "$command_file"
+grep -F -- '終了コードが0で、最後の行が `sandbox check: ok` のときだけ通ったとする。それ以外 (どちらかが通らない、`-P` の無い版の codex、上限で止まった) は `codex exec` を起動せず、出力を理由として記録して `human_required` (`human_required_reason` は `review_incomplete`) とする' "$command_file"
+grep -F -- '事前確認は、その時点でサンドボックスが起動することを示すだけで、`codex exec` の中の各コマンドがサンドボックスの中で動いて成功したことは示さない。この点を `residual_risks` に記録する' "$command_file"
+grep -F -- 'そのラウンドの「サンドボックスの事前確認」が `sandbox check: ok` で終わった |' "$command_file"
+sc_block=$(awk '/^# sandbox check: /{on=1} on{print} /^# end sandbox check$/{on=0}' "$command_file")
+grep -Fx -- '# end sandbox check' <<<"$sc_block"
+grep -F -- 'codex sandbox -P :read-only -C "$dir" -- cat "$dir/n" < /dev/null' <<<"$sc_block"
+grep -F -- 'codex sandbox -P :read-only -C "$dir" -- sh -c '"'"': > "$1"'"'"' sh "$dir/w" < /dev/null' <<<"$sc_block"
+sc_tmp=$(mktemp -d "${TMPDIR:-/tmp}/aidd-ar-217.XXXXXX")
+trap 'rm -rf "$hidden_tmp" "$t177_tmp" "$sc_tmp"' EXIT
+mkdir "$sc_tmp/bin" "$sc_tmp/work" "$sc_tmp/tmp"
+# A fake codex: `sandbox -P :read-only -C <dir> -- <cmd>...`, behaving as FAKE_SANDBOX says.
+cat > "$sc_tmp/bin/codex" <<'FAKE'
+#!/bin/bash
+[ "$1" = sandbox ] || exit 64
+[ "$2" = -P ] && [ "$3" = :read-only ] && [ "$4" = -C ] && [ "$6" = -- ] || { echo "unexpected: $*" >&2; exit 64; }
+shift 6
+case "$FAKE_SANDBOX" in
+  ok) # reads work; a write is refused
+    if [ "$1" = sh ]; then echo "Operation not permitted" >&2; exit 1; fi
+    exec "$@" ;;
+  unstarted) echo "bwrap: No permissions to create new namespace" >&2; exit 1 ;;
+  unconfined) exec "$@" ;; # runs, but nothing is refused
+  noisy) "$@"; rc=$?; echo extra; exit $rc ;;
+  no-profile) echo "error: unexpected argument '-P' found" >&2; exit 2 ;;
+  write-exit0) if [ "$1" = sh ]; then exit 0; fi; exec "$@" ;; # claims success without writing
+esac
+exit 70
+FAKE
+chmod +x "$sc_tmp/bin/codex"
+sc_run() { # <mode> <workdir>: run the documented block with the fake codex; prints its output
+  local block=${sc_block//"<workdir>"/$2}
+  (cd "$sc_tmp" && FAKE_SANDBOX=$1 PATH="$sc_tmp/bin:$PATH" TMPDIR="$sc_tmp/tmp" bash -c "$block" 2>&1)
+}
+[ "$(sc_run ok "$sc_tmp/work" | tail -n 1)" = 'sandbox check: ok' ]
+for mode in unstarted unconfined noisy no-profile write-exit0; do
+  if out=$(sc_run "$mode" "$sc_tmp/work"); then
+    echo "the sandbox check passed with a $mode sandbox: $out" >&2
+    exit 1
+  fi
+  grep -E -- '^sandbox check: failed: ' <<<"$out"
+  if grep -Fx -- 'sandbox check: ok' <<<"$out"; then echo "ok printed for $mode" >&2; exit 1; fi
+done
+# the temporary directory must be outside the work dir
+if out=$(sc_run ok "$sc_tmp"); then
+  echo "the sandbox check ran inside the work dir: $out" >&2
+  exit 1
+fi
+grep -F -- 'sandbox check: failed: the temporary directory is inside the work dir' <<<"$out"
+# it leaves nothing behind
+[ -z "$(ls -A "$sc_tmp/tmp")" ]
 grep -F -- '終了コードでも stderr の有無でも成否を判断しない' "$command_file"
 grep -F -- '`.aidd/` (過去の run の証跡) は除き' "$command_file" # the block itself is run below
 grep -F -- '--skip-git-repo-check -C <snapshot-dir>' "$command_file"
