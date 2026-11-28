@@ -144,7 +144,9 @@ the skill's `name:` frontmatter.
   - `tool-reminder.sh` (PreToolUse + PostToolUse + PostToolUseFailure, matcher `Bash`): the single Bash dispatcher.
     It splits the command (quotes, `&&`/`;`, comments, control keywords, `cd`, `git -C`, wrappers), collects every
     matching check, and emits one JSON: the original nudges (test-perspectives, Japanese PR/issue text, post-push
-    PR sync), review-evidence warning before `gh pr create`, denial of work-losing git operations and unnamed
+    PR sync; the Japanese nudge stays quiet only when every given `--title`/`--body`/`--body-file`/heredoc body
+    holds kana or kanji, and it reads a body file — a regular file, the first 64 KiB, at most 3, 1 s in all —
+    only when the run has no denial, so a hanging read cannot drop a denial), review-evidence warning before `gh pr create`, denial of work-losing git operations and unnamed
     staging, denial of a force push to / remote delete of the default branch (the remote's `HEAD` if it
     exists, plus `main`/`master` always; a destination with `$`/backquote is denied; work-branch force pushes pass), main-tree sharing warning, search-before-`gh issue create` gate, optional required-label gate, and the
     post-commit subject/Why check (only in repos that adopt the convention). Commands without a `git`/`gh` word exit

@@ -17,7 +17,7 @@ fi
 
 # The payload stays on stdin (a command can exceed ARG_MAX, see usage-log.sh).
 PY_CODE=$(cat <<'PYEOF'
-import fcntl, fnmatch, glob, json, os, re, shlex, subprocess, sys, time
+import fcntl, fnmatch, glob, json, os, re, shlex, stat, subprocess, sys, time
 
 try:
     event = json.load(sys.stdin)
@@ -68,20 +68,28 @@ ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 HEREDOC = re.compile(r"(?<!<)<<(?!<)-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 
 
-def strip_heredocs(text):
-    # Heredoc bodies are data (commit messages, file contents); drop them before tokenizing.
+def scan_heredocs(text):
+    """Split text into the lines outside heredocs and the heredoc bodies [(delimiter, quoted, body)]."""
     lines = text.split("\n")
     kept = []
+    bodies = []
     i = 0
     while i < len(lines):
         kept.append(lines[i])
-        delimiters = [m.group(2) for m in HEREDOC.finditer(lines[i])]
+        delimiters = [(m.group(2), bool(m.group(1))) for m in HEREDOC.finditer(lines[i])]
         i += 1
-        for delimiter in delimiters:
+        for delimiter, quoted in delimiters:
+            start = i
             while i < len(lines) and lines[i].strip() != delimiter:
                 i += 1
+            bodies.append((delimiter, quoted, "\n".join(lines[start:i])))
             i += 1
-    return "\n".join(kept)
+    return "\n".join(kept), bodies
+
+
+def strip_heredocs(text):
+    # Heredoc bodies are data (commit messages, file contents); drop them before tokenizing.
+    return scan_heredocs(text)[0]
 
 
 def strip_comments(text):
@@ -1150,7 +1158,125 @@ def load_learnings():
 JAPANESE_NUDGE = "aidd: GitHub issue/PR のタイトルと本文は日本語で書くこと (コード識別子・コマンド・コミットメッセージは英語のまま)。既に日本語なら変更不要。"
 PUSH_NUDGE = "aidd: push したブランチに open PR がある場合 (gh pr view で確認)、追加コミットが PR の範囲・内容を変えたなら gh pr edit でタイトルと概要を最新化すること (日本語)。変えていなければ何もしない。"
 
+# #198: the language nudge is advice, so it stays quiet only when every given title and body is
+# readable and holds kana or kanji (one character is enough: identifiers and commands stay in
+# English). Anything unreadable keeps it. A body file is read only by a hook run with no denial,
+# because a stat, open or read that hangs (an unresponsive mount) loses the whole reply. That keeps
+# denials; the other notices of such a run are still lost (accepted: rare, and only advice).
+JAPANESE_CHARS = re.compile(r"[぀-ヿ一-鿿]")
+BODY_FILE_LIMIT = 3
+BODY_READ_BYTES = 64 * 1024
+BODY_READ_SECONDS = 1.0
+SUBSTITUTION = re.compile(r"\$\(|\x60|\$\{")  # \x60: a literal backquote breaks the bash $(...) around this code
+HEREDOC_SUBSTITUTION = re.compile(r"\$\(\s*cat\s+" + HEREDOC.pattern + r"\s*\)")
+HEREDOC_BODIES = scan_heredocs(command)[1]
+
+
+def text_is_japanese(value):
+    # The heredoc body was stripped before tokenizing: "$(cat <<'EOF' ... EOF)" left only
+    # "$(cat <<'EOF'\n)". Judge every body under that delimiter (one may be a commit message).
+    # An unquoted delimiter expands its body, so a substitution there is unresolved too.
+    delimiters = [m.group(2) for m in HEREDOC_SUBSTITUTION.finditer(value)]
+    if delimiters:
+        if SUBSTITUTION.search(HEREDOC_SUBSTITUTION.sub("", value)):
+            return False
+        bodies = [(quoted, body) for name, quoted, body in HEREDOC_BODIES if name in delimiters]
+        found = {name for name, _, _ in HEREDOC_BODIES}
+        return all(d in found for d in delimiters) and all(
+            JAPANESE_CHARS.search(body) and (quoted or not SUBSTITUTION.search(body)) for quoted, body in bodies)
+    return not SUBSTITUTION.search(value) and bool(JAPANESE_CHARS.search(value))
+
+
+GH_TEXT_OPTIONS = {"--title": "titles", "-t": "titles", "--body": "bodies", "-b": "bodies",
+                   "--body-file": "files", "-F": "files"}
+
+
+# The other options of gh pr/issue create/edit: those that take a value and those that do not.
+GH_VALUE_OPTIONS = {"--base", "-B", "--head", "-H", "--label", "-l", "--assignee", "-a", "--reviewer", "-r",
+                    "--milestone", "-m", "--project", "-p", "--repo", "-R", "--template", "-T", "--recover",
+                    "--add-label", "--remove-label", "--add-assignee", "--remove-assignee", "--add-reviewer",
+                    "--remove-reviewer", "--add-project", "--remove-project"}
+GH_FLAG_OPTIONS = {"--draft", "-d", "--fill", "-f", "--fill-first", "--fill-verbose", "--web", "-w", "--editor",
+                   "-e", "--no-maintainer-edit", "--dry-run", "--remove-milestone"}
+
+
+def gh_text_options(args):
+    """The title, body and body-file values, or None when they cannot be told apart. Options are read in
+    order and a value is never read as an option (--title "-bX" and --label "-bX" hold no body). An
+    option not listed above, or short flags joined together (-dw), may take the next word as its value,
+    so the rest cannot be read: None, and the nudge stays."""
+    found = {"titles": [], "bodies": [], "files": []}
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--":
+            break
+        if not arg.startswith("-") or arg == "-":
+            i += 1
+            continue
+        name, sep, attached = arg.partition("=") if arg.startswith("--") else (arg[:2], "", arg[2:])
+        kind = GH_TEXT_OPTIONS.get(name)
+        if kind and (sep or attached):
+            found[kind].append(attached)
+        elif kind and i + 1 < len(args):
+            found[kind].append(args[i + 1])
+            i += 1
+        elif kind:
+            return None
+        elif name in GH_VALUE_OPTIONS:
+            i += 0 if (sep or attached) else 1
+        elif name not in GH_FLAG_OPTIONS or attached:
+            return None
+        i += 1
+    return found["titles"], found["bodies"], found["files"]
+
+
+def body_file_is_japanese(value, directory, deadline):
+    # A path the shell may still expand ($VAR, ${...}, $(...), backquotes, globs) names another file.
+    if value == "-" or re.search(r"[$\x60*?\[]", value) or time.monotonic() > deadline:
+        return False
+    path = os.path.join(directory, os.path.expanduser(value))
+    try:
+        # stat first: opening a device has side effects; fstat again in case the path changed.
+        if not stat.S_ISREG(os.stat(path).st_mode):
+            return False
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY | getattr(os, "O_CLOEXEC", 0))
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                return False
+            data = b""
+            while len(data) < BODY_READ_BYTES:
+                if time.monotonic() > deadline:
+                    return False
+                chunk = os.read(fd, BODY_READ_BYTES - len(data))
+                if not chunk:
+                    break
+                data += chunk
+        finally:
+            os.close(fd)
+    except (OSError, ValueError):
+        return False
+    return bool(JAPANESE_CHARS.search(data.decode("utf-8", "replace")))
+
+
+def japanese_nudge_needed(action, args, directory):
+    options = gh_text_options(args)
+    if options is None:
+        return True
+    titles, bodies, files = options
+    texts = titles + bodies
+    if action == "create" and not (titles and len(texts) + len(files) > len(titles)):
+        return True
+    if not (texts or files) or denials or len(files) > BODY_FILE_LIMIT:
+        return True
+    if not all(text_is_japanese(v) for v in texts):
+        return True
+    deadline = time.monotonic() + BODY_READ_SECONDS
+    return not all(body_file_is_japanese(f, directory, deadline) for f in files)
+
+
 ledger_calls = []
+language_checks = []
 for argv, directory in simple_commands(command):
     program = os.path.basename(argv[0])
     if program == "git":
@@ -1180,7 +1306,7 @@ for argv, directory in simple_commands(command):
                 record_issue_search(args, target_repo(repo_flag, directory))
             continue
         if group in ("pr", "issue") and action in ("create", "edit"):
-            add(contexts, JAPANESE_NUDGE)
+            language_checks.append((action, args, directory))
         if group == "pr" and action == "create":
             warn_review_before_pr(args, directory)
         if group == "issue" and action == "create":
@@ -1192,6 +1318,15 @@ if any(sub == "commit" for _, sub, _ in ledger_calls):
         check_ledger(ledger_calls)
     except Exception:  # RecursionError and anything else: deny, and keep the other verdicts
         add(denials, LEDGER_FAILED)
+
+# Last, once every denial is known (see JAPANESE_CHARS). Exceptions keep the nudge.
+for action, args, directory in language_checks:
+    try:
+        needed = japanese_nudge_needed(action, args, directory)
+    except Exception:
+        needed = True
+    if needed:
+        add(contexts, JAPANESE_NUDGE)
 
 if denials or contexts:
     output = {"hookEventName": hook_event}

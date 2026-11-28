@@ -103,6 +103,92 @@ if printf '%s\n' "$out" | grep -Fq 'autonomous-review'; then exit 1; fi
 # A command that only mentions gh pr create in a quoted string is not an invocation.
 [ -z "$(hook PreToolUse "$repo" 'echo "gh pr create --head feat"')" ]
 
+# #198: the language nudge stays quiet only when every given title and body is readable and holds
+# kana or kanji. Anything the hook cannot read (stdin, a missing file, a FIFO, a substitution it
+# cannot resolve) keeps the nudge. gh pr create --head docs-only adds no other context.
+ja_nudge() {
+  local out
+  out=$(python3 -c '
+import json, subprocess, sys
+payload = json.dumps({"hook_event_name": "PreToolUse", "cwd": sys.argv[1], "session_id": "session-ja",
+                      "tool_name": "Bash", "tool_input": {"command": sys.argv[2]}})
+r = subprocess.run(["bash", sys.argv[3]], input=payload, capture_output=True, text=True, timeout=10)
+if r.returncode != 0:
+    sys.exit(f"hook exited {r.returncode}")
+print(r.stdout, end="")
+' "$repo" "$1" "$dispatcher") || { echo "hook did not return: $1" >&2; exit 1; }
+  printf '%s' "$out"
+}
+# The output is taken first, so a hook that fails or hangs fails the test instead of reading as quiet.
+ja_shown() { local out; out=$(ja_nudge "$1") || exit 1; printf '%s' "$out" | grep -Fq 'タイトルと本文は日本語'; }
+ja_quiet() {
+  local out
+  out=$(ja_nudge "$1") || exit 1
+  if printf '%s' "$out" | grep -Fq 'タイトルと本文は日本語'; then echo "language nudge shown: $1" >&2; exit 1; fi
+}
+mkdir -p "$repo/notes"
+printf '## 概要\n\nhook の判定を直す。SECRET_MARKER_JA\n' > "$repo/notes/ja.md"
+printf '## Summary\n\nFix the hook. SECRET_MARKER_EN\n' > "$repo/notes/en.md"
+ja_quiet 'gh pr create --head docs-only --title "通知を直す" --body "日本語の本文"'
+ja_quiet 'gh pr create --head docs-only -t "通知を直す" -b "日本語の本文"'
+ja_quiet 'gh pr create --head docs-only --title=通知を直す --body-file notes/ja.md'
+ja_quiet 'gh pr create --head docs-only --title 通知を直す -F notes/ja.md'
+ja_quiet "cd notes && gh pr create --head docs-only --title 通知を直す --body-file ja.md"
+ja_quiet $'gh pr create --head docs-only --title "通知を直す" --body "$(cat <<\'EOF\'\n## 概要\n\n本文\nEOF\n)"'
+ja_quiet 'gh issue edit 5 --title "通知を直す"'
+ja_shown 'gh pr create --head docs-only --title "Fix the nudge" --body "Body"'
+ja_shown 'gh pr create --head docs-only --title "通知を直す" --body "English body"'
+ja_shown 'gh pr create --head docs-only --title "通知を直す" --body-file notes/en.md'
+ja_shown 'gh pr create --head docs-only --title "通知を直す"'
+ja_shown 'gh pr create --head docs-only --fill'
+ja_shown 'gh issue edit 5 --add-label bug'
+ja_shown 'gh pr create --head docs-only --title "通知を直す" --body ""'
+ja_shown 'gh pr create --head docs-only --title "通知を直す" --body-file -'
+ja_shown 'gh pr create --head docs-only --title "通知を直す" --body-file notes/missing.md'
+ja_shown 'gh pr create --head docs-only --title "通知を直す" --body-file notes'
+ja_shown 'gh pr create --head docs-only --title "通知を直す" --body-file /dev/zero'
+# A path the shell would still expand names another file, even if a file of that literal name exists.
+cp "$repo/notes/ja.md" "$repo/notes/\${BODY}"
+cp "$repo/notes/ja.md" "$repo/notes/\$BODY"
+ja_shown 'gh pr create --head docs-only --title 通知 --body-file "notes/${BODY}"'
+ja_shown 'gh pr create --head docs-only --title 通知 --body-file "notes/$BODY"'
+ja_shown 'gh pr create --head docs-only --title 通知 --body-file "notes/$(echo x)"'
+ja_shown 'gh pr create --head docs-only --title 通知 --body-file notes/*.md'
+mkfifo "$repo/notes/fifo"
+ja_shown 'gh pr create --head docs-only --title "通知を直す" --body-file notes/fifo'
+ja_shown $'gh pr create --head docs-only --title "通知を直す" --body "$(cat <<\'EOF\'\nEnglish body\nEOF\n)"'
+# The same delimiter twice: every body under it must hold Japanese.
+ja_shown $'git commit -F - <<\'EOF\'\nfix: english message\nEOF\ngh pr create --head docs-only --title "通知を直す" --body "$(cat <<\'EOF\'\n本文\nEOF\n)"'
+# A heredoc next to another substitution cannot be judged by the heredoc alone.
+ja_shown $'gh pr create --head docs-only --title "通知を直す" --body "$(cat <<\'EOF\'\n本文\nEOF\n) $(cat notes/en.md)"'
+# An unquoted delimiter expands its body: a substitution there is unresolved. A quoted one is literal.
+ja_shown $'gh issue edit 5 --title 通知 --body "$(cat <<EOF\n$(printf 日本語 >&2)\nEOF\n)"'
+ja_quiet $'gh issue edit 5 --title 通知 --body "$(cat <<EOF\n日本語の本文\nEOF\n)"'
+ja_quiet $'gh issue edit 5 --title 通知 --body "$(cat <<\'EOF\'\n本文 $(literal)\nEOF\n)"'
+# A value is never read as an option: --title "-b..." is a title, so the create has no body.
+ja_shown 'gh pr create --head docs-only --title "-b日本語"'
+ja_shown 'gh pr create --head docs-only --title 通知 --label "-b日本語"'
+ja_shown 'gh pr create --head docs-only --title 通知 -l"-b日本語"'
+# Known flags and value options pass; an unknown option or joined short flags keep the nudge.
+ja_quiet 'gh pr create --draft --head docs-only -B main --label bug --title 通知を直す --body 本文'
+ja_shown 'gh pr create --head docs-only --some-new-option x --title 通知を直す --body 本文'
+ja_shown 'gh pr create --head docs-only -dw --title 通知を直す --body 本文'
+ja_shown 'gh pr create --head docs-only --title "通知を直す" --body "$(cat notes/ja.md)"'
+ja_shown 'gh pr create --head docs-only --title "通知を直す" --body "`cat notes/ja.md`"'
+# More than three body files: the rest count as unreadable.
+ja_shown 'gh pr create --head docs-only --title 通知 -F notes/ja.md -F notes/ja.md -F notes/ja.md -F notes/ja.md'
+# A denial in the same command: the files are not read and the nudge stays beside the denial.
+out=$(ja_nudge 'git reset --hard && gh pr create --head docs-only --title 通知を直す --body-file notes/ja.md')
+[ "$(printf '%s\n' "$out" | decision_of)" = deny ]
+printf '%s\n' "$out" | grep -F 'タイトルと本文は日本語'
+# The file contents never reach the output.
+for body in ja en; do
+  if ja_nudge "gh pr create --head docs-only --title 通知を直す --body-file notes/$body.md" | grep -Fq SECRET_MARKER; then
+    echo "body file contents leaked into the hook output" >&2; exit 1
+  fi
+done
+rm -rf "$repo/notes"
+
 # #122: only finished evidence (schema_version >= 5) for the PR's current base and head silences
 # the warning. Its own repository, because the cases below move main and the branch.
 ev="$tmp_dir/ev-repo"
