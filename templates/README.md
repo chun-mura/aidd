@@ -12,6 +12,7 @@ Claude Code を新しいリポジトリで使い始めるとき。
 - `team-settings.json.template` — チームで aidd を使うとき、利用プロジェクトの `.claude/settings.json` にマージしてコミットする。フォルダを trust したメンバーに aidd のインストールが自動提案される (`extraKnownMarketplaces` + `enabledPlugins`)
 - `design-perspectives.md.template` — `.aidd/design-perspectives.md` の出発点。可観測性・プロジェクト固有観点。信頼境界のセキュリティは Agent 6 (STRIDE) が担当する
 - `asset-overlap-prompt-hook.json.template` — aidd と役割の重なる資産を厳格に止めたいときだけ、利用プロジェクトの `.claude/settings.json` の `hooks` にマージする (既定では無効)。aidd 同梱の `write-guard.sh` は一覧を渡して同名だけ拒否するのに対し、こちらは `.claude/{hooks,skills,commands,rules,agents}/` への Write ごとにモデルが意味の近さを判定して拒否する。制約: prompt 型 hook はファイルの有無を見られないため、既存資産の Write による上書きも判定される / Write ごとにモデル呼び出しが1回増える / `if` は作業ディレクトリ配下にしか当たらず `~/.claude/` は対象外 / 一覧はコピー時点の aidd のもので、aidd を更新したら貼り直す
+- `assurance-claims.md.template` — 強い保証を求める構成を明示的に選ぶときだけ、利用プロジェクトの `.aidd/assurance-claims.md` にコピーして記入する。主張ID・状態・例外・失効・責任分担の規則は aidd の [保証条件と責任分担](../docs/assurance/contract.md) が正本。コピー・記入しただけでは採用にならず、所有者の承認で採用になる。`[例]` の行は架空のサンプルで、保証の宣言ではない
 - `aidd-hook-log.sh` — 利用側プロジェクトの `.claude/hooks/` にコピーし、`.claude/settings.json` の既存 hook のコマンドの前に `aidd-hook-log.sh <hook-id>` を足す。発火と失敗を `~/.claude/aidd/` 配下に記録し、`/aidd:asset-audit` が読む (手順は aidd の [hooks の運用と調査「`aidd-hook-log.sh` の導入」](../docs/guides/hooks-operations.md#aidd-hook-logsh-の導入-利用側プロジェクト))
 
 使い方: `cp templates/CLAUDE.md.template <project>/CLAUDE.md` して編集。
