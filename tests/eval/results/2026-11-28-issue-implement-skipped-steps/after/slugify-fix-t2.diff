@@ -1,0 +1,85 @@
+diff --git a/docs/test-perspectives/2026-11-28-slugify-collapse-hyphens.md b/docs/test-perspectives/2026-11-28-slugify-collapse-hyphens.md
+new file mode 100644
+index 0000000..17f6c4b
+--- /dev/null
++++ b/docs/test-perspectives/2026-11-28-slugify-collapse-hyphens.md
+@@ -0,0 +1,43 @@
++# テスト観点: slugify のハイフン連続・前後ハイフン (issue #1)
++
++対象: `textutil.py` の `slugify`
++
++## 1. 正常系
++
++| # | 観点 | 優先度 | 備考 |
++|---|---|---|---|
++| N1 | 英数字以外が連続する箇所はハイフン1つになる (`"Hello,  World!"` → `"hello-world"`) | must | 受け入れ基準1 |
++| N2 | 先頭・末尾の記号/空白はハイフンとして残らない (`"  -Draft- "` → `"draft"`) | must | 受け入れ基準2 |
++| N3 | 英字は小文字化される (`"Hello World"` → `"hello-world"`) | — | カバー済み: `test_textutil.py::SlugifyTest::test_lowercases_and_replaces_a_space` (受け入れ基準4) |
++| N4 | 数字は保持される (`"Top 10 Tips"` → `"top-10-tips"`) | should | |
++
++## 2. 境界値 (ECP適用: 英数字 / 非英数字のクラス)
++
++| # | 観点 | 優先度 | 備考 |
++|---|---|---|---|
++| B1 | 英数字を1文字も含まない入力は `""` (`"!!!"` → `""`) | must | 受け入れ基準3 |
++| B2 | 空文字 `""` → `""` | should | |
++| B3 | 非英数字が1文字だけ挟まる場合は従来どおりハイフン1つ (N3 で兼ねる) | — | カバー済み (N3 と同じテスト) |
++| B4 | 非ASCII文字 (日本語など) は非英数字として扱われる (`"日本語 Title"` → `"title"`) | could | 範囲外の対応はしないことの確認 |
++
++## 3. 異常系
++
++該当なし (例外を送出する分岐を持たない純関数)。
++
++## 4. 状態遷移
++
++| # | 観点 | 優先度 | 備考 |
++|---|---|---|---|
++| S1 | 冪等: `slugify(slugify(x)) == slugify(x)` | could | |
++
++## 5. 回帰
++
++| # | 観点 | 優先度 | 備考 |
++|---|---|---|---|
++| R1 | 既存テスト `test_lowercases_and_replaces_a_space` が通ったまま | must | カバー済み (既存テストを実行して確認) |
++
++## 6. フレームワーク結合
++
++該当なし。
++
++負荷・性能テストはスコープ外 (必要なら別途計画する)。
+diff --git a/test_textutil.py b/test_textutil.py
+index 0a0d0cc..f36d20c 100644
+--- a/test_textutil.py
++++ b/test_textutil.py
+@@ -7,6 +7,21 @@ class SlugifyTest(unittest.TestCase):
+     def test_lowercases_and_replaces_a_space(self):
+         self.assertEqual(slugify("Hello World"), "hello-world")
+ 
++    def test_collapses_consecutive_non_alphanumerics_into_one_hyphen(self):
++        self.assertEqual(slugify("Hello,  World!"), "hello-world")
++
++    def test_strips_leading_and_trailing_hyphens(self):
++        self.assertEqual(slugify("  -Draft- "), "draft")
++
++    def test_returns_empty_string_without_alphanumerics(self):
++        self.assertEqual(slugify("!!!"), "")
++
++    def test_keeps_digits(self):
++        self.assertEqual(slugify("Top 10 Tips"), "top-10-tips")
++
++    def test_returns_empty_string_for_empty_input(self):
++        self.assertEqual(slugify(""), "")
++
+ 
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/textutil.py b/textutil.py
+index 3398c7e..0f988c1 100644
+--- a/textutil.py
++++ b/textutil.py
+@@ -5,4 +5,4 @@ import re
+ def slugify(title):
+     """Turn a page title into a URL slug."""
+     lowered = title.lower()
+-    return re.sub(r"[^a-z0-9]", "-", lowered)
++    return re.sub(r"[^a-z0-9]+", "-", lowered).strip("-")
