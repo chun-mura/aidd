@@ -72,7 +72,7 @@ codex plugin marketplace add chun-mura/aidd
 codex plugin add aidd@aidd
 ```
 
-導入後に `/hooks` で aidd の hook を信頼する。信頼していない hook は何も表示されずに実行されない。`hooks.json` のエントリが変わるリリースでは、そのエントリを `/hooks` で信頼し直す (スクリプト本体だけの修正では不要)。0.53.0 は Claude Code 用の `^Skill$` エントリに `skill-gate.sh` を足したので、信頼し直しが要る (しないと `usage-log.sh` の記録が止まる。Codex の skill の起動は変わらない)。`/hooks` 画面では aidd 以外の hook の有効・無効を変えないこと (信頼の操作のあとに、無効にしていた別の hook が有効に戻った実測がある)。
+導入後に `/hooks` で aidd の hook を信頼する。信頼していない hook は何も表示されずに実行されない。`hooks.json` のエントリが変わるリリースでは、そのエントリを `/hooks` で信頼し直す (スクリプト本体だけの修正では不要)。0.53.0 は Claude Code 用の `^Skill$` エントリに `skill-gate.sh` を足したので、信頼し直しが要る (しないと `usage-log.sh` の記録が止まる。Codex の skill の起動は変わらない)。0.108.0 は `Bash` エントリに `skill-gate.sh` を足したので、信頼し直しが要る (しないとモデルが `autonomous-review` の SKILL.md をシェルで読むのを止められない。既存の `tool-reminder.sh` の信頼は切れない)。`/hooks` 画面では aidd 以外の hook の有効・無効を変えないこと (信頼の操作のあとに、無効にしていた別の hook が有効に戻った実測がある)。
 
 利用者が呼ぶ skill は `$aidd:<name>` で起動する ([一覧](#skills-利用者が呼ぶモデルからは自動起動しない))。`commands/` は無い。custom agents はプラグイン導入だけでは届かない (Codex が読むのは `~/.codex/agents/` か今のリポの `.codex/agents/` だけ)。プラグインのディレクトリで次を実行する:
 
@@ -109,7 +109,7 @@ Claude Code に入れた aidd と、この Cursor 用プラグインは併用し
 
 ### Skills (利用者が呼ぶ。モデルからは自動起動しない)
 
-フラグ・条件分岐・処理の詳細は各 SKILL.md にある。例外として `autonomous-review` は Claude Code ではモデルも起動できるが、起動の前に `skill-gate.sh` が必ずユーザーに許可を求める (Codex は手で起動したときだけ、Cursor はモデルの起動を拒否する)。`test-perspectives`・`design-doc`・`design-review` も、Claude Code と Cursor ではモデルが許可なしで起動できる。`issue-implement` と hook の案内がこの3つを使うよう指示しており、非対話のホストでも動かす必要があるため (#196)。Codex では `allow_implicit_invocation: false` のままなので、依頼の内容からこの3つを選んで起動する対象には入らない。ただし `$aidd:issue-implement` の手順がこの3つを指すと、モデルが SKILL.md を読んで従う (codex-cli 0.163.0 で実測、#205)。
+フラグ・条件分岐・処理の詳細は各 SKILL.md にある。例外として `autonomous-review` は Claude Code ではモデルも起動できるが、起動の前に `skill-gate.sh` が必ずユーザーに許可を求める (Cursor はモデルの起動を拒否する)。Codex の `allow_implicit_invocation: false` は、依頼の内容から skill を選んで暗黙に起動することを止めるだけで、モデルが SKILL.md をシェルで読んで従うことは止めない (codex-cli 0.163.0 で、`adr` を頼まれずに読んで従い、`gh pr create` の後の hook の案内から `autonomous-review` の SKILL.md を読んだ。#225)。そのため Codex では、`autonomous-review` の SKILL.md をシェルで読むコマンドを `skill-gate.sh` が拒否する (Codex は `ask` を扱えない)。手で打った `$aidd:autonomous-review` は Codex が本文を渡すので止まらない。拒否はコマンドの語にこの plugin の `skills/autonomous-review/` を指すパス (glob・リンク・`~`・hook が知る環境変数を含む) がある場合だけで、実行時に組み立てるパスや grep の出力のような部分的な読み取りは止めない。ほかの利用者起動の skill (`adr` など) は Codex ではモデルが読んで始めうる。Claude Code でも Bash でこの SKILL.md を読むと拒否される (Skill ツールの起動は従来どおり許可を求める)。`test-perspectives`・`design-doc`・`design-review` も、Claude Code と Cursor ではモデルが許可なしで起動できる。`issue-implement` と hook の案内がこの3つを使うよう指示しており、非対話のホストでも動かす必要があるため (#196)。Codex では `allow_implicit_invocation: false` のままなので、依頼の内容からこの3つを選んで起動する対象には入らない。ただし `$aidd:issue-implement` の手順がこの3つを指すと、モデルが SKILL.md を読んで従う (codex-cli 0.163.0 で実測、#205)。
 
 | Skill | 用途 | Claude Code | Codex | Cursor |
 |---|---|---|---|---|
@@ -161,7 +161,7 @@ Claude Code に入れた aidd と、この Cursor 用プラグインは併用し
 | [`session-start.sh`](hooks/scripts/session-start.sh) | SessionStart で資産の使いどころと不明点の確認指示を注入し、棚卸しの期限切れと superpowers 未導入を知らせる |
 | [`usage-log.sh`](hooks/scripts/usage-log.sh) | `/aidd:*` の起動回数と最終利用時刻を `~/.claude/aidd/usage.json` に記録する。モデルが Skill ツールで起動した回数は `model_counts` にも分けて記録する (プロンプト本文は記録しない) |
 | [`tool-reminder.sh`](hooks/scripts/tool-reminder.sh) | Bash の git / gh を1本で判定し、作業を失う git 操作・指名しないステージ・既定ブランチへの force push と削除・重複検索なしの `gh issue create` などを拒否し、テスト観点・日本語・レビュー証跡・コミット規約などを通知する |
-| [`skill-gate.sh`](hooks/scripts/skill-gate.sh) | モデルが `autonomous-review` を起動する前にユーザーの許可を求める (Cursor では SKILL.md の `Read` を拒否する) |
+| [`skill-gate.sh`](hooks/scripts/skill-gate.sh) | モデルが `autonomous-review` を起動する前にユーザーの許可を求める (Cursor では SKILL.md の `Read` を、Codex と Claude Code では SKILL.md をシェルで読むコマンドを拒否する) |
 | [`write-guard.sh`](hooks/scripts/write-guard.sh) | 新規ファイルのうち sandbox で読めなくなる名前を拒否し、`.claude/` への新規資産には重なる aidd 資産を案内する (同名は拒否) |
 | [`harness-adapter.sh`](hooks/scripts/harness-adapter.sh) | Codex・Cursor の入力を既存スクリプトの形に揃えて呼び、返事を各ハーネスの形に戻す (判定ロジックは持たない) |
 

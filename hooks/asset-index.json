@@ -149,7 +149,7 @@
     {
       "kind": "hook",
       "name": "skill-gate",
-      "description": "[PreToolUse] PreToolUse(Skill) hook, and Cursor Read via harness-adapter: ask before the model starts autonomous-review."
+      "description": "[PreToolUse] PreToolUse(Skill) asks before the model starts autonomous-review; Bash and Cursor Read reads of its SKILL.md are denied."
     },
     {
       "kind": "hook",
