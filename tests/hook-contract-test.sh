@@ -983,6 +983,52 @@ hook PostToolUse "$repo_b" 'gh --repo=owner/a issue list -S dup' session-r3
 [ "$(hook PreToolUse "$repo_a" 'gh --repo o/r issue create -t x' session-r4 | decision_of)" = deny ]
 hook PreToolUse "$repo_a" 'gh -R o/r pr create -t x' session-r4 | grep -F 'タイトルと本文は日本語'
 
+# Reflux #219: a denial stops the whole Bash command, so when the command joins more than one
+# operation the reason ends with a note that none of them ran. A lone command gets no note.
+whole_note='つないだ他の操作も含めて何も実行されていない'
+reason_of() {
+  python3 -c '
+import json, sys
+text = sys.stdin.read().strip()
+print(json.loads(text)["hookSpecificOutput"].get("permissionDecisionReason", "") if text else "")
+'
+}
+expect_note() {
+  local c out
+  for c in "$@"; do
+    out=$(hook PreToolUse "$repo_a" "$c" session-n1)
+    [ "$(printf '%s\n' "$out" | decision_of)" = deny ] || { echo "not denied: $c" >&2; exit 1; }
+    [ "$(printf '%s\n' "$out" | reason_of | tail -n 1 | grep -c "$whole_note")" = 1 ] ||
+      { echo "no trailing note: $c" >&2; exit 1; }
+  done
+}
+expect_no_note() {
+  local c out
+  for c in "$@"; do
+    out=$(hook PreToolUse "$repo_a" "$c" session-n1)
+    [ "$(printf '%s\n' "$out" | decision_of)" = deny ] || { echo "not denied: $c" >&2; exit 1; }
+    if printf '%s\n' "$out" | grep -Fq "$whole_note"; then echo "unexpected note: $c" >&2; exit 1; fi
+  done
+}
+expect_note 'printf body > body.md && gh issue create -R owner/repo --title t --body-file body.md' \
+  'git status; git reset --hard' 'cd src && git add -A' "$(printf 'git status\ngit stash')" \
+  'git stash && git add -A' 'git log | git reset --hard' \
+  "$(printf "cat > body.md <<'EOF'\na && b; c\nEOF\ngh issue create -R owner/repo --title t --body-file body.md")"
+out=$(hook PreToolUse "$repo_a" 'printf body > body.md && gh issue create -R owner/repo --title t --body-file body.md' session-n1)
+printf '%s\n' "$out" | reason_of | grep -F 'gh issue list --search'
+[ "$(printf '%s\n' "$out" | reason_of | grep -c "$whole_note")" = 1 ]
+expect_no_note 'gh issue create -R owner/repo --title t' 'git reset --hard' 'rtk git reset --hard' \
+  'X=1 git reset --hard' 'git commit -a -m "a && b"' 'git reset --hard # x; y' '(git stash)' \
+  "$(printf 'git commit -a -F - <<EOF\nline1 && x; y\nline2\nEOF')" 'git reset --hard;' 'git reset --hard &' \
+  'git reset --hard "x'
+# No denial: nothing changes.
+[ -z "$(hook PreToolUse "$repo_a" 'git status && git log' session-n1)" ]
+out=$(hook PreToolUse "$repo_a" 'git status && gh pr create -t x' session-n1)
+[ "$(printf '%s\n' "$out" | decision_of)" = none ]
+if printf '%s\n' "$out" | grep -Fq "$whole_note"; then exit 1; fi
+out=$(hook PostToolUse "$repo_a" 'git status && git reset --hard' session-n1)
+if printf '%s\n' "$out" | grep -Fq "$whole_note"; then exit 1; fi
+
 # #27: with AIDD_REQUIRED_LABEL_PREFIX set, gh issue create needs a label with that prefix.
 # session-s3 searched above, so only the label check decides here.
 label_hook() { AIDD_REQUIRED_LABEL_PREFIX=priority: hook PreToolUse "$repo" "$1" session-s3; }

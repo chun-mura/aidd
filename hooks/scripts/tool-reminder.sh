@@ -161,15 +161,15 @@ def unwrap(argv):
     return argv
 
 
-def simple_commands(text):
-    """Yield (argv, directory) for each simple command, following `cd` between them."""
+def split_commands(text):
+    """The argv of each simple command, unwrapped, `cd` included, empty ones dropped."""
     current = [[]]
     for token in tokenize(strip_comments(strip_heredocs(text))):
         if token and set(token) <= SEPARATOR_CHARS:
             current.append([])
         else:
             current[-1].append(token)
-    directory = base_dir
+    commands = []
     for words in current:
         argv = []
         skip = False
@@ -181,8 +181,15 @@ def simple_commands(text):
             else:
                 argv.append(word)
         argv = unwrap(argv)
-        if not argv:
-            continue
+        if argv:
+            commands.append(argv)
+    return commands
+
+
+def simple_commands(commands):
+    """Yield (argv, directory) for each split command, following `cd` between them."""
+    directory = base_dir
+    for argv in commands:
         if argv[0] == "cd" and len(argv) > 1 and argv[1] != "-":
             directory = os.path.join(directory, os.path.expanduser(argv[1]))
             continue
@@ -1219,6 +1226,7 @@ def load_learnings():
 
 
 JAPANESE_NUDGE = "aidd: GitHub issue/PR のタイトルと本文は日本語で書くこと (コード識別子・コマンド・コミットメッセージは英語のまま)。既に日本語なら変更不要。"
+WHOLE_COMMAND_NOTE = "aidd: 拒否したので、このコマンドはつないだ他の操作も含めて何も実行されていない (前半で作るはずのファイルなども無い)。拒否の理由を解消してから、必要な操作をすべてやり直すこと。"
 PUSH_NUDGE = "aidd: push したブランチに open PR がある場合 (gh pr view で確認)、追加コミットが PR の範囲・内容を変えたなら gh pr edit でタイトルと概要を最新化すること (日本語)。変えていなければ何もしない。"
 
 # #198: the language nudge is advice, so it stays quiet only when every given title and body is
@@ -1341,7 +1349,8 @@ def japanese_nudge_needed(action, args, directory):
 ledger_calls = []
 language_checks = []
 pending_adds = []  # (top, paths) of each git add seen so far in this command (#197)
-for argv, directory in simple_commands(command):
+COMMANDS = split_commands(command)
+for argv, directory in simple_commands(COMMANDS):
     program = os.path.basename(argv[0])
     if program == "git":
         parsed = parse_git(argv, directory)
@@ -1399,7 +1408,9 @@ if denials or contexts:
     output = {"hookEventName": hook_event}
     if denials and hook_event == "PreToolUse":
         output["permissionDecision"] = "deny"
-        output["permissionDecisionReason"] = "\n".join(denials)
+        # Reflux #219: a denial stops the whole command, earlier operations included.
+        output["permissionDecisionReason"] = "\n".join(
+            denials + ([WHOLE_COMMAND_NOTE] if len(COMMANDS) > 1 else []))
     if contexts:
         output["additionalContext"] = "\n".join(contexts)
     text = json.dumps({"hookSpecificOutput": output}, ensure_ascii=False)

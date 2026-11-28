@@ -153,7 +153,8 @@ the skill's `name:` frontmatter.
     only when the run has no denial, so a hanging read cannot drop a denial), review-evidence warning before `gh pr create`, denial of work-losing git operations and unnamed
     staging, denial of a force push to / remote delete of the default branch (the remote's `HEAD` if it
     exists, plus `main`/`master` always; a destination with `$`/backquote is denied; work-branch force pushes pass), main-tree sharing warning, search-before-`gh issue create` gate, optional required-label gate, and the
-    post-commit subject/Why check (only in repos that adopt the convention). Commands without a `git`/`gh` word exit
+    post-commit subject/Why check (only in repos that adopt the convention). A denial of a command that joins more
+    than one operation ends with a note that none of them ran (reflux #219). Commands without a `git`/`gh` word exit
     before python starts. Don't split it back out without checking `docs/superpowers/specs/2026-07-18-token-optimization-design.md`
   - `write-guard.sh` (PreToolUse, matcher `Write|Edit|NotebookEdit`): acts only on files that don't exist yet —
     denies names the sandbox usually can't read back, and points new consumer `.claude/{hooks,skills,commands,rules,agents}`
