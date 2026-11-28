@@ -21,6 +21,14 @@ Codex のセッションから使えば `codex exec` は同じ provider であ�
 - 独立性不明・未実行の監査や品質ゲート・高リスク変更は `human_required`
 - 新しい CLI バックエンドは足さない
 
+## ユーザー決定 (2026-11-28、PR #212 のレビュー後)
+
+- 同種モデルの独立レビューで適格にできる範囲は「評価した範囲に限る」。評価記録 (`tests/eval/results/2026-11-25-impl.md` の「提案」、167〜171行) が許容候補とした「境界」「例外の扱い」の変更以外、および評価していないモデルによるレビューは `human_required` (`human_judgment`) にする
+- 変更の種類は判定者が差分の意味から分類し、分類できなければ `human_required` にする
+- 評価したモデルの一覧は SKILL.md の「同種・系列不明の独立レビューは評価した範囲に限る」の表の1か所に置く (この設計書には写さない)
+
+適用: `model_relation` が `same` または `unknown` の run に当てはめる (系列が違うと確かめられない run を同種と同じに扱う)。`different` の run には当てはめない。今の backend (`codex exec`) で同種になるのは Codex のホストから使う場合で、そのモデル (OpenAI 系) は評価記録に無いので、今の版ではその run は `auto_merge_eligible` にならない。
+
 ## 評価記録 (T10 = #131)
 
 `tests/eval/results/2026-11-25-impl.md` (PR #179)。autonomous-review の主レビューだけを、5ケース (欠陥あり3・対照2) × 2方式 × 3試行で測った。
@@ -49,13 +57,13 @@ Codex のセッションから使えば `codex exec` は同じ provider であ�
 | `prior_verdicts_withheld` | プロンプトは対象差分・変更目的・不変条件・懸念点だけ。スナップショットに `.aidd/` と `.git` が無い |
 | `read_only_snapshot` | `--sandbox read-only --skip-git-repo-check -C <snapshot-dir>` で起動した |
 
-`established` は4つがすべて `true` のときだけ `true`。`--reviewer codex` で `true` でなければ `human_required` (`review_incomplete`)。`--reviewer claude` は4つとも `false` で、今までどおり `human_required` (`human_judgment`)。
+`established` は4つがすべて `true` のときだけ `true`。記録の拠り所は、毎回保存する `reviewer-round<N>-command.txt`・`reviewer-round<N>-prompt.txt` と `rounds[].snapshot`。`--reviewer codex` で `true` でなければ `human_required` (`review_incomplete`)。`--reviewer claude` は4つとも `false` で、今までどおり `human_required` (`human_judgment`)。
 
 ### モデルと provider の記録
 
 - レビュー担当: `codex exec` の stderr の先頭の見出し (`--------` に挟まれた部分) の `model:` と `provider:` の行。2026-11-28 に codex-cli 0.163.0 で1回、空のディレクトリに対して `codex exec --sandbox read-only` を実行し、見出しに `model: <値>` と `provider: openai` が出ることを確かめた。#131 は `--json` の event だけを記録し、この見出しを残していなかった (それで「不明」だった。`--json` のときに見出しが出るかは確かめていない)。既存の呼び出しは変えず、stderr を毎回ファイルに保存して見出しだけを読む
-- 判定者: ホストが示すモデル ID (Claude Code のシステムプロンプトの model ID など) があればそれ。無ければ `null`
-- `model_relation` は provider が両方取れたときだけ `same` / `different`、それ以外は `unknown`。判定には使わない
+- 判定者: ホストが示すモデル ID (Claude Code のシステムプロンプトの model ID など) があればそれ。無ければ `null`。provider はホストが明示した場合だけ書き、モデル ID の名前から推測しない
+- `model_relation` は provider が両方取れたときだけ `same` / `different`、それ以外は `unknown`。`same` / `unknown` には上の「評価した範囲に限る」を当てはめる
 - 実行名 (`codex`)・CLI の名前・既定の設定から埋めない
 
 見出しの値は CLI が「使う」と表示した値で、サーバー側の応答モデルの確認ではない。これは残存リスクとして記録する。
