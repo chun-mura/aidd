@@ -955,7 +955,7 @@ direct: `--depth=standard` で適用し、小規模対象ショートカット�
 | 最終報告の指摘件数 | high/mid/low 別。同じケースの `baseline` との差も書く |
 | ノイズ率・誤検出 | 手順3・4と同じ |
 | キー外で正当 | 手順4で「正当」と確定した件数 |
-| 経路 | 実行担当の `## 経路` (dispatch した agent、refuter・arbiter・security-reviewer の起動、ショートカットの有無)。構成どおりでない経路 (`direct` で Agent 6 以外を dispatch した、`deep` で arbiter を起動しなかった など) は、その試行に注記する |
+| 経路 | 実行担当の `## 経路` (dispatch した agent、refuter・arbiter・security-reviewer の起動、ショートカットの有無)。構成どおりでない経路 (`direct` で reviewer を dispatch した、`deep` で arbiter を起動しなかった など) は、その試行に注記する |
 | 待ち時間 | meta の `duration_ms` |
 | 総費用 | meta の `total_cost_usd` と、モデル別の使用量のトークンの合計。agent 別の `total_tokens` も書く |
 

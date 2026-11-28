@@ -185,7 +185,8 @@ This is the most structurally complex asset — read the file itself before modi
    design crosses a trust boundary or stores sensitive data in files, logs, or caches — decided semantically by the main loop, not by keyword match; forced/suppressed
    by `--security`/`--no-security`).
    Only a small target (1 file, or a summary under 100 lines) may shortcut to a direct in-context review — except
-   when `--verify-sources` is set, which always forces the full parallel path (to guarantee Agent 5 runs). A large
+   when `--verify-sources` is set, which always forces the full parallel path (to guarantee Agent 5 runs). The shortcut
+   skips only the reviewer dispatch: a target that meets the Agent 6 condition still gets Agent 6 (#200). A large
    target (over 5 files or 3000 lines total) is instead split across multiple agents per perspective group.
 4. **Refutation stage**: `aidd:refuter` (sonnet) runs only if any high/mid findings exist, and only receives the
    findings + citations + minimal related paths (not the whole target again). `low` findings and Agent 5 output

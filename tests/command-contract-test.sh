@@ -1012,7 +1012,7 @@ grep -F '小規模対象ショートカットを使う' "$cmp_run/raw/prompt-dem
 # direct follows the design-review shortcut: no reviewer dispatch, but Agent 6 when its condition holds (#200).
 grep -F 'reviewer を dispatch せず、メインが design-review の観点で直接レビューする。Agent 6 の起動条件に当たれば Agent 6 だけは dispatch する' "$cmp_run/raw/prompt-demo-direct.md"
 grep -F -- '(reviewer を dispatch せず、メインが直接レビューする。Agent 6 の起動条件に当たれば Agent 6 だけは dispatch する)' "$eval_command"
-grep -F -- '構成どおりでない経路 (`direct` で Agent 6 以外を dispatch した、' "$eval_command"
+grep -F -- '構成どおりでない経路 (`direct` で reviewer を dispatch した、' "$eval_command"
 if grep -qF -e 'agent に dispatch せず、メインが' -e '(dispatch せず、メインが直接レビューする)' -e '(`direct` で dispatch した、' "$eval_command"; then
   echo "eval compare still says direct dispatches nothing (#200)" >&2
   exit 1
