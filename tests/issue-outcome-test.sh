@@ -240,7 +240,30 @@ for name, bad in {
     assert r.returncode == 1, (name, r.stderr)
 r = check_fixture("outside layout", doc, layout=False)
 assert r.returncode == 1, ("outside layout", r.stderr)
-assert run(["check", os.path.join(tmp, "nothing.json")], tmp).returncode == 2
+assert run(["check", os.path.join(tmp, "nothing.json")], tmp).returncode == 1  # outside the layout
+r = run(["start"], repo)
+empty_dir = r.stdout.strip()
+assert run(["check", os.path.join(empty_dir, "outcome.json")], tmp).returncode == 2  # in the layout, not written
+# check reads only <run dir>/outcome.json and follows no symlink to it.
+other = os.path.join(run_dir, "other.json")
+with open(outcome, "rb") as src, open(other, "wb") as dst:
+    dst.write(src.read())
+r = run(["check", other], tmp)
+assert r.returncode == 1, ("other file name", r.stderr)
+os.remove(other)
+r = run(["start"], repo)
+link_dir = r.stdout.strip()
+# The link target is valid for link_dir (same run_id), so only the symlink itself can be the reason.
+with open(outcome) as f:
+    linked = dict(json.load(f), run_id=os.path.basename(link_dir))
+target = os.path.join(outside, "linked-outcome.json")
+with open(target, "w") as f:
+    json.dump(linked, f)
+os.symlink(target, os.path.join(link_dir, "outcome.json"))
+r = run(["check", os.path.join(link_dir, "outcome.json")], tmp)
+assert r.returncode == 1, ("symlinked outcome for check", r.stderr)
+r = run(["check", os.path.join(repo2, ".aidd", "issue-implement", "20261128T000002Z-00000002", "outcome.json")], tmp)
+assert r.returncode == 1, ("symlinked parent for check", r.stderr)
 
 # A done outcome whose artifact was removed afterwards no longer checks.
 r = run(["write", run_dir], repo, json.dumps(BASES["done"]))
@@ -263,6 +286,16 @@ r = subprocess.run([sys.executable, "-I", script, "write", run_dir], cwd=repo, e
                    input=json.dumps(BASES["blocked"]).encode().replace(b"null", b'"\xff"', 1))
 assert r.returncode == 1 and b"Traceback" not in r.stderr, r.stderr
 assert [n for n in os.listdir(run_dir) if n != "outcome.json"] == [], os.listdir(run_dir)
+# Deep nesting, a NUL in a path and a trailing newline in an ID are rejections, not tracebacks.
+for name, raw in {
+    "nested too deeply": "[" * 200000,
+    "NUL in artifact": json.dumps(with_("done", artifacts={"design_doc": "docs/\u0000", "test_perspectives": None})),
+    "newline after issue": json.dumps(with_("done", issue="191\n")),
+}.items():
+    r = run(["write", run_dir], repo, raw)
+    assert r.returncode == 1 and "Traceback" not in r.stderr, (name, r.returncode, r.stderr)
+r = run(["start"], repo, extra_env={"AIDD_ISSUE_IMPLEMENT_RUN_ID": "20261128T000003Z-00000003\n"})
+assert r.returncode == 1 and r.stdout == "", ("newline after run id", r.stdout, r.stderr)
 # An unknown key's name is not repeated either.
 r = run(["write", run_dir], repo, json.dumps(with_("done", secret_key_xyz=1)))
 assert r.returncode == 1 and "secret_key_xyz" not in r.stderr, r.stderr
@@ -292,6 +325,22 @@ in_table = set(marker.findall(tail))
 assert in_steps == in_table, (sorted(in_steps ^ in_table))
 expected = {("done", "")} | {("blocked", r) for r in mod.REASONS} | {("needs_input", k) for k in mod.KINDS}
 assert in_steps == expected, (sorted(in_steps ^ expected))
+# Each stop point carries its marker in its own section, not just somewhere in the file.
+sections = {m.group(1): m.start() for m in re.finditer(r"^## (\d+)\. ", head, re.M)}
+order = sorted(sections, key=sections.get)
+bodies = {n: head[sections[n]:(sections[order[i + 1]] if i + 1 < len(order) else len(head))]
+          for i, n in enumerate(order)}
+per_section = {
+    "1": {("blocked", "gh_unavailable")},
+    "2": {("needs_input", "spec_choice")},
+    "3": {("blocked", "review_unconverged"), ("blocked", "split_proposed")},
+    "5": {("blocked", "review_unconverged"), ("blocked", "audit_session_launched")},
+    "6": {("needs_input", "approval"), ("blocked", "verification_failed")},
+    "7": {("done", ""), ("blocked", "undecided_rows"), ("blocked", "incomplete")},
+}
+for number, markers in per_section.items():
+    found = set(marker.findall(bodies[number]))
+    assert markers <= found, (number, sorted(markers - found))
 assert "../../scripts/issue-outcome.py" in text
 PYEOF
 

@@ -81,13 +81,13 @@ python3 -I <issue-outcome.py> check <file> [--issue N]  # ホスト用: 検証�
 
 `write` / `check` が拒否する条件 (契約テストで1件ずつ確かめる):
 
-- JSON として読めない、最上位がオブジェクトでない、キーの重複、表に無いキー・欠けたキー (入れ子も)
+- JSON として読めない (深すぎる入れ子を含む)、ID・issue 番号に末尾の改行がある、パスに NUL がある、最上位がオブジェクトでない、キーの重複、表に無いキー・欠けたキー (入れ子も)
 - 型・列挙値の外れ、上の status ごとの組み合わせ (reason・questions・completion) の外れ
 - stdin・ファイルが UTF-8 でない、文字列が UTF-8 にできない (孤立サロゲート)
 - `question`・`label`・`effect` が文字列でない・空白だけ、または長すぎる (`question` 1000字、`label` 80字、`effect` 400字を超える)。options の `label` の重複
 - `artifacts` のパスが絶対パス・`..` を含む・実在しない・通常のファイルでない
 - `write`: run-dir がトップの下の `.aidd/issue-implement/<実行IDの形式>` でない、run-dir かその親 (`.aidd`・`.aidd/issue-implement`) がシンボリックリンク、`outcome.json` がシンボリックリンク
-- `check`: ファイルが `.aidd/issue-implement/<実行IDの形式>/outcome.json` の配置に無い、`--issue` を渡したのに `issue` と一致しない、`run_id` がファイルのあるディレクトリの名前と一致しない
+- `check`: ファイルが `.aidd/issue-implement/<実行IDの形式>/outcome.json` の配置に無い、その途中か `outcome.json` がシンボリックリンク、通常のファイルでない、`--issue` を渡したのに `issue` と一致しない、`run_id` がファイルのあるディレクトリの名前と一致しない
 
 停止点と status の対応 (SKILL.md の節番号。各行に `outcome: <status>/<reason か kind>` の印を付ける):
 

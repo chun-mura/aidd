@@ -47,6 +47,8 @@ def parse(raw):
         data = json.loads(raw, object_pairs_hook=_no_duplicates)
     except ValueError as e:
         return None, ["not valid JSON" + (" (duplicate key)" if "duplicate key" in str(e) else "")]
+    except RecursionError:
+        return None, ["not valid JSON (nested too deeply)"]
     if not isinstance(data, dict):
         return None, ["top level is not an object"]
     return data, []
@@ -86,7 +88,7 @@ def _artifact(value, key, top):
         return []
     where = f"artifacts.{key}"
     if not isinstance(value, str) or not value or not _encodable(value) or os.path.isabs(value) \
-            or "\\" in value:
+            or "\\" in value or "\0" in value:
         return [f"{where} is not a relative path"]
     parts = value.split("/")
     if ".." in parts:
@@ -115,7 +117,7 @@ def check_body(data, top):
         return errors
     issue, status, reason = data["issue"], data["status"], data["reason"]
     questions, completion, artifacts = data["questions"], data["completion"], data["artifacts"]
-    if issue is not None and not (isinstance(issue, str) and ISSUE.match(issue)):
+    if issue is not None and not (isinstance(issue, str) and ISSUE.fullmatch(issue)):
         errors.append("issue is not null or a string of digits")
     if status not in STATUSES:
         return errors + ["status is not one of " + "/".join(STATUSES)]
@@ -203,17 +205,34 @@ def split_run_dir(path):
     path = os.path.abspath(path)
     run_id = os.path.basename(path)
     parent = os.path.dirname(path)
-    if not RUN_ID.match(run_id) or os.path.basename(parent) != RUN_PARENTS[1] \
+    if not RUN_ID.fullmatch(run_id) or os.path.basename(parent) != RUN_PARENTS[1] \
             or os.path.basename(os.path.dirname(parent)) != RUN_PARENTS[0]:
         raise Rejected("run directory is not <top>/.aidd/issue-implement/<run id>")
     return os.path.dirname(os.path.dirname(parent)), run_id
+
+
+def _open_run_dir(top, run_id):
+    """A descriptor of <top>/.aidd/issue-implement/<run id>, opened without following a symlink."""
+    try:
+        fd = os.open(top, DIR_FLAGS)
+    except OSError as e:
+        raise Failed(f"cannot open the repository top ({type(e).__name__})")
+    try:
+        for name in RUN_PARENTS + (run_id,):
+            child = _open_dir(name, fd)
+            os.close(fd)
+            fd = child
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
 
 
 def cmd_start(_args):
     run_id = os.environ.get("AIDD_ISSUE_IMPLEMENT_RUN_ID")
     if run_id is None:
         run_id = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + secrets.token_hex(4)
-    elif not RUN_ID.match(run_id):
+    elif not RUN_ID.fullmatch(run_id):
         raise Rejected("AIDD_ISSUE_IMPLEMENT_RUN_ID is not YYYYMMDDTHHMMSSZ-<8 hex>")
     try:
         top = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True,
@@ -255,15 +274,8 @@ def cmd_write(args):
     if errors:
         raise Rejected("\n".join(errors))
     doc = {"schema_version": SCHEMA_VERSION, "run_id": run_id, **data}
+    fd = _open_run_dir(top, run_id)
     try:
-        fd = os.open(top, DIR_FLAGS)
-    except OSError as e:
-        raise Failed(f"cannot open the repository top ({type(e).__name__})")
-    try:
-        for name in RUN_PARENTS + (run_id,):
-            child = _open_dir(name, fd)
-            os.close(fd)
-            fd = child
         try:
             if not stat.S_ISREG(os.stat("outcome.json", dir_fd=fd, follow_symlinks=False).st_mode):
                 raise Rejected("outcome.json exists and is not a regular file")
@@ -295,12 +307,26 @@ def cmd_write(args):
 
 def cmd_check(args):
     path = os.path.abspath(args.file)
-    try:
-        with open(path, "rb") as f:
-            raw = f.read()
-    except OSError as e:
-        raise Failed(f"cannot read the file ({type(e).__name__})")
+    if os.path.basename(path) != "outcome.json":
+        raise Rejected("file is not <top>/.aidd/issue-implement/<run id>/outcome.json")
     top, run_id = split_run_dir(os.path.dirname(path))
+    fd = _open_run_dir(top, run_id)
+    try:
+        try:
+            # O_NONBLOCK keeps a FIFO from blocking the open; the fstat below then refuses it.
+            file_fd = os.open("outcome.json", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+        except FileNotFoundError:
+            raise Failed("outcome.json does not exist")
+        except OSError as e:
+            if e.errno == errno.ELOOP:
+                raise Rejected("outcome.json is a symlink")
+            raise Failed(f"cannot read outcome.json ({type(e).__name__})")
+        with os.fdopen(file_fd, "rb") as f:
+            if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+                raise Rejected("outcome.json is not a regular file")
+            raw = f.read()
+    finally:
+        os.close(fd)
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
@@ -337,7 +363,7 @@ def main(argv=None):
     except Failed as e:
         print(f"issue-outcome: failed: {e}", file=sys.stderr)
         return 2
-    except OSError as e:  # any other file system failure is a failed command, not a rejected input
+    except Exception as e:  # anything unforeseen is a failed command, never a rejected input or a traceback
         print(f"issue-outcome: failed: {type(e).__name__}", file=sys.stderr)
         return 2
 
