@@ -16,6 +16,7 @@
 - gate は fail-closed にする。入力を解釈できないときに許可なしで通さない。
 - Claude Code では実行環境で分岐しない。`ask` は対話の default・auto・bypassPermissions・allow ルール・サブエージェントのどれでもユーザーに届き、headless（`-p`）では auto・bypassPermissions・`--dangerously-skip-permissions` のどれでも拒否として働く（実測 R2・R5〜R8・R13）。aidd-autopilot のような無人実行で、Issue 本文に誘導されて起動することはない。
 - Codex は対象外とし、今の挙動（ユーザー起動のみ）を残す。Codex の暗黙起動は Skill ツールを通らず、gate を掛けられないため。`openai.yaml` の `allow_implicit_invocation: false` で止まる。
+  - 改訂（#225）: この前提は誤りだった。`allow_implicit_invocation: false` は暗黙の起動を止めるだけで、モデルが SKILL.md をシェル（`cat` など）で読んで従うことは止めない（codex-cli 0.163.0。`tests/eval/results/2026-11-28-codex-implicit-invocation.md`）。Codex の hooks は `ask` を扱わず（「解釈するが未対応」で hook の失敗として扱い、ツールを実行する。公式の文書 learn.chatgpt.com/docs/hooks。上の測定の結果ファイルが挙げるもの）、`deny` は Bash に効く（2026-10-27 の multi-harness hooks の設計の実測）。そこで `hooks.json` の PreToolUse `Bash` エントリに `skill-gate.sh` を足し、コマンドの語がこの plugin の `skills/autonomous-review/SKILL.md` そのものを指せば `deny` にする。同じディレクトリのほかのファイルやディレクトリ自体を指す語は通す（手で起動した run が `cd <skill> && python3 ../../scripts/learnings.py` などを使うため）。語はクォート・空白・`;&|<>(){}=,` とバッククォートで区切り、`~` と hook の環境変数を展開し、相対なら入力の `cwd`（`tool_input.workdir` があればそれも）から解決し（同じコマンドの中の `cd` の後は追わない）、glob を展開して、ファイルの同一性（`os.path.samefile`。文字の上で正規化したパスも）で比べる。`skill`・`autonomous`・glob の文字（`*`・`?`・`[`）・`\u` のどれも含まない Bash は python を起動せずに抜ける（抜けるとき約7ms、python で判定するとき約36ms。macOS で測った）。ユーザーが打った `$aidd:autonomous-review` は Codex が本文を文脈に渡し、シェルの読み取りを通らない（同じ測定の explicit1）。Claude Code でも同じエントリが動き、Bash で SKILL.md を読むコマンドは拒否される（Skill ツールの `ask` は変えない）。既存の `tool-reminder.sh`（`pre_tool_use:0:0`）の後ろに足した。ただし、0.53.0 で `^Skill$` エントリに hook を足したときは既存の `usage-log.sh` の記録も止まった（下のロールバックの節）ので、エントリに足すと既存の hook の信頼も外れうる。Codex での確かめはしていない（利用者の設定を変えないため）。README と CHANGELOG では、このエントリの hook がどちらも信頼済みかを `/hooks` で確かめ、信頼し直すよう案内する。
 - Cursor では、モデルの起動を `deny` で止め、手で打つよう案内する。SKILL.md の frontmatter は Cursor と共有で、Cursor はこのフラグを解釈するため、外すとモデルから起動できるようになる（R10）。Cursor の `preToolUse` は `ask` を無視するが `deny` は効き、モデルの skill 読み込みは SKILL.md の `Read` として届く。ユーザーが手で打った起動は `Read` を通らない（R11・R12）。手で打つこと自体を、ユーザーの許可とみなす。
 
 ### 採らない案
@@ -137,11 +138,12 @@ Codex の信頼し直し: この変更は `hooks.json` の既存の `^Skill$` �
 - Cursor では `harness-adapter.sh` が失敗すると exit 0 で終わり、gate は fail-open になる（`adapter-skips.json` に残る）。
 - **hook が無効な環境では gate は働かない**（`disableAllHooks`、組織のポリシーで plugin の hook を止めている、Cursor で hook を信頼していない など）。`disable-model-invocation` を外すので、そうした環境ではモデルが確認なしで起動できる。hook を無効にするのは利用者の意図した設定で、その場合は aidd の他の gate もすべて止まる。これは受容し、README に書く。
 - モデルが SKILL.md を Skill ツール以外の手段で読み、その指示に従う経路は防げない（Claude Code の Read、Cursor の Shell（`cat`）やワークスペース内のコピー、plugin ルート外のコピー など）。今の `disable-model-invocation: true` でも同じで、この変更で生まれる経路ではない。
+  - 改訂（#225）: Codex と Claude Code の Bash は、上の Codex の項のとおり語がこの plugin の SKILL.md を指すコマンドを拒否するようになった。残る経路: `cd` の後の相対パス（相対パスは入力の `cwd`・`workdir` からだけ解決する）、実行時に組み立てるパス（hook が持たない変数、コマンド置換、`find … -exec cat`）、引用符の連結（`'SKI''LL.md'`）・バックスラッシュ・ブレース展開、`grep -r`・`rg` などによる中身の出力、Codex のキャッシュに残った古い版の SKILL.md（判定は今の plugin root の SKILL.md との同一性だけ）、Claude Code の Read、Cursor の Shell、plugin ルート外のコピー、hook を信頼していない Codex（0.108.0 で足したエントリの信頼し直しが要る）。gate はモデルが自分で探して読む普通の経路を止めるもので、敵対的な回避は止めない。逆に、`--plugin-dir` で aidd のリポジトリそのものを plugin として読み込んだ開発中は、そのリポジトリの `skills/autonomous-review/SKILL.md` を指す語を含む Bash（`sed -i` での編集、そのパスを含むコミットメッセージなど）も拒否される（止める側の誤り）。ほかの利用者起動の skill（`adr` など）は Codex ではモデルが読んで始めうる。`autonomous-review` 以外に広げるかは、モデルが自分で始めては困る skill が見つかってから決める。
 
 ## 未決
 
 - `ask` を無効にして自動で起動したい利用者向けの opt-out（`AIDD_*` 環境変数）は、要望が出るまで足さない。非対話のホストにも要らないことを実測で確かめた（#192、下の R15〜R17 と「非対話のホストからの起動」）。
-- Codex でモデルから起動できるようにするかは、許可を取る仕組みが見つかってから改めて決める。
+- Codex でモデルから起動できるようにするかは、許可を取る仕組みが見つかってから改めて決める。codex-cli 0.163.0 の hooks は `ask` を扱わないので、今は `deny` で止める（#225）。
 
 ## 実測結果
 

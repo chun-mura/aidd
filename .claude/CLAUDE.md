@@ -50,7 +50,7 @@ bash tests/hook-contract-test.sh         # feeds fake hook-event JSON into hooks
 bash tests/hook-log-test.sh              # exercises templates/aidd-hook-log.sh (pass-through, signals, per-hook markers)
 bash tests/redundancy-contract-test.sh   # asserts removed assets stay removed and de-duplication boundaries hold
 bash tests/session-start-test.sh         # asserts session-start.sh injects the short nudges only when due
-bash tests/codex-agents-contract-test.sh # Codex TOML stays generated from agents/*.md; installer copies and --check detects stale/missing
+bash tests/codex-agents-contract-test.sh # Codex TOML stays generated from agents/*.md; installer copies and --check detects stale/missing; skill-gate.sh denies Codex-shaped Bash reads of autonomous-review's SKILL.md
 bash tests/incident-retro-memory-test.sh # runs incident-retro's auto memory listing snippet on a fake memory dir and checks that candidates counts the imported observations only once merged
 bash tests/learnings-test.sh             # scripts/learnings.py: ledger check rejects/passes, add is off by default, candidates counting
 bash tests/issue-outcome-test.sh         # scripts/issue-outcome.py: outcome.json rejections one by one; issue-implement stop-point markers match the script enums
@@ -136,17 +136,20 @@ the skill's `name:` frontmatter.
   frontmatter matching the situation. They hold *reusable* judgment logic that would otherwise be
   duplicated across commands.
 - **Hooks** (`hooks/hooks.json` + `hooks/scripts/*.sh`) are the only assets with actual enforcement power —
-  everything else is advisory text a model can ignore. `hooks.json` wires 8 entries across 5 events to 6 scripts
+  everything else is advisory text a model can ignore. `hooks.json` wires 8 entries (the PreToolUse `Bash` and `^Skill$` entries hold two scripts each) across 5 events to 6 scripts
   (the 8th is Codex `apply_patch` → `harness-adapter.sh` → `write-guard.sh`; Cursor uses `hooks/hooks-cursor.json`):
   - `session-start.sh` (SessionStart): injects a one-time short nudge, an `/aidd:asset-audit` nudge only when the
     consumer's audit is overdue, and detects missing `superpowers` plugin
   - `usage-log.sh` (UserPromptSubmit + PreToolUse `^Skill$`): counts `/aidd:*` usage into `~/.claude/aidd/usage.json`
     (read by `/aidd:retro`); never logs prompt text
-  - `skill-gate.sh` (PreToolUse `^Skill$`, beside `usage-log.sh`; Cursor `Read` through the adapter): returns
-    `ask` before the model starts `autonomous-review`, and on Cursor denies the read of this plugin's
-    `skills/autonomous-review/SKILL.md`. Prints the decision before its best-effort count in `skill-gate.json`,
-    always exits 0 (a hook that fails to start lets the Skill through), and asks when it cannot parse input
-    that names the skill
+  - `skill-gate.sh` (PreToolUse `^Skill$`, beside `usage-log.sh`; PreToolUse `Bash`, after `tool-reminder.sh`;
+    Cursor `Read` through the adapter): returns `ask` before the model starts `autonomous-review`, on Cursor
+    denies the read of this plugin's `skills/autonomous-review/SKILL.md`, and denies a Bash command whose words
+    name that same SKILL.md file; other files in the skill directory pass (Codex has no Skill tool and ignores
+    `ask`; its model reads SKILL.md with the shell, #225). A Bash event without `skill`/`autonomous`/a glob
+    character/`\u` exits before python. Prints the decision
+    before its best-effort count in `skill-gate.json`, always exits 0 (a hook that fails to start lets the Skill
+    through), and fails closed (ask; deny for Read and Bash) when it cannot parse input that names the skill
   - `tool-reminder.sh` (PreToolUse + PostToolUse + PostToolUseFailure, matcher `Bash`): the single Bash dispatcher.
     It splits the command (quotes, `&&`/`;`, comments, control keywords, `cd`, `git -C`, wrappers), collects every
     matching check, and emits one JSON: the original nudges (test-perspectives, Japanese PR/issue text, post-push

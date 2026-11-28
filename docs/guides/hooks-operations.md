@@ -22,7 +22,7 @@ SessionStart で aidd 資産の使いどころと「実装を左右する不明�
 
 ### `skill-gate.sh`
 
-モデルが Skill ツールで `autonomous-review` を起動する前に、PreToolUse で `ask` を返してユーザーの許可を取る (名前は接頭辞・先頭の `/`・大文字小文字の違いをならして照合する)。対話の default / auto / bypassPermissions、allow ルール、サブエージェントのどれでも確認がユーザーに届き、headless (`-p`) では拒否として働く。ユーザーが手で打った起動は Skill ツールを通らないので確認は出ない。判定を出してから件数を記録し、入力を解釈できなくても `autonomous-review` を含めば `ask` を返す。Cursor では adapter 経由で、この plugin の `skills/autonomous-review/SKILL.md` の `Read` を拒否する。hook が起動できないときや hook が無効な環境 (`disableAllHooks` など) では確認なしで起動しうる (hook の起動失敗は Claude Code が素通りさせる)
+モデルが Skill ツールで `autonomous-review` を起動する前に、PreToolUse で `ask` を返してユーザーの許可を取る (名前は接頭辞・先頭の `/`・大文字小文字の違いをならして照合する)。対話の default / auto / bypassPermissions、allow ルール、サブエージェントのどれでも確認がユーザーに届き、headless (`-p`) では拒否として働く。ユーザーが手で打った起動は Skill ツールを通らないので確認は出ない。判定を出してから件数を記録し、入力を解釈できなくても `autonomous-review` を含めば `ask` を返す。Cursor では adapter 経由で、この plugin の `skills/autonomous-review/SKILL.md` の `Read` を拒否する。Bash の PreToolUse (Codex と Claude Code) では、コマンドの語がこの plugin の `skills/autonomous-review/SKILL.md` と同じファイルを指せば拒否する (Codex は Skill ツールを持たず、モデルが SKILL.md をシェルで読んで従う。Codex は `ask` を扱わないので `deny`。#225)。同じディレクトリのほかのファイルやディレクトリ自体を指す語は通す。`skill`・`autonomous`・glob の文字 (`*`・`?`・`[`)・`\u` を含まない Bash は python を起動せずに抜ける。`cd` の後の相対パス、実行時に組み立てるパスなどは止めない (一覧は 2026-11-14 の設計書の既知の限界)。hook が起動できないときや hook が無効な環境 (`disableAllHooks` など) では確認なしで起動しうる (hook の起動失敗は Claude Code が素通りさせる)
 
 ### `write-guard.sh`
 
@@ -42,7 +42,7 @@ hooks は上記スクリプトをセッション中に自動実行する。フ�
 | `~/.claude/aidd/main-tree.json` | 主ツリーごとの、git を実行したセッション ID と最終時刻 (失効時間を過ぎたものは削除)、警告済みの組 (相手の占有が失効したら削除) | `tool-reminder.sh` |
 | `~/.claude/aidd/issue-search.json` | セッション ID とリポジトリの組ごとの、最後に `gh issue list --search` を実行した時刻 (1日を過ぎたものは削除) | `tool-reminder.sh` |
 | `~/.claude/aidd/commit-why.json` | コミットの検査で判定済みの SHA と判定時刻 (新しい 200 件まで) | `tool-reminder.sh` |
-| `~/.claude/aidd/skill-gate.json` | `skill-gate.sh` が返した判定の種類 (`ask` / `ask_failclosed` / `deny_cursor_read`) ごとの件数と最終日時 (skill 名・パス・入力は残さない。承認・拒否の結果は hook から見えないので数えない) | `skill-gate.sh` |
+| `~/.claude/aidd/skill-gate.json` | `skill-gate.sh` が返した判定の種類 (`ask` / `ask_failclosed` / `deny_cursor_read` / `deny_shell_read`) ごとの件数と最終日時 (skill 名・パス・入力は残さない。承認・拒否の結果は hook から見えないので数えない) | `skill-gate.sh` |
 | `~/.claude/aidd/adapter-skips.json` | adapter の変換失敗・子の異常終了などの `{harness, harness_version, event, tool_name, reason}` ごとの件数と最終日時。`/aidd:doctor` で確認できる (入力本文・stdout・stderr・終了番号は残さない) | `harness-adapter.sh` |
 | `~/.claude/aidd/*.json.lock`、`*.json.tmp` | 上の状態ファイルを更新するときの排他ロック (空ファイル、残る) と書き込み途中の一時ファイル (置き換えで消える) | `usage-log.sh`、`tool-reminder.sh`、`harness-adapter.sh`、`skill-gate.sh` |
 | `~/.claude/aidd/projects/<プロジェクトキー>/hook-log/<hook-id>.jsonl` | 利用側の hook の発火1回ごとに、実行前の `start` 行と、終了後の時刻・イベント名・`ok` / `block` / `error` / `killed`・終了コードの行 (hook の入出力の中身は記録しない。1 hook あたり 256KB を超えたら直近1000行に切り詰める)。同じディレクトリの `<hook-id>.since` はその hook の記録開始の目印 (ラッパーの初回実行か、`/aidd:asset-audit` が置く) | 利用側に導入した `aidd-hook-log.sh` |

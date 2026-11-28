@@ -1,8 +1,8 @@
 #!/bin/bash
-# PreToolUse(Skill) hook, and Cursor Read via harness-adapter: ask before the model starts autonomous-review.
+# PreToolUse(Skill) asks before the model starts autonomous-review; Bash and Cursor Read reads of its SKILL.md are denied.
 # The decision is printed before the best-effort count, and the script always exits 0:
 # a hook that fails to run lets the Skill through (measured), so nothing here may fail first.
-# Fail-closed: input that cannot be judged but names the skill gets an ask.
+# Fail-closed: input that cannot be judged but names the skill gets an ask (a deny for Read and Bash).
 # Counts per decision kind go to ~/.claude/aidd/skill-gate.json (opt-out: AIDD_DISABLE_USAGE_LOG=1).
 
 STATE_DIR="${AIDD_TEST_STATE_DIR:-$HOME/.claude/aidd}"
@@ -11,11 +11,23 @@ payload=$(cat)
 
 ASK_REASON="autonomous-review の実行にはユーザーの許可が必要です。許可すると、リポジトリのコードと差分を外部の Codex に送り、指摘に応じてコードを修正し、品質ゲートを実行します。時間がかかります。"
 DENY_REASON="autonomous-review はモデルからは起動できません。ユーザーに /autonomous-review を手で実行するよう依頼してください。"
+SHELL_DENY_REASON="autonomous-review の SKILL.md はシェルから読めません。この skill はユーザーが手で起動するものです (Codex は \$aidd:autonomous-review、Claude Code は /aidd:autonomous-review)。ユーザーに実行するよう依頼してください。"
+
+# A shell command reaches the SKILL.md through a word naming it or a glob, so a Bash event without "skill",
+# "autonomous", a glob character (* ? [) or a JSON escape (\u) is left alone before python starts.
+bash_re='"tool_name"[[:space:]]*:[[:space:]]*"Bash"'
+if [[ $payload =~ $bash_re ]]; then
+  shopt -s nocasematch
+  case "$payload" in
+    *skill* | *autonomous* | *'*'* | *'?'* | *'['* | *'\u'*) shopt -u nocasematch ;;
+    *) exit 0 ;;
+  esac
+fi
 
 PY_CODE=$(cat <<'PYEOF'
-import json, os, re, sys, urllib.parse
+import glob, itertools, json, os, re, sys, urllib.parse
 
-plugin_root, ask_reason, deny_reason = sys.argv[1:4]
+plugin_root, ask_reason, deny_reason, shell_deny_reason = sys.argv[1:5]
 
 def reply(decision, reason):
     print(json.dumps({"hookSpecificOutput": {
@@ -35,6 +47,40 @@ if event.get("tool_name") == "Skill":
         sys.exit(3)
     if skill.strip().lstrip("/").lower().split(":")[-1] == "autonomous-review":
         reply("ask", ask_reason)
+elif event.get("tool_name") == "Bash":
+    # Codex has no Skill tool: its model starts a skill by reading the SKILL.md with a shell command, even
+    # with allow_implicit_invocation: false (codex-cli 0.163.0, #225). Codex ignores ask, so refuse the
+    # command when one of its words names this plugin's autonomous-review SKILL.md itself. Words naming the
+    # skill directory or another file in it pass: a user-started run works there (../../scripts/learnings.py).
+    # A best-effort guard against a model following its own search, not a sandbox: a path built at run time
+    # (a variable the hook does not have, a command substitution, a relative path after cd) is not seen.
+    command = tool_input.get("command")
+    if isinstance(command, list) and all(isinstance(c, str) for c in command):
+        command = " ".join(command)
+    if not isinstance(command, str):
+        sys.exit(3)
+    own = os.path.join(plugin_root, "skills", "autonomous-review", "SKILL.md")
+    bases = [b for b in (tool_input.get("workdir"), event.get("cwd")) if isinstance(b, str) and os.path.isabs(b)]
+    def same(path):  # compared as files: links and a case-insensitive filesystem name it under other spellings
+        for candidate in (path, os.path.normpath(path)):
+            try:
+                if os.path.samefile(candidate, own):
+                    return True
+            except (OSError, ValueError):
+                pass
+        return False
+    def names_skill(word):
+        word = os.path.expandvars(re.sub(r"^~(?=$|/)", lambda _: os.path.expanduser("~"), word))
+        roots = [""] if os.path.isabs(word) else bases
+        for root in roots:
+            path = os.path.join(root, word)
+            matches = itertools.islice(glob.iglob(path), 1000) if re.search(r"[*?\[]", word) else [path]
+            if any(same(m) for m in matches):
+                return True
+        return False
+    # \x60 is a backquote (a literal one would end this $(...) in bash 3.2).
+    if any(word and names_skill(word) for word in re.split(r"[\s'\"\x60;&|<>(){}=,]+", command)):
+        reply("deny", shell_deny_reason)
 elif event.get("tool_name") == "Read":
     # Cursor loads a skill by reading its SKILL.md. Only this plugin's copy is refused,
     # so editing the aidd repository itself in Cursor keeps working.
@@ -103,7 +149,7 @@ status=1
 if command -v python3 >/dev/null 2>&1; then
   # -X utf8: harnesses speak UTF-8. Under a non-UTF-8 locale, python would decode this code and
   # its input by the locale and fail to print a Japanese verdict, losing it (#184).
-  out=$(printf '%s' "$payload" | python3 -I -X utf8 -c "$PY_CODE" "$PLUGIN_ROOT" "$ASK_REASON" "$DENY_REASON" 2>/dev/null)
+  out=$(printf '%s' "$payload" | python3 -I -X utf8 -c "$PY_CODE" "$PLUGIN_ROOT" "$ASK_REASON" "$DENY_REASON" "$SHELL_DENY_REASON" 2>/dev/null)
   status=$?
 fi
 if [ "$status" -eq 0 ]; then
@@ -111,6 +157,7 @@ if [ "$status" -eq 0 ]; then
     printf '%s\n' "$out"
     case "$out" in
       *'"permissionDecision": "ask"'*) kind=ask ;;
+      *'"permissionDecision": "deny"'*'シェル'*) kind=deny_shell_read ;;
       *'"permissionDecision": "deny"'*) kind=deny_cursor_read ;;
     esac
   fi
@@ -118,6 +165,9 @@ elif printf '%s' "$payload" | grep -qi 'autonomous-review'; then
   # A Read can only come from Cursor, which ignores ask, so failing closed there means deny.
   if printf '%s' "$payload" | tr -d '\r\n' | grep -q '"tool_name"[[:space:]]*:[[:space:]]*"Read"'; then
     printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$DENY_REASON"
+  elif [[ $payload =~ $bash_re ]]; then
+    # Codex treats ask as a failed hook and runs the command, so a shell command fails closed with deny.
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$SHELL_DENY_REASON"
   else
     printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"%s"}}\n' "$ASK_REASON"
   fi
