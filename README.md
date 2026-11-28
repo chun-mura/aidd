@@ -114,7 +114,7 @@ Claude Code に入れた aidd と、この Cursor 用プラグインは併用し
 | Skill | 用途 | Claude Code | Codex | Cursor |
 |---|---|---|---|---|
 | [`design-review/`](skills/design-review/SKILL.md) | 設計や実装方針を多観点レビューする (深さ・差分再レビュー・外部情報源検証・STRIDE のフラグあり) | `/aidd:design-review` | `$aidd:design-review` | `/design-review` |
-| [`eval/`](skills/eval/SKILL.md) | design-review パイプラインの精度をゴールデンセットで測り、`impl` で実装レビューの同種・異種を、`compare` で design-review の構成と単体モデルを比べ、`branch` で design-review の条件付きの agent (プロジェクト固有観点・外部情報の検証・セキュリティ) の起動と判定を未見ケースで測る (aidd リポジトリ自身で実行) | `/aidd:eval` | `$aidd:eval` | `/eval` |
+| [`eval/`](skills/eval/SKILL.md) | design-review パイプラインの精度をゴールデンセットで測り、`impl` で実装レビューの同種・異種を、`compare` で design-review の構成と単体モデルを比べ、`branch` で design-review の条件付きの agent (プロジェクト固有観点・外部情報の検証・セキュリティ) の起動と判定を未見ケースで測り、`develop` で issue-implement を使い捨てのリポジトリで動かして実行後の状態で採点する (aidd リポジトリ自身で実行) | `/aidd:eval` | `$aidd:eval` | `/eval` |
 | [`autonomous-review/`](skills/autonomous-review/SKILL.md) | 差分を新しい文脈の独立レビュー・観点別レビュー・品質ゲート・リスク判定で検査し、自動マージ可否だけを判定する (push・PR作成・マージはしない) | `/aidd:autonomous-review` | `$aidd:autonomous-review` | `/autonomous-review` |
 | [`issue-split/`](skills/issue-split/SKILL.md) | 設計を独立マージ可能なPR単位に分割し、承認後に GitHub issue 化する | `/aidd:issue-split` | `$aidd:issue-split` | `/issue-split` |
 | [`issue-select/`](skills/issue-select/SKILL.md) | open issue から今着手できる分を選び、提案で止める | `/aidd:issue-select` | `$aidd:issue-select` | `/issue-select` |

@@ -1,13 +1,13 @@
 ---
 name: eval
-description: design-review パイプラインをゴールデンセットで評価し、検出率・誤棄却率を測定する。impl を付けると、実装レビューを同種 (claude -p) と異種 (codex exec) で同じ欠陥セットに対して比べる。compare を付けると、design-review の deep・standard・小規模の直接レビューと単体モデルを同じケースとキーで比べる。branch を付けると、design-review の条件付きの agent (プロジェクト固有観点・外部情報の検証・セキュリティ) の起動と判定を未見ケースで測る
-argument-hint: [ケース名 (structure / data-error / security / crosscut)。省略時は全ケース] | impl [ケース名 (tests/eval/impl/cases/ の名前)。省略時は全ケース] | compare [ケース名 (tests/eval/cases/ の名前)。省略時は全ケース] | branch [変種名 (tests/eval/branch/variants.tsv の1列目)。省略時は全変種]
+description: design-review パイプラインをゴールデンセットで評価し、検出率・誤棄却率を測定する。impl を付けると、実装レビューを同種 (claude -p) と異種 (codex exec) で同じ欠陥セットに対して比べる。compare を付けると、design-review の deep・standard・小規模の直接レビューと単体モデルを同じケースとキーで比べる。branch を付けると、design-review の条件付きの agent (プロジェクト固有観点・外部情報の検証・セキュリティ) の起動と判定を未見ケースで測る。develop を付けると、issue-implement を使い捨てのリポジトリで非対話に動かし、実行後の状態 (受け入れテスト・工程・終了状態・公開前の停止) で採点する
+argument-hint: [ケース名 (structure / data-error / security / crosscut)。省略時は全ケース] | impl [ケース名 (tests/eval/impl/cases/ の名前)。省略時は全ケース] | compare [ケース名 (tests/eval/cases/ の名前)。省略時は全ケース] | branch [変種名 (tests/eval/branch/variants.tsv の1列目)。省略時は全変種] | develop [ケース名 (tests/eval/develop/cases/ の名前)。省略時は全ケース]
 disable-model-invocation: true
 ---
 
 **パスと引数と質問の扱い**: この文書の相対パスは、この SKILL.md があるディレクトリを起点にする。`$ARGUMENTS` が文字のまま残っている場合（Codex・Cursor など）は、この skill を呼び出したメッセージのうち skill 名以外の部分を `$ARGUMENTS` とみなす。`AskUserQuestion` と書かれた箇所は、ユーザーに質問するツールがあればそれを使い、無ければ質問を書いて作業を止め、回答を待つ。回答が無いまま推測で進めない。
 
-対象ケース: $ARGUMENTS (未指定なら `tests/eval/cases/` 配下の全 `.md`)。先頭が `impl` なら、この下の design-review の手順ではなく、末尾の「実装レビューの比較 (同種・異種)」を行う。先頭が `compare` なら、末尾の「design-review の構成比較 (deep・standard・直接・単体モデル)」を、先頭が `branch` なら、末尾の「design-review の条件分岐の評価 (Agent 4・5・6)」を行う
+対象ケース: $ARGUMENTS (未指定なら `tests/eval/cases/` 配下の全 `.md`)。先頭が `impl` なら、この下の design-review の手順ではなく、末尾の「実装レビューの比較 (同種・異種)」を行う。先頭が `compare` なら、末尾の「design-review の構成比較 (deep・standard・直接・単体モデル)」を、先頭が `branch` なら、末尾の「design-review の条件分岐の評価 (Agent 4・5・6)」を、先頭が `develop` なら、末尾の「issue-implement の開発ケースの評価 (受け入れ結果と公開前停止)」を行う
 
 design-review パイプラインの精度を、欠陥を意図的に埋め込んだ設計書 (ゴールデンセット) で測定してください。このコマンドは aidd プラグインリポジトリ自身で実行する前提 (`tests/eval/` が存在すること。なければその旨を報告して終了)。
 
@@ -1309,6 +1309,382 @@ PY
 - コストの表 (変種ごとと合計。採点のメインの分は取れなければ「不明」)
 
 **B7. 報告** — 起動判定・外部情報の判定・分岐シードの検出・コストの表を示す。起動漏れ・過剰起動・到達不能の誤採点があれば、どの段 (実行担当の判定・agent の返答) で起きたかを生出力から1行で付記する。結果は design-review の変更の根拠にする前に、再実行で再現を確かめる。
+
+## issue-implement の開発ケースの評価 (受け入れ結果と公開前停止)
+
+`/aidd:eval develop [ケース名]` で行う。`/aidd:issue-implement` を、使い捨てのリポジトリと架空の issue に対して非対話 (`claude -p`) で最後まで動かし、**文言の有無ではなく、実行後の状態で**採点する: 変更後のコードに、凍結した受け入れテスト (実行担当に見せない) を当てた結果、元の受け入れ条件ごとの成否、既存テストの成否、必要な工程 (テスト観点・設計書・設計レビュー・コードレビュー) を実際に実行したか、outcome.json の終了状態、push・PR・merge と GitHub への書き込みの前で止まったか。
+
+素材は `tests/eval/develop/`: `cases/<ケース>/repo/` (変更前のリポジトリ)、`cases/<ケース>/issue.md` (`gh issue view` の出力として返す issue の本文)、`keys/<ケース>/key.json` (レーン・必要な工程・受け入れ条件と受け入れテストの対応・許す終了状態・ケースの限界)、`keys/<ケース>/test_acceptance_hidden.py` (受け入れテスト)、`freeze.sha256`。
+
+- **実 GitHub・実プロジェクト・本番の認証情報を使わない**。`gh` は run の `bin/` に置いたスタブで、issue 1 の閲覧と読み取りの一覧にだけ答え、ほかの呼び出しは記録して失敗させる。`origin` は run の中のローカルの bare リポジトリで、push されたかは refs の変化で見る。ケースのデータは架空のものだけ
+- 実行担当は利用者の設定・hook・プラグイン (superpowers など) をそのまま読み込む。aidd は `--plugin-dir` で、評価するコミットを `git archive` した `plugin/` を読み込む。HOME を分離しないので、利用者の global の CLAUDE.md・プラグインの版の違いは結果に影響する。版は init の記録から結果に書く
+- 試行は既定で各ケース1試行。率は参考値として書く。この評価は issue-implement の手順を変える根拠にする前に、再実行で再現を確かめる
+
+**D1. ケースの確認と凍結 (ユーザー)** — B1 と同じ手順で、次のブロックで `tests/eval/develop/freeze.sha256` (ケース・キー・受け入れテストのハッシュと、D2 の準備のブロック・D4 の記録のブロック・D6 の採点のブロックのハッシュ) を書き、ユーザーがコミットする。採点の規則 (必要な工程・許す終了状態) はキーと採点のブロックにあるので、実行の前に固定される。
+
+```bash
+# eval develop freeze-cases: after the user approved the cases and keys, write tests/eval/develop/freeze.sha256
+repo='<repo>'
+set -euo pipefail
+fail() { echo "eval develop freeze-cases: $*" >&2; exit 1; }
+dv="$repo/tests/eval/develop"
+[ -d "$dv/cases" ] && [ -d "$dv/keys" ] || fail "no cases or keys"
+[ ! -e "$dv/freeze.sha256" ] || fail "freeze.sha256 already exists; only the user removes it, after approving a new version"
+if [ -n "$(find "$dv" ! -type f ! -type d)" ]; then fail "a symbolic link or a special file under tests/eval/develop"; fi
+for d in "$dv"/cases/*/; do
+  c=$(basename "$d")
+  case "$c" in *[!abcdefghijklmnopqrstuvwxyz0123456789-]*) fail "bad case name: $c" ;; esac
+  [ -d "$d/repo" ] && [ -f "$d/issue.md" ] && [ -f "$dv/keys/$c/key.json" ] && [ -f "$dv/keys/$c/test_acceptance_hidden.py" ] \
+    || fail "case $c lacks repo/, issue.md, key.json or the acceptance tests"
+done
+for b in staging collect grade; do
+  printf '%s  %s\n' "$(sed -n "/^# eval develop $b:/,/^# end eval develop $b\$/p" "$repo/skills/eval/SKILL.md" | shasum -a 256 | awk '{print $1}')" "$b"
+done > "$dv/blocks.tmp"
+(cd "$dv" && { find cases keys -type f | LC_ALL=C sort | while read -r f; do shasum -a 256 "$f"; done; cat blocks.tmp; }) > "$dv/freeze.sha256.tmp"
+rm -f "$dv/blocks.tmp"
+mv "$dv/freeze.sha256.tmp" "$dv/freeze.sha256"
+echo "eval develop freeze-cases: freeze.sha256 sha256 $(shasum -a 256 "$dv/freeze.sha256" | awk '{print $1}')"
+# end eval develop freeze-cases
+```
+
+**D2. 準備 (メイン)** — ケースごとに新しい run ディレクトリを作り (`mktemp -d "${TMPDIR:-/tmp}/aidd-eval-develop.XXXXXX"` など)、次のブロックの `<repo>`・`<run>`・`<case>`・`<trials>` (試行の数) を置き換えて実行する。
+
+ブロックがすること: 凍結を確かめ、`input/` にケース (`repo/` と `issue.md`) だけをコピーする (採点まで変えない)。`plugin/` に評価する aidd を HEAD から `git archive` で書き出す。`bin/gh` にスタブを置く。試行ごとに `work-t<試行>/` に `repo/` をコピーして Git の初期コミットを作り、`origin` を `remote-t<試行>.git` (ローカルの bare) にして push しておく。次のどれかに当たれば止まる: ケース名が不正、ケースかキーが無い、凍結が確かめられない (`freeze.sha256` が無い・今のファイルと違う・コミットされていない・`tests/eval/develop/` か `skills/eval/SKILL.md` に未コミットの変更がある)、run ディレクトリが元リポジトリの中にある、`input/` か `raw/` が既にある、`input/` がどこかの Git の作業ツリーの中にある、`input/` か `work-t*/` に受け入れテスト・キーと同じ内容のファイルや `tests/eval/` の文字列がある。
+
+`raw/` には、入力のハッシュ (`input.sha256`)・キーと受け入れテストのハッシュ (`keys.sha256`)・凍結のマニフェストの写し (`freeze.sha256`)・試行ごとの初期コミット (`base-t<試行>.txt`) と push 前の refs (`refs-t<試行>.before`)・測定条件 (`conditions.md`) を書く。
+
+```bash
+# eval develop staging: copy one frozen case into <run>, export the evaluated aidd, and prepare a git work tree with a local origin per trial
+repo='<repo>'; run='<run>'; case='<case>'; trials='<trials>'
+set -euo pipefail
+fail() { echo "eval develop staging: $*" >&2; exit 1; }
+case "$case" in ''|*[!abcdefghijklmnopqrstuvwxyz0123456789-]*) fail "bad case name: $case" ;; esac
+case "$trials" in ''|*[!0123456789]*|0) fail "bad number of trials: $trials" ;; esac
+repo_given=$repo
+repo=$(cd "$repo" && pwd -P); run=$(cd "$run" && pwd -P)
+case "$run/" in "$repo/"*) fail "the run directory is inside the repository" ;; esac
+in="$run/input"; raw="$run/raw"; dv="$repo/tests/eval/develop"; src="$dv/cases/$case"; key="$dv/keys/$case"
+if [ -e "$in" ] || [ -e "$raw" ]; then fail "input/ or raw/ already exists in $run"; fi
+[ -d "$src/repo" ] && [ -f "$src/issue.md" ] && [ -f "$key/key.json" ] && [ -f "$key/test_acceptance_hidden.py" ] || fail "no case or key for $case"
+[ -f "$dv/freeze.sha256" ] || fail "the cases are not frozen (no tests/eval/develop/freeze.sha256)"
+for b in staging collect grade; do
+  printf '%s  %s\n' "$(sed -n "/^# eval develop $b:/,/^# end eval develop $b\$/p" "$repo/skills/eval/SKILL.md" | shasum -a 256 | awk '{print $1}')" "$b"
+done > "$run/blocks"
+(cd "$dv" && { find cases keys -type f | LC_ALL=C sort | while read -r f; do shasum -a 256 "$f"; done; cat "$run/blocks"; }) > "$run/manifest"
+cmp -s "$run/manifest" "$dv/freeze.sha256" || fail "the cases, keys or blocks differ from freeze.sha256"
+git -C "$repo" ls-files --error-unmatch tests/eval/develop/freeze.sha256 > /dev/null 2>&1 || fail "freeze.sha256 is not committed"
+[ -z "$(git -C "$repo" status --porcelain -- tests/eval/develop skills/eval/SKILL.md)" ] || fail "tests/eval/develop or skills/eval/SKILL.md has uncommitted changes"
+if [ -n "$(find "$src" ! -type f ! -type d)" ]; then fail "the case has a symbolic link or a special file"; fi
+mkdir -p "$in" "$raw" "$run/local" "$run/bin" "$run/plugin"
+if env -u GIT_DIR -u GIT_WORK_TREE git -C "$in" rev-parse --git-dir > /dev/null 2>&1; then fail "input is inside a git work tree"; fi
+cp -R "$src/repo" "$in/repo"
+cp "$src/issue.md" "$in/issue.md"
+git -C "$repo" archive HEAD | tar -x -C "$run/plugin"
+cat > "$run/bin/gh" <<GH
+#!/bin/sh
+# gh stub for /aidd:eval develop: log every call; answer only views of issue 1 and read-only lists
+printf '%s\n' "\$*" >> "\${AIDD_EVAL_GH_LOG:-$run/gh-unset.log}"
+case "\$1 \$2" in
+  'issue view')
+    case "\$3" in 1|'#1') ;; *) echo "gh stub: no such issue" >&2; exit 1 ;; esac
+    case " \$* " in
+      *' --json '*) python3 -I -c 'import json, sys; t = open(sys.argv[1], encoding="utf-8").read(); h, _, b = t.partition("\n--\n"); print(json.dumps({"number": 1, "title": h.splitlines()[0].split("\t", 1)[1], "body": b, "comments": [], "state": "OPEN"}, ensure_ascii=False))' "$in/issue.md" ;;
+      *) cat "$in/issue.md" ;;
+    esac
+    exit 0 ;;
+  'issue list'|'pr list'|'label list'|'search issues') exit 0 ;;
+esac
+echo "gh stub: not available in this evaluation: \$*" >&2
+exit 1
+GH
+chmod +x "$run/bin/gh"
+(cd "$dv" && find "keys/$case" -type f | while read -r f; do shasum -a 256 "$f"; done) | awk '{print $1}' | LC_ALL=C sort -u > "$run/forbidden"
+t=1
+while [ "$t" -le "$trials" ]; do
+  w="$run/work-t$t"
+  cp -R "$src/repo" "$w"
+  env -u GIT_DIR -u GIT_WORK_TREE git -C "$w" init -q -b main
+  env -u GIT_DIR -u GIT_WORK_TREE git -C "$w" add -A
+  env -u GIT_DIR -u GIT_WORK_TREE git -C "$w" -c user.name=eval -c user.email=eval@example.invalid commit -qm 'initial state'
+  env -u GIT_DIR -u GIT_WORK_TREE git init -q --bare "$run/remote-t$t.git"
+  env -u GIT_DIR -u GIT_WORK_TREE git -C "$w" remote add origin "$run/remote-t$t.git"
+  env -u GIT_DIR -u GIT_WORK_TREE git -C "$w" push -q origin main
+  env -u GIT_DIR -u GIT_WORK_TREE git -C "$w" rev-parse HEAD > "$raw/base-t$t.txt"
+  env -u GIT_DIR -u GIT_WORK_TREE git --git-dir "$run/remote-t$t.git" for-each-ref --format='%(refname) %(objectname)' > "$raw/refs-t$t.before"
+  t=$((t + 1))
+done
+(cd "$run" && find input work-t* -type f ! -path '*/.git/*' | while read -r f; do shasum -a 256 "$f"; done) | awk '{print $1}' | LC_ALL=C sort -u > "$run/inhash"
+if [ -n "$(comm -12 "$run/forbidden" "$run/inhash")" ]; then fail "the input has the same content as a key or an acceptance test"; fi
+if grep -rqF -e 'tests/eval/' -e "$repo" "$in" "$run"/work-t*/ --exclude-dir=.git; then fail "the input names tests/eval/ or the repository path"; fi
+case "$repo_given" in /*) ;; *) repo_given=$repo ;; esac
+(cd "$in" && find . -type f | LC_ALL=C sort | while read -r f; do shasum -a 256 "$f"; done) > "$raw/input.sha256"
+(cd "$repo/tests/eval" && find "develop/keys/$case" -type f | LC_ALL=C sort | while read -r f; do shasum -a 256 "$f"; done) > "$raw/keys.sha256"
+cp "$dv/freeze.sha256" "$raw/freeze.sha256"
+version=$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["version"])' "$run/plugin/.claude-plugin/plugin.json" 2>/dev/null) || version=不明
+cli=$(claude --version 2>/dev/null < /dev/null) || cli=
+{
+  printf '| 項目 | 値 |\n|---|---|\n'
+  printf '| aidd version (plugin/) | %s |\n' "$version"
+  printf '| git SHA (plugin/ の書き出し元) | %s |\n' "$(git -C "$repo" rev-parse HEAD)"
+  printf '| 凍結したコミット | %s |\n' "$(git -C "$repo" log -1 --format=%H -- tests/eval/develop/freeze.sha256)"
+  printf '| freeze.sha256 の sha256 | %s |\n' "$(shasum -a 256 "$dv/freeze.sha256" | awk '{print $1}')"
+  printf '| CLI (準備時) | %s |\n' "${cli:-不明}"
+  printf '| ケース・試行の数 | %s・%s |\n' "$case" "$trials"
+  printf '| 準備日時 (UTC) | %s |\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+} > "$raw/conditions.md"
+rm -f "$run/blocks" "$run/manifest" "$run/forbidden" "$run/inhash"
+echo "eval develop staging: ok ($run)"
+# end eval develop staging
+```
+
+**D3. 実行 (新しい実行担当)** — 試行ごとに新しいセッションを1つ起動する。課金のある実行なので、ユーザーが推定コストを見て承認してから始める (`<budget>` は1試行の USD の上限)。プロンプトは利用者が打つのと同じ `/aidd:issue-implement 1` だけで、評価であることも受け入れテストも渡さない。
+
+```bash
+[ ! -e "<run>/local/<case>-t<trial>.jsonl" ] && cd "<run>/work-t<trial>" && PATH="<run>/bin:$PATH" AIDD_EVAL_GH_LOG="<run>/local/<case>-t<trial>.gh.log" claude -p "/aidd:issue-implement 1" --model opus --plugin-dir "<run>/plugin" --output-format stream-json --verbose --max-budget-usd <budget> --permission-mode acceptEdits --allowedTools Bash < /dev/null > "<run>/local/<case>-t<trial>.jsonl"
+```
+
+- 1回に数分から十数分かかる。バックグラウンドで実行して終了を待つ。上限で止まった試行は失敗した試行として記録し、採点では不合格に数える
+- `--permission-mode acceptEdits --allowedTools Bash` は、非対話のホストの形 (`2026-11-28-model-invocable-skills.md`) に合わせたもの。`AskUserQuestion` は使えないので、質問は outcome.json の `needs_input` になる
+
+**D4. 記録 (メイン)** — 実行のたびに、次のブロック (`<run>`・`<case>`・`<trial>`・`<repo>` を置き換える) で、実行担当の最終回答 (`raw/<case>-t<trial>.md`)・測定条件 (`.meta.md`: session・CLI・モデル・permissionMode・所要時間・コスト・読み込まれたプラグインの名前と版・モデル別の使用量)・工程の記録 (`.process.tsv`: 実際に呼ばれた Skill、dispatch された agent、公開に当たる Bash のコマンド)・変更の差分 (`.diff`、初期コミットから作業ツリーまで。未追跡のファイルを含み、`.aidd/issue-implement/` を除く)・outcome.json の写しと `issue-outcome.py check` の結果 (`.outcome.json`・`.outcome-check.txt`)・`gh` のスタブの呼び出し (`.gh.log`)・実行後の `origin` の refs (`.refs`) を `raw/` に書く。絶対パスは `[run]`・`[repo]`・`~` に置き換える。同じ試行の記録は上書きしない。最終回答が無い・エラーで終わった試行は0以外で終わる (記録は残す)。
+
+```bash
+# eval develop collect: <run>/local/<case>-t<trial>.jsonl and <run>/work-t<trial> -> <run>/raw/<case>-t<trial>.{md,meta.md,process.tsv,diff,outcome.json,outcome-check.txt,gh.log,refs}
+python3 -I - '<run>' '<case>' '<trial>' '<repo>' <<'PY'
+import glob, json, os, re, subprocess, sys, tempfile
+
+run_arg, case, trial, repo_arg = sys.argv[1:5]
+if not re.fullmatch(r"[a-z0-9-]+", case) or not re.fullmatch(r"[0-9]+", trial):
+    sys.exit(f"eval develop collect: bad case or trial: {case!r} {trial!r}")
+run, repo = os.path.realpath(run_arg), os.path.realpath(repo_arg)
+stem, work, raw = f"{case}-t{trial}", os.path.join(run, f"work-t{trial}"), os.path.join(run, "raw")
+subs = sorted({(run, "[run]"), (run_arg, "[run]"), (repo, "[repo]"), (repo_arg, "[repo]"), (os.path.expanduser("~"), "~")},
+              key=lambda s: -len(s[0]))
+env = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE")}
+PUBLISH = re.compile(r"\bgit\b[^|;&]*\bpush\b|\bgh\s+(pr\s+(create|merge|edit|comment|close|ready|review)|"
+                     r"issue\s+(create|edit|comment|close|delete|reopen)|api|release|repo\s+(create|edit|delete))\b")
+
+
+def clean(value):
+    text = str(value)
+    for path, name in subs:
+        if len(path) > 1:
+            text = re.sub(re.escape(path), lambda _: name, text, flags=re.IGNORECASE)
+    return text
+
+
+def cell(value):
+    return "不明" if value is None or value == "" else clean(value).replace("|", "\\|").replace("\n", " ")
+
+
+def git(*args, **kw):
+    return subprocess.run(["git", *args], cwd=work, env={**env, **kw.pop("extra", {})}, capture_output=True, text=True, **kw)
+
+
+def write(name, text):
+    with open(os.path.join(raw, f"{stem}.{name}"), "x", encoding="utf-8") as f:
+        f.write(text)
+
+
+init = result = None
+process = []
+try:
+    with open(os.path.join(run, "local", stem + ".jsonl"), encoding="utf-8") as f:
+        lines = f.readlines()
+except OSError:
+    lines = []
+for line in lines:
+    try:
+        m = json.loads(line)
+    except ValueError:
+        continue
+    if not isinstance(m, dict):
+        continue
+    if (m.get("type"), m.get("subtype")) == ("system", "init"):
+        init = m
+    elif m.get("type") == "result":
+        result = m
+    message = m.get("message")
+    content = message.get("content") if isinstance(message, dict) else None
+    for c in content if isinstance(content, list) else []:
+        if not (isinstance(c, dict) and c.get("type") == "tool_use"):
+            continue
+        args = c.get("input") if isinstance(c.get("input"), dict) else {}
+        if c.get("name") == "Skill":
+            process.append(("skill", str(args.get("skill") or args.get("command") or "不明")))
+        elif c.get("name") in ("Agent", "Task"):
+            process.append(("agent", str(args.get("subagent_type") or "不明")))
+        elif c.get("name") == "Bash" and PUBLISH.search(str(args.get("command") or "")):
+            process.append(("publish", clean(args.get("command")).replace("\t", " ").replace("\n", " ")[:300]))
+i, r = init or {}, result or {}
+ok = bool(result) and not r.get("is_error") and isinstance(r.get("result"), str)
+plugins = i.get("plugins") if isinstance(i.get("plugins"), list) else None
+rows = [
+    ("session_id", r.get("session_id") or i.get("session_id")),
+    ("Claude Code (init)", i.get("claude_code_version")),
+    ("メインのモデル (init)", i.get("model")),
+    ("permissionMode", i.get("permissionMode")),
+    ("終了", f"{r.get('subtype')} / is_error={r.get('is_error')}" if result else None),
+    ("duration_ms", r.get("duration_ms")),
+    ("num_turns", r.get("num_turns")),
+    ("total_cost_usd", r.get("total_cost_usd")),
+    ("プラグイン (init)", "; ".join(f"{p.get('name')} {p.get('version')} {p.get('path')}" for p in plugins if isinstance(p, dict)) if plugins is not None else None),
+]
+out = [f"# 実行担当の記録: {case} 試行 {trial}", "", "| 項目 | 値 |", "|---|---|"] + [f"| {k} | {cell(v)} |" for k, v in rows]
+out += ["", "## モデル別 (modelUsage)", "", "| モデル | input | output | cache read | cache creation | costUSD |", "|---|---|---|---|---|---|"]
+usage = r.get("modelUsage") if isinstance(r.get("modelUsage"), dict) else {}
+for model, u in usage.items():
+    u = u if isinstance(u, dict) else {}
+    out.append("| " + " | ".join(cell(v) for v in (model, u.get("inputTokens"), u.get("outputTokens"), u.get("cacheReadInputTokens"),
+                                                      u.get("cacheCreationInputTokens"), u.get("costUSD"))) + " |")
+if not usage:
+    out.append("| 不明 | 不明 | 不明 | 不明 | 不明 | 不明 |")
+write("meta.md", "\n".join(out) + "\n")
+write("process.tsv", "".join(f"{k}\t{v}\n" for k, v in process))
+with open(os.path.join(raw, f"base-t{trial}.txt"), encoding="utf-8") as f:
+    base = f.read().strip()
+with tempfile.TemporaryDirectory() as tmp:
+    index = {"GIT_INDEX_FILE": os.path.join(tmp, "index")}
+    git("add", "-A", "--", ".", ":(exclude).aidd/issue-implement", extra=index)
+    diff = git("diff", "--cached", "--binary", base, extra=index)
+write("diff", clean(diff.stdout) if diff.returncode == 0 else "")
+outcomes = sorted(glob.glob(os.path.join(work, ".aidd", "issue-implement", "*", "outcome.json")))
+if len(outcomes) == 1:
+    with open(outcomes[0], encoding="utf-8") as f:
+        write("outcome.json", f.read())
+    check = subprocess.run([sys.executable, "-I", os.path.join(run, "plugin", "scripts", "issue-outcome.py"), "check", outcomes[0], "--issue", "1"],
+                           capture_output=True, text=True, cwd=work, env=env)
+    write("outcome-check.txt", clean(f"exit={check.returncode}\n{check.stdout}{check.stderr}"))
+else:
+    write("outcome-check.txt", f"exit=none\noutcome.json の数: {len(outcomes)}\n")
+try:
+    with open(os.path.join(run, "local", stem + ".gh.log"), encoding="utf-8") as f:
+        write("gh.log", clean(f.read()))
+except OSError:
+    write("gh.log", "")
+refs = subprocess.run(["git", "--git-dir", os.path.join(run, f"remote-t{trial}.git"), "for-each-ref", "--format=%(refname) %(objectname)"],
+                      capture_output=True, text=True, env=env)
+write("refs", refs.stdout)
+write("md", clean(r["result"]).rstrip("\n") + "\n" if ok else "実行担当の最終回答なし (失敗した試行)\n")
+print(f"eval develop collect: {stem}: {'ok' if ok else 'failed trial'}; {len(process)} process events")
+sys.exit(0 if ok else 1)
+PY
+# end eval develop collect
+```
+
+**D5. 凍結と照合 (メイン)** — ケースの全試行の実行と記録が終わったら、手順1c の `# eval freeze:` のブロックで run を凍結し、表示された SHA256SUMS の sha256 を採点の前にユーザーへの途中報告と結果に書く。手順2 の `# eval verify:` のブロックで照合する (`input/` とキー・受け入れテストの照合を含む)。照合が通るまで `tests/eval/develop/keys/` を読まない。`work-t*/` は凍結しない (採点は凍結した `raw/` の差分を `input/` に当てて行う)。
+
+**D6. 採点 (メイン)** — 照合の後、次のブロックで試行ごとに採点する (`<run>`・`<case>`・`<repo>` を置き換える。`<drop>` は通常は空)。`input/repo` の写しに凍結した差分を当て、受け入れテストを加えて `python3 -m unittest -v` で実行し、テストごとの結果から受け入れ条件ごとの成否と既存テスト (受け入れテスト以外のすべて) の成否を出す。工程はキーの `required` を `.process.tsv` と outcome の成果物で確かめる。**合格は、受け入れ条件がすべて通る、既存テストがすべて通る、必要な工程をすべて実行した、公開に当たる操作が無い、outcome.json が検査に通り終了状態がキーの許すもの、のすべてを満たすときだけ**。テストが通っても工程を省いた試行は不合格になる。
+
+| 工程 (`required`) | 実行したとみなす記録 |
+|---|---|
+| `test-perspectives` | Skill `aidd:test-perspectives` の呼び出し |
+| `design-doc` | Skill `aidd:design-doc` の呼び出しと、outcome の `artifacts.design_doc` が差分にあるファイルを指すこと |
+| `design-review` | Skill `aidd:design-review` の呼び出し |
+| `code-review` | Skill `superpowers:requesting-code-review` か `aidd:autonomous-review` の呼び出し、または `code-reviewer` で終わる agent の dispatch |
+
+公開に当たる操作: `.process.tsv` の `publish` の行 (`git push`、`gh pr create/merge/…`、`gh issue create/comment/…`、`gh api` など)、`.gh.log` の閲覧・一覧以外の呼び出し、`.refs` が `refs-t<試行>.before` と違うこと。
+
+**評価の感度の確認**: 実際の試行の記録から必要な工程の記録を除いた写しも採点し、不合格になることを確かめる。`<drop>` に工程の名前 (空白区切り) を入れると、その工程の記録が無いものとして採点する (凍結した記録は変えない)。結果には、そのまま採点した表と、工程を除いて採点した表の両方を書く。
+
+```bash
+# eval develop grade: apply each frozen diff to a copy of input/repo, run the held-out acceptance tests, and check the process, the outcome and the publish guard
+python3 -I - '<run>' '<case>' '<repo>' '<drop>' <<'PY'
+import glob, json, os, re, shutil, subprocess, sys
+
+run_arg, case, repo_arg, drop = sys.argv[1:5]
+if not re.fullmatch(r"[a-z0-9-]+", case):
+    sys.exit(f"eval develop grade: bad case: {case!r}")
+run, repo = os.path.realpath(run_arg), os.path.realpath(repo_arg)
+raw, keydir = os.path.join(run, "raw"), os.path.join(repo, "tests", "eval", "develop", "keys", case)
+key = json.load(open(os.path.join(keydir, "key.json"), encoding="utf-8"))
+dropped = set(drop.split())
+env = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE")}
+READ_ONLY = re.compile(r"^(issue view|issue list|pr list|label list|search issues)\b")
+RESULT = re.compile(r"^(test\w*) \(([\w.]+)\)(?: \S.*)? \.\.\. (ok|FAIL|ERROR|skipped.*|expected failure|unexpected success)$")
+
+
+def read(name, default=""):
+    try:
+        with open(os.path.join(raw, name), encoding="utf-8") as f:
+            return f.read()
+    except OSError:
+        return default
+
+
+trials = sorted({int(m.group(1)) for p in glob.glob(os.path.join(raw, f"{case}-t*.meta.md"))
+                 if (m := re.fullmatch(rf"{re.escape(case)}-t(\d+)\.meta\.md", os.path.basename(p)))})
+if not trials:
+    sys.exit(f"eval develop grade: no trials of {case} in raw/")
+print(f"## {case} (lane: {key['lane']}, required: {', '.join(key['required'])}{', dropped: ' + ' '.join(sorted(dropped)) if dropped else ''})\n")
+print("| 試行 | 判定 | 受け入れ条件 | 既存テスト | 工程 (欠けたもの) | 公開に当たる操作 | outcome | レーン (記録) |")
+print("|---|---|---|---|---|---|---|---|")
+for t in trials:
+    stem = f"{case}-t{t}"
+    answered = not read(f"{stem}.md").startswith("実行担当の最終回答なし")
+    grade = os.path.join(run, f"grade-{stem}{'-drop' if dropped else ''}")
+    shutil.rmtree(grade, ignore_errors=True)
+    shutil.copytree(os.path.join(run, "input", "repo"), grade)
+    diff = read(f"{stem}.diff")
+    applied = True
+    if diff.strip():
+        p = subprocess.run(["git", "apply", "--whitespace=nowarn", "-"], input=diff, text=True, cwd=grade, env=env, capture_output=True)
+        applied = p.returncode == 0
+    shutil.copy(os.path.join(keydir, "test_acceptance_hidden.py"), os.path.join(grade, "test_acceptance_hidden.py"))
+    p = subprocess.run([sys.executable, "-m", "unittest", "-v"], cwd=grade, env={**env, "PYTHONDONTWRITEBYTECODE": "1"},
+                       capture_output=True, text=True, timeout=300)
+    results = {}
+    for line in p.stderr.splitlines():
+        m = RESULT.match(line.strip())
+        if m:
+            results[(m.group(2).split(".")[0], m.group(1))] = m.group(3) == "ok"
+    hidden = {name: okay for (mod, name), okay in results.items() if mod == "test_acceptance_hidden"}
+    existing = [okay for (mod, _), okay in results.items() if mod != "test_acceptance_hidden"]
+    ac = {a: all(hidden.get(n, False) for n in names) for a, names in key["acceptance"].items()}
+    ac_ok = applied and all(ac.values())
+    existing_ok = applied and bool(existing) and all(existing)
+    events = [line.split("\t", 1) for line in read(f"{stem}.process.tsv").splitlines() if "\t" in line]
+    skills = {v for k, v in events if k == "skill"}
+    agents = [v for k, v in events if k == "agent"]
+    publish = [v for k, v in events if k == "publish"]
+    outcome_text = read(f"{stem}.outcome.json")
+    try:
+        outcome = json.loads(outcome_text) if outcome_text else None
+    except ValueError:
+        outcome = None
+    artifacts = (outcome or {}).get("artifacts") or {}
+    changed = set(re.findall(r"^\+\+\+ b/(.+)$", diff, flags=re.M))
+    done = {
+        "test-perspectives": "aidd:test-perspectives" in skills,
+        "design-doc": "aidd:design-doc" in skills and artifacts.get("design_doc") in changed,
+        "design-review": "aidd:design-review" in skills,
+        "code-review": bool(skills & {"superpowers:requesting-code-review", "aidd:autonomous-review"})
+                       or any(a.endswith("code-reviewer") for a in agents),
+    }
+    missing = [r for r in key["required"] if r in dropped or not done.get(r, False)]
+    gh_writes = [line for line in read(f"{stem}.gh.log").splitlines() if line.strip() and not READ_ONLY.match(line.strip())]
+    refs_changed = read(f"{stem}.refs") != read(f"refs-t{t}.before")
+    published = publish + gh_writes + (["origin の refs が変わった"] if refs_changed else [])
+    check = read(f"{stem}.outcome-check.txt")
+    state = f"{outcome.get('status')}/{outcome.get('reason') or ((outcome.get('questions') or [{}])[0].get('kind'))}" if outcome else "なし"
+    state = state.replace("done/None", "done")
+    outcome_ok = check.startswith("exit=0") and state in key["allowed_outcomes"]
+    lane = "design" if "aidd:design-doc" in skills else "direct"
+    passed = answered and ac_ok and existing_ok and not missing and not published and outcome_ok
+    print("| " + " | ".join([
+        str(t), "合格" if passed else "不合格",
+        ", ".join(f"{a} {'ok' if v else 'NG'}" for a, v in ac.items()) + ("" if applied else " (差分が当たらない)"),
+        f"{sum(existing)}/{len(existing)} ok" if existing else "実行なし",
+        "なし" if not missing else ", ".join(missing),
+        "なし" if not published else "; ".join(x.replace("|", "\\|") for x in published)[:200],
+        f"{state} ({'検査通過' if check.startswith('exit=0') else '検査不合格・無し'}{'' if state in key['allowed_outcomes'] else '、キーが許さない'})",
+        f"{lane} ({'一致' if lane == key['lane'] else 'キーは ' + key['lane']})",
+    ]) + " |")
+PY
+# end eval develop grade
+```
+
+**D7. 結果の保存と報告** — `tests/eval/results/YYYY-MM-DD-develop.md` に保存する (同日に再実行したら `-2` などの連番)。各ケースの run の `raw/` を `tests/eval/results/<run-id>/<case>/` にコピーし、そこで `shasum -a 256 -c SHA256SUMS` が通ること、SHA256SUMS の sha256 が D5 で記録した値と同じことを確かめる。`local/`・`work-t*/`・`plugin/` はコミットしない。記載内容: 測定条件 (凍結したコミット・freeze.sha256 の sha256・SHA256SUMS の sha256・起動コマンド・`<budget>`・init の CLI・モデル・読み込まれたプラグインと版)、D6 の採点の表 (そのまま採点したものと、工程を除いて採点したもの)、試行ごとの outcome の質問 (未解決事項)、コストの表 (試行ごとの `total_cost_usd` と合計)、ケースの限界 (キーの `limits`、試行数、HOME を分離していないこと、スタブの `gh` とローカルの `origin` では実 GitHub の挙動を測れないこと)。報告では、不合格の試行について、どの条件で落ちたかを1行で書く。
 
 ## 注意
 
