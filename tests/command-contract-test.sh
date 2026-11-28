@@ -1009,6 +1009,14 @@ grep -F 'cases/demo.md' "$cmp_run/raw/prompt-demo-deep.md"
 grep -F '構成: `--depth=deep` で適用する' "$cmp_run/raw/prompt-demo-deep.md"
 grep -F '構成: `--depth=standard` で適用する (既定の深さ' "$cmp_run/raw/prompt-demo-standard.md"
 grep -F '小規模対象ショートカットを使う' "$cmp_run/raw/prompt-demo-direct.md"
+# direct follows the design-review shortcut: no reviewer dispatch, but Agent 6 when its condition holds (#200).
+grep -F 'reviewer を dispatch せず、メインが design-review の観点で直接レビューする。Agent 6 の起動条件に当たれば Agent 6 だけは dispatch する' "$cmp_run/raw/prompt-demo-direct.md"
+grep -F -- '(reviewer を dispatch せず、メインが直接レビューする。Agent 6 の起動条件に当たれば Agent 6 だけは dispatch する)' "$eval_command"
+grep -F -- '構成どおりでない経路 (`direct` で Agent 6 以外を dispatch した、' "$eval_command"
+if grep -qF -e 'agent に dispatch せず、メインが' -e '(dispatch せず、メインが直接レビューする)' -e '(`direct` で dispatch した、' "$eval_command"; then
+  echo "eval compare still says direct dispatches nothing (#200)" >&2
+  exit 1
+fi
 if grep -qF -e '<case>' -e '<config>' -e '<rule>' -e 'tests/eval/' -e 'PL-' -e '混ぜる指摘' "$cmp_run"/raw/prompt-demo-*.md; then
   echo "eval compare prompt kept a placeholder, names tests/eval/ or carries the mixed findings" >&2
   exit 1
