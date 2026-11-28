@@ -1,0 +1,164 @@
+# Reference provenance workflow for AC-PROC-002 and AC-PRIV-009 (docs/assurance/evidence.md).
+# Example only. It runs nowhere from this repository: place it in the protected policy repository
+# of release-gate.md and call it from the target repository's release workflow at a pinned commit,
+# after the repository owner approves. Uses GitHub artifact attestations; no signing of its own.
+#
+# Separation of duties:
+#   - build:  runs the project's packaging; read-only token, no OIDC token, cannot sign;
+#   - verify: runs the owner-approved acceptance tests on the packaged artifact; cannot sign;
+#   - attest: runs no project code (no checkout), re-checks the digests, and is the only job
+#             with id-token: write and attestations: write. It runs only if build and verify passed.
+name: provenance
+
+on:
+  workflow_call: {}
+
+permissions: {}
+
+env:
+  SUBJECT: app.tar.gz                # the distributed file; must match subject_name in evidence/policy.json
+  CRITERIA_DIR: assurance/acceptance # owner-approved criteria in the calling repository
+  IMPL_DIR: src
+  IMPL: app:make_service
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      digest: ${{ steps.pack.outputs.digest }}
+    steps:
+      - name: Check out the release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: src
+          persist-credentials: false
+
+      - name: Package the artifact reproducibly
+        id: pack
+        shell: bash
+        run: |
+          mkdir -p dist
+          tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner -C "src/$IMPL_DIR" -cf - . |
+            gzip -n >"dist/$SUBJECT"
+          echo "digest=$(sha256sum "dist/$SUBJECT" | cut -d' ' -f1)" >>"$GITHUB_OUTPUT"
+
+      - name: Upload the artifact for verification
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  verify:
+    name: verify
+    needs: [build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the owner-approved criteria of the release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: trusted
+          persist-credentials: false
+
+      - name: Download the artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+
+      - name: Run the acceptance tests on the packaged artifact
+        shell: bash
+        env:
+          BUILT_DIGEST: ${{ needs.build.outputs.digest }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          artifact=$(sha256sum "dist/$SUBJECT" | cut -d' ' -f1)
+          [ "$artifact" = "$BUILT_DIGEST" ] || { echo "artifact changed between build and verify" >&2; exit 1; }
+          (cd "trusted/$CRITERIA_DIR" && sha256sum --check --strict approved.sha256)
+          criteria=$(sha256sum "trusted/$CRITERIA_DIR/approved.sha256" | cut -d' ' -f1)
+          mkdir -p "$RUNNER_TEMP/impl" && tar -xzf "dist/$SUBJECT" -C "$RUNNER_TEMP/impl"
+          status=0
+          (cd "trusted/$CRITERIA_DIR" &&
+            PYTHONPATH="$RUNNER_TEMP/impl" python3 -B acceptance_test.py --impl "$IMPL" --json) \
+            >"$RUNNER_TEMP/result.json" || status=$?
+          mkdir -p evidence
+          # in-toto test-result predicate: test IDs and digests only, no logs, prompts or secrets.
+          python3 - "$RUNNER_TEMP/result.json" "$artifact" "$criteria" >evidence/test-result.json <<'PY'
+          import json, os, sys
+          result = json.load(open(sys.argv[1], encoding="utf-8"))
+          print(json.dumps({
+              "result": "FAILED" if result["failed"] else "PASSED",
+              "configuration": [
+                  {"name": os.environ["SUBJECT"], "digest": {"sha256": sys.argv[2]}},
+                  {"name": "approved.sha256", "digest": {"sha256": sys.argv[3]}},
+              ],
+              "url": os.environ["RUN_URL"],
+              "passedTests": result["passed"],
+              "warnedTests": [],
+              "failedTests": result["failed"],
+          }))
+          PY
+          exit "$status"
+
+      - name: Upload the test result
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-result
+          path: evidence/test-result.json
+          retention-days: 7
+
+  attest:
+    name: attest
+    needs: [build, verify]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download the artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+
+      - name: Download the test result
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: test-result
+          path: evidence
+
+      - name: Check that the verified artifact is the one being attested
+        shell: bash
+        env:
+          BUILT_DIGEST: ${{ needs.build.outputs.digest }}
+        run: |
+          artifact=$(sha256sum "dist/$SUBJECT" | cut -d' ' -f1)
+          [ "$artifact" = "$BUILT_DIGEST" ] || { echo "artifact changed after build" >&2; exit 1; }
+          python3 -I - "$artifact" evidence/test-result.json <<'PY'
+          import json, sys
+          predicate = json.load(open(sys.argv[2], encoding="utf-8"))
+          digests = {c["digest"]["sha256"] for c in predicate["configuration"]}
+          if predicate["result"] != "PASSED" or predicate["failedTests"] or sys.argv[1] not in digests:
+              sys.exit("the test result does not cover a passing run on this artifact")
+          PY
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/${{ env.SUBJECT }}
+
+      - name: Attest the test result
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/${{ env.SUBJECT }}
+          predicate-type: https://in-toto.io/attestation/test-result/v0.1
+          predicate-path: evidence/test-result.json
