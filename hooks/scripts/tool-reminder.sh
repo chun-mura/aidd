@@ -342,10 +342,46 @@ def changed_paths(directory, *revs):
     return [path for path in out.decode("utf-8", "replace").split("\0") if path]
 
 
-def remind_test_perspectives(directory):
+def added_paths(sub, args, directory):
+    """(top, paths) for a git add: the paths it names, relative to the repository top, or None when
+    they cannot be read (no names, magic pathspec, outside the repository or the whole of it). #197:
+    an add before the commit in the same command has not run yet when the commit is judged."""
+    top = git(directory, "rev-parse", "--show-toplevel")
+    if not top:
+        return None, None
+    shorts, longs, positionals = scan(args, *ADD_OPTIONS)
+    if shorts & set("Au") or longs & {"--all", "--update", "--pathspec-from-file"}:
+        return top, None
+    root = os.path.realpath(top)
+    paths = []
+    for p in positionals:
+        if p == "--":
+            continue
+        # magic pathspecs, and words the shell may still expand into another path ($X, `...`, ~, {a,b})
+        if p.startswith(":") or re.search(r"[$\x60~{}]", p):
+            return top, None
+        rel = os.path.relpath(os.path.realpath(os.path.join(directory, os.path.expanduser(p))), root)
+        if rel == "." or rel == ".." or rel.startswith(".." + os.sep):
+            return top, None
+        paths.append(rel.replace(os.sep, "/"))
+    # An add that names nothing (git add -p / -i) may stage anything.
+    return top, (paths or None)
+
+
+def remind_test_perspectives(directory, adds=()):
     staged = changed_paths(directory, "--cached")
-    if staged and all(re.search(DOCS_ONLY, path) for path in staged):
-        return
+    top = git(directory, "rev-parse", "--show-toplevel") if adds else None
+    added = []
+    for add_top, paths in adds:
+        if add_top is None or (add_top == top and paths is None):
+            added = None
+            break
+        if add_top == top:
+            added.extend(paths)
+    if staged is not None and added is not None:
+        paths = staged + added
+        if paths and all(re.search(DOCS_ONLY, path) for path in paths):
+            return
     perspectives = os.path.join(directory, "docs", "test-perspectives")
     for path in glob.glob(os.path.join(glob.escape(perspectives), "**", "*.md"), recursive=True):
         try:
@@ -1277,6 +1313,7 @@ def japanese_nudge_needed(action, args, directory):
 
 ledger_calls = []
 language_checks = []
+pending_adds = []  # (top, paths) of each git add seen so far in this command (#197)
 for argv, directory in simple_commands(command):
     program = os.path.basename(argv[0])
     if program == "git":
@@ -1287,7 +1324,9 @@ for argv, directory in simple_commands(command):
             deny_unsafe_git(parsed["sub"], parsed["args"], parsed["dir"])
             warn_shared_main_tree(parsed["dir"])
             if parsed["sub"] == "commit":
-                remind_test_perspectives(parsed["dir"])
+                remind_test_perspectives(parsed["dir"], pending_adds)
+            elif parsed["sub"] == "add":
+                pending_adds.append(added_paths(parsed["sub"], parsed["args"], parsed["dir"]))
             if parsed["sub"] in ("add", "commit"):
                 ledger_calls.append((parsed["dir"], parsed["sub"], parsed["args"]))
         elif hook_event == "PostToolUse" and parsed["sub"] == "push":
