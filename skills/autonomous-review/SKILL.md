@@ -131,6 +131,33 @@ PY
 # end snapshot
 ```
 
+### サンドボックスの事前確認
+
+`--reviewer codex` のラウンドごとに、`codex exec` の前に実行するブロック (使い方はレビュー・ループの 2 の「サンドボックスの事前確認」)。モデルを呼ばない。
+
+```bash
+# sandbox check: does codex's read-only sandbox start here, read inside its directory and refuse a write (no model call)
+workdir='<workdir>'
+set -uo pipefail
+fail() { echo "sandbox check: failed: $*" >&2; exit 1; }
+command -v codex >/dev/null 2>&1 || fail "no codex CLI"
+workdir=$(cd "$workdir" && pwd -P) || fail "no work dir"
+dir=$(mktemp -d "${TMPDIR:-/tmp}/aidd-codex-sandbox.XXXXXX") || fail "no temporary directory"
+trap 'rm -rf "$dir"' EXIT
+dir=$(cd "$dir" && pwd -P) || fail "no temporary directory"
+case "$dir/" in "$workdir"/*) fail "the temporary directory is inside the work dir" ;; esac
+nonce=$(python3 -I -c 'import secrets; print(secrets.token_hex(16))') || fail "no nonce"
+printf '%s' "$nonce" > "$dir/n" || fail "could not write the nonce file"
+out=$(codex sandbox -P :read-only -C "$dir" -- cat "$dir/n" < /dev/null) || fail "the read in the sandbox exited $?"
+[ "$out" = "$nonce" ] || fail "the read in the sandbox did not print only the nonce"
+if codex sandbox -P :read-only -C "$dir" -- sh -c ': > "$1"' sh "$dir/w" < /dev/null; then
+  fail "a write in the sandbox succeeded"
+fi
+[ ! -e "$dir/w" ] || fail "a write in the sandbox created a file"
+echo "sandbox check: ok"
+# end sandbox check
+```
+
 ## 状態と証跡
 
 開始時に UTC 時刻とランダム値から実行IDを作り、消費側プロジェクトの `.aidd/autonomous-review/<実行ID>/` を新規作成する。既存の利用者ファイルは上書きしない。同じ時点で `git symbolic-ref --quiet --short HEAD` を実行し、出力を `start_branch` に記録する (終了コード1は detached HEAD なので `null`。それ以外の失敗も `null` とし、終了コードと stderr を利用者に伝える。どちらでも台帳のコミットはしない)。以下を逐次保存し、書き込み失敗は `failed` とする。
@@ -261,7 +288,9 @@ run はセッションの終了・時間の上限・利用者の中断などで�
      - **時間の上限**: codex の呼び出しはすべて、Bash ツールの `timeout` パラメータで上限を付けて実行する (目安: `codex --version` と `codex login status` は 10000ms、`codex exec` は 600000ms)。macOS には `timeout` コマンドが無く、`timeout 10 codex ...` は codex の有無に関係なく exit 127 になるため使わない。上限に達した場合。
      - **stdin を閉じる**: プロンプトを引数で渡しても、stdin が開いていると codex は stdin からの追加入力を待ち、上限まで止まる。`codex --version`、`codex login status`、`codex exec` は必ず `< /dev/null` で stdin を閉じて起動する。
      - **起動前の確認**: `codex --version < /dev/null` が版の文字列を返し、`codex login status < /dev/null` が exit 0 で終わることを確かめる。存在しない、版を返さない、またはログイン状態を確認できない場合。返った版は `reviewer_version` に記録する。
-     - **起動失敗の検出**: codex はサンドボックス内で起動に失敗しても exit 0 で空の応答を返すことがある。終了コードでも stderr の有無でも成否を判断しない。`-o <実行IDディレクトリ>/reviewer-round<N>.txt` (`--output-last-message`) で最終メッセージをファイルに書かせ、その中身が 3 のJSON契約どおりにパースできた場合だけを成功とする。ファイルが無い・空・パースできない場合は起動失敗として扱い、そのときに限り stdout / stderr を失敗理由として記録する。成功した実行でも stderr に `WARNING: proceeding, ...` のような警告が出ることがあり、`proceeding` を含む警告は失敗ではない。
+     - **サンドボックスの事前確認**: ラウンドごとに `codex exec` を起動する前に、Codex の read-only サンドボックスがこの環境で起動し、読み取りができて書き込みを拒むことを、モデルを呼ばずに確かめる。`codex exec` はサンドボックスが起動しなくても exit 0 で終わり、モデルが契約どおりの JSON を返せばそれが `-o` のファイルに入るため、出力の形では検出できない (`docs/adr/0003-codex-sandbox-in-containers.md`、`tests/eval/results/2026-11-28-codex-sandbox-container.md`)。上の「サンドボックスの事前確認」のブロックの `<workdir>` (このセッションの作業ディレクトリ) を置き換えて実行IDディレクトリの `sandbox-check-round<N>-block.txt` に書き、`bash sandbox-check-round<N>-block.txt` で実行する。Bash ツールの `timeout` パラメータは 10000ms とする。ブロックはリポジトリの外の空の一時ディレクトリに乱数を書いたファイルを置き、`codex sandbox -P :read-only -C <dir> -- cat <file> < /dev/null` が exit 0 でその乱数だけを出力すること、`codex sandbox -P :read-only -C <dir> -- sh -c ': > <dir>/w' < /dev/null` が0以外で終わり `<dir>/w` が作られないことを確かめる。終了コードが0で、最後の行が `sandbox check: ok` のときだけ通ったとする。それ以外 (どちらかが通らない、`-P` の無い版の codex、上限で止まった) は `codex exec` を起動せず、出力を理由として記録して `human_required` (`human_required_reason` は `review_incomplete`) とする。事前確認は、その時点でサンドボックスが起動することを示すだけで、`codex exec` の中の各コマンドがサンドボックスの中で動いて成功したことは示さない。この点を `residual_risks` に記録する。
+
+     - **起動失敗の検出**: codex はサンドボックスの起動に失敗しても exit 0 で終わる。空の応答を返すこともあれば、ツールの失敗を受けたモデルが契約どおりの JSON を返すこともあり、`-o` のファイルの形だけではサンドボックスが起動したかを判断できない (起動したかは上の「サンドボックスの事前確認」で確かめる)。終了コードでも stderr の有無でも成否を判断しない。`-o <実行IDディレクトリ>/reviewer-round<N>.txt` (`--output-last-message`) で最終メッセージをファイルに書かせ、その中身が 3 のJSON契約どおりにパースできた場合だけを成功とする。ファイルが無い・空・パースできない場合は起動失敗として扱い、そのときに限り stdout / stderr を失敗理由として記録する。成功した実行でも stderr に `WARNING: proceeding, ...` のような警告が出ることがあり、`proceeding` を含む警告は失敗ではない。
      - **過去の結論を読ませない**: codex の cwd から、コミット済みの `.aidd/` (過去の run の `report.md` など) や Git の履歴を読めると、独立したレビューのはずが前回の結論をなぞる。worktree は `.aidd/` を消しても、共有するオブジェクト格納庫から `git show HEAD:.aidd/...` で読め、`.git` ファイルが元のリポジトリを指すため使わない。代わりにラウンドごとに、リポジトリ外の空の一時ディレクトリへ、そのラウンドの対象コミット (ブランチ比較では head、ローカル差分では HEAD。2ラウンド目以降は修正後のコミット) の生の blob を、上の「スナップショットの作成」のブロックで書き出す。これは `.git` を持たないスナップショットである。ローカル差分が対象の場合は、`git diff --no-ext-diff --no-textconv --no-color --no-relative --src-prefix=a/ --dst-prefix=b/ --binary --staged -- ':(exclude,top).aidd/'` と `git diff --no-ext-diff --no-textconv --no-color --no-relative --src-prefix=a/ --dst-prefix=b/ --binary -- ':(exclude,top).aidd/'` の出力を、この順に、スナップショットを作業ディレクトリにした `GIT_CEILING_DIRECTORIES=<スナップショットの親> GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null git apply` で当て、変更後の内容にする (当てられなければ、上の「スナップショットの作成」の失敗と同じく `human_required`)。接頭辞・色・相対パスは利用者の設定 (`diff.noprefix`・`color.diff` など) で変わり、違うパスに当たりうるので固定する。`.aidd/` はスナップショットに無いので除く (`.aidd/` の差分はレビュー担当に渡す差分には残る)。`git apply` は、スナップショットの親 (`realpath` で正規化した絶対パス) より上のリポジトリを探さないようにし (親のどこかがリポジトリだと、`git apply` はそのリポジトリの中のパスとして扱い、ファイルを黙って飛ばす)、リポジトリの外で動くので system と global の設定 (`core.autocrlf`・`apply.whitespace` など) も読まないようにして、blob のまま当てる。codex は `--skip-git-repo-check -C <snapshot-dir>` を付けて起動し、プロンプトにはリポジトリの絶対パスを含めない。read-only サンドボックスは cwd の外の絶対パスの読み取りまでは防がないため、この点は `residual_risks` に記録する。スナップショットはそのラウンドの 5 の現物検証が終わった時点で削除する (途中で終了する場合も削除する)。作成・削除の結果は、そのラウンドの `rounds[].snapshot` に記録する。
      - **モデルの記録**: `codex exec` の stderr を、実行IDディレクトリの `reviewer-round<N>-stderr.txt` に毎回保存する。成否の判断には使わない (上の「起動失敗の検出」のまま)。stderr の先頭の `--------` の2行に挟まれた見出しにある `model: <値>` と `provider: <値>` の行だけを読み、`review_independence.reviewer` の `model` / `provider` に、`source` を `codex exec stderr header` として記録する (codex-cli 0.163.0 で、見出しにこの2行が出ることを 2026-11-28 に1回確かめた)。見出しが無い、行が無い、ラウンドごとに値が違う場合は、その値を `null` にして理由を `report.md` に書く。見出しより後ろ (プロンプトの写しとレビュー担当の出力) は読まない。見出しの値は CLI が使うと表示したもので、サーバー側で実際に応答したモデルの確認ではないことを `residual_risks` に記録する。
    - `--reviewer claude`: 現在セッションの同一モデルによる自己レビューを実行する。外部の `codex` は起動しない。自己レビューであることは状態とレポートに明示する。
@@ -580,7 +609,7 @@ PY
 | 新しい文脈 | `fresh_context` | `reviewer-round<N>-command.txt` が、ラウンドごとに新しい `codex exec` のプロセスを起動した (`resume`・`fork` を使わない) ことを示す | `false` (同じセッション) |
 | 対象 SHA の固定 | `target_pinned` | そのラウンドの `rounds[].snapshot.commit` が対象コミットの完全な SHA で、`created: true`、`diff_applied` が作業ツリー差分の run で `true` | `false` (スナップショットを作らない) |
 | 過去の判定を渡さない | `prior_verdicts_withheld` | `reviewer-round<N>-prompt.txt` が 2 で決めたもの (対象差分・変更目的・不変条件・懸念点) だけで、懸念点に前のラウンドの verdict・指摘の判定・finding ID を含まず、スナップショットに `.aidd/` と `.git` が無い | `false` (同じ文脈に前のラウンドの判定がある) |
-| 読み取り専用のスナップショット | `read_only_snapshot` | `reviewer-round<N>-command.txt` が `--sandbox read-only --skip-git-repo-check -C <snapshot-dir>` を含む | `false` |
+| 読み取り専用のスナップショット | `read_only_snapshot` | `reviewer-round<N>-command.txt` が `--sandbox read-only --skip-git-repo-check -C <snapshot-dir>` を含み、そのラウンドの「サンドボックスの事前確認」が `sandbox check: ok` で終わった | `false` |
 
 - 確かめた記録 (`reviewer-round<N>-command.txt`・`reviewer-round<N>-prompt.txt`・`rounds[].snapshot`) が無い・読めない条件は `null` にする。`null` も `false` と同じく `established` を `false` にする。**`established` が `true` でない `--reviewer codex` の run は `human_required` (`human_required_reason` は `review_incomplete`) とし、`auto_merge_eligible` にしない**
 - **モデルと provider は実際に取得した値だけを書く**: `reviewer` は上の「モデルの記録」で `codex exec` の stderr の見出しから読んだ値。`judge` は、このセッションのホストが示すモデル ID (Claude Code のシステムプロンプトにある model ID など) があればその値と `source` (`host system prompt` など) を書き、無ければ `null`。provider はホストが明示した場合だけ書き、明示しなければ `null` にする (モデル ID の名前から provider を推測しない)。実行名 (`reviewer: codex`)・CLI の名前・既定の設定から推測して埋めない
